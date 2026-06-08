@@ -1,0 +1,841 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Warehouse Logistics Management System - Complete OpenAPI Documentation",
+    "description": "Includes all module APIs for purchase orders, sales orders, inbound, outbound, inventory, products, warehouse third-party imports, logistics shipping booking EDI, etc.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Warehouse System Technical Team",
+      "description": "Complete business interface collection"
+    }
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Production environment service root path"
+    }
+  ],
+  "tags": [
+    {
+      "name": "purchaseOrders",
+      "description": "Purchase Order related interfaces"
+    },
+    {
+      "name": "salesOrders",
+      "description": "Sales Order related interfaces"
+    },
+    {
+      "name": "inbound",
+      "description": "Inbound related interfaces (including ASN)"
+    },
+    {
+      "name": "outbound",
+      "description": "Outbound related interfaces (including WMS sync)"
+    },
+    {
+      "name": "inventory",
+      "description": "Inventory related interfaces"
+    },
+    {
+      "name": "warehouseThird",
+      "description": "Warehouse third-party data import interfaces"
+    },
+    {
+      "name": "product",
+      "description": "Product related interfaces"
+    },
+    {
+      "name": "logisticsShipment",
+      "description": "Logistics shipping/booking/EDI receipt related interfaces"
+    }
+  ],
+  "components": {
+    "parameters": {
+      "page": {
+        "name": "page",
+        "in": "query",
+        "description": "Pagination page number, default 1",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 1
+        }
+      },
+      "size": {
+        "name": "size",
+        "in": "query",
+        "description": "Number of items per page, default 10",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 10
+        }
+      }
+    },
+    "responses": {
+      "SuccessResponse": {
+        "description": "General success response",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "integer",
+                  "description": "Response code 200=success",
+                  "example": 200
+                },
+                "msg": {
+                  "type": "string",
+                  "description": "Response description",
+                  "example": "Operation successful"
+                },
+                "data": {
+                  "type": "object",
+                  "description": "Response data body"
+                }
+              },
+              "required": ["code", "msg"]
+            }
+          }
+        }
+      },
+      "FileResponse": {
+        "description": "File download/export general response (Excel)",
+        "content": {
+          "application/vnd.ms-excel": {
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            }
+          }
+        }
+      },
+      "FileUploadForm": {
+        "description": "Excel file upload general form format",
+        "content": {
+          "multipart/form-data": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "Excel file to import"
+                }
+              },
+              "required": ["file"]
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/admin-api/openApi/purchaseOrders/delete": {
+      "post": {
+        "tags": ["purchaseOrders"],
+        "summary": "Delete purchase order",
+        "description": "Delete specified purchase order by order number",
+        "requestBody": {
+          "description": "Purchase order deletion parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "orderNo": {
+                    "type": "string",
+                    "description": "Purchase order number",
+                    "example": "PO20260113001"
+                  }
+                },
+                "required": ["orderNo"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/purchaseOrders/update": {
+      "post": {
+        "tags": ["purchaseOrders"],
+        "summary": "Update purchase order",
+        "description": "Update purchase order information by order number",
+        "requestBody": {
+          "description": "Purchase order update parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "orderNo": {
+                    "type": "string",
+                    "description": "Purchase order number",
+                    "example": "PO20260113001"
+                  }
+                },
+                "required": ["orderNo"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/purchaseOrders/create": {
+      "post": {
+        "tags": ["purchaseOrders"],
+        "summary": "Create purchase order",
+        "description": "Add a new purchase order data",
+        "requestBody": {
+          "description": "Purchase order creation parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Purchase order complete business parameters"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/purchaseOrders/query": {
+      "get": {
+        "tags": ["purchaseOrders"],
+        "summary": "Query purchase orders",
+        "description": "Pagination query for purchase order information, supporting multi-condition filtering",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/salesOrders/create": {
+      "post": {
+        "tags": ["salesOrders"],
+        "summary": "Create sales order",
+        "description": "Add a new sales order data",
+        "requestBody": {
+          "description": "Sales order creation parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Sales order complete business parameters"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/salesOrders/query": {
+      "get": {
+        "tags": ["salesOrders"],
+        "summary": "Query sales orders",
+        "description": "Pagination query for sales order information, supporting multi-condition filtering",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/salesOrders/delete": {
+      "post": {
+        "tags": ["salesOrders"],
+        "summary": "Delete sales order",
+        "description": "Delete specified sales order by order number",
+        "requestBody": {
+          "description": "Sales order deletion parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "orderNo": {
+                    "type": "string",
+                    "description": "Sales order number",
+                    "example": "SO20260113001"
+                  }
+                },
+                "required": ["orderNo"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/salesOrders/update": {
+      "post": {
+        "tags": ["salesOrders"],
+        "summary": "Update sales order",
+        "description": "Update sales order information by order number",
+        "requestBody": {
+          "description": "Sales order update parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "orderNo": {
+                    "type": "string",
+                    "description": "Sales order number",
+                    "example": "SO20260113001"
+                  }
+                },
+                "required": ["orderNo"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/getAsnPage": {
+      "get": {
+        "tags": ["inbound"],
+        "summary": "Pagination query for ASN",
+        "description": "Pagination get ASN (Advanced Shipping Notice) list, supporting multi-condition filtering",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/downloadAsnTemplate": {
+      "get": {
+        "tags": ["inbound"],
+        "summary": "Download ASN import template",
+        "description": "Download Excel template file for batch importing ASN",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/importAsnData": {
+      "post": {
+        "tags": ["inbound"],
+        "summary": "Import ASN data",
+        "description": "Batch import ASN data, supporting Excel file upload",
+        "requestBody": {
+          "$ref": "#/components/responses/FileUploadForm"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/getInboundPage": {
+      "get": {
+        "tags": ["inbound"],
+        "summary": "Pagination query for inbound orders",
+        "description": "Pagination get inbound order list, supporting multi-condition filtering",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/downloadInboundTemplate": {
+      "get": {
+        "tags": ["inbound"],
+        "summary": "Download inbound import template",
+        "description": "Download Excel template file for batch importing inbound orders",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/importInboundData": {
+      "post": {
+        "tags": ["inbound"],
+        "summary": "Import inbound data",
+        "description": "Batch import inbound order data, supporting Excel file upload",
+        "requestBody": {
+          "$ref": "#/components/responses/FileUploadForm"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/export-inbound-excel": {
+      "get": {
+        "tags": ["inbound"],
+        "summary": "Export inbound orders to Excel",
+        "description": "Export queried inbound order data to Excel file",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/export-asn-excel": {
+      "get": {
+        "tags": ["inbound"],
+        "summary": "Export ASN to Excel",
+        "description": "Export queried ASN data to Excel file",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/data-sync": {
+      "post": {
+        "tags": ["inbound"],
+        "summary": "Sync inbound data",
+        "description": "Sync inbound data from external system to this system",
+        "requestBody": {
+          "description": "External inbound sync data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "description": "Inbound order sync data collection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/warehouse/third/inbounds": {
+      "post": {
+        "tags": ["warehouseThird"],
+        "summary": "Batch import third-party inbound orders",
+        "description": "Batch import inbound order data from third-party systems",
+        "requestBody": {
+          "description": "Third-party inbound order data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "description": "Third-party inbound order data collection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/outbound/export-outbound-excel": {
+      "get": {
+        "tags": ["outbound"],
+        "summary": "Export outbound orders to Excel",
+        "description": "Export queried outbound order data to Excel file",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/outbound/getOutboundPage": {
+      "get": {
+        "tags": ["outbound"],
+        "summary": "Pagination query for outbound orders",
+        "description": "Pagination get outbound order list, supporting multi-condition filtering",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/outbound/downloadOutboundTemplate": {
+      "get": {
+        "tags": ["outbound"],
+        "summary": "Download outbound import template",
+        "description": "Download Excel template file for batch importing outbound orders",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/outbound/importOutboundData": {
+      "post": {
+        "tags": ["outbound"],
+        "summary": "Import outbound data",
+        "description": "Batch import outbound order data, supporting Excel file upload",
+        "requestBody": {
+          "$ref": "#/components/responses/FileUploadForm"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/outbound/wms-sync": {
+      "post": {
+        "tags": ["outbound"],
+        "summary": "Sync WMS outbound data",
+        "description": "Sync outbound data from WMS system to this system",
+        "requestBody": {
+          "description": "WMS outbound sync data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "description": "WMS outbound order data collection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/inventory/list": {
+      "get": {
+        "tags": ["inventory"],
+        "summary": "Query inventory list",
+        "description": "Pagination query for current inventory information, supporting multi-condition filtering",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inventory/status": {
+      "get": {
+        "tags": ["inventory"],
+        "summary": "Query inventory status",
+        "description": "Get current inventory status report data",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inventory/importInventory": {
+      "post": {
+        "tags": ["inventory"],
+        "summary": "Import inventory data",
+        "description": "Batch import inventory information, supporting Excel file upload",
+        "requestBody": {
+          "$ref": "#/components/responses/FileUploadForm"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/warehouse/third/packing_list/container": {
+      "post": {
+        "tags": ["warehouseThird"],
+        "summary": "Import packing list container information",
+        "description": "Batch import container detail data from third-party packing lists",
+        "requestBody": {
+          "description": "Container detail data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "description": "Container information data collection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/warehouse/third/packing_lists": {
+      "post": {
+        "tags": ["warehouseThird"],
+        "summary": "Batch import packing lists",
+        "description": "Batch import third-party packing list data",
+        "requestBody": {
+          "description": "Packing list data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "description": "Packing list data collection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/system/product/open-api/get-import-template": {
+      "get": {
+        "tags": ["product"],
+        "summary": "Get product import template",
+        "description": "Download Excel template file for batch importing products",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/system/product/open-api/import": {
+      "post": {
+        "tags": ["product"],
+        "summary": "Import product data",
+        "description": "Batch import product information, supporting Excel file upload",
+        "requestBody": {
+          "$ref": "#/components/responses/FileUploadForm"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/shipment-api/verifiedGrossMass": {
+      "post": {
+        "tags": ["logisticsShipment"],
+        "summary": "Declare VGM gross mass",
+        "description": "Declare Verified Gross Mass (VGM) information",
+        "requestBody": {
+          "description": "VGM gross mass declaration parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "VGM gross mass declaration business parameters"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/shipment-api/shippingInstruction": {
+      "post": {
+        "tags": ["logisticsShipment"],
+        "summary": "Submit shipping instruction",
+        "description": "Submit Shipping Instruction (SI) information",
+        "requestBody": {
+          "description": "Shipping instruction parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "SI shipping instruction business parameters"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/shipment-api/receiveSinotransEdiReceipt": {
+      "post": {
+        "tags": ["logisticsShipment"],
+        "summary": "Receive Sinotrans EDI receipt",
+        "description": "Receive and process EDI receipt data from Sinotrans",
+        "requestBody": {
+          "description": "EDI receipt data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Sinotrans EDI receipt parameters"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/shipment-api/receiveXiamenEdiReceipt": {
+      "post": {
+        "tags": ["logisticsShipment"],
+        "summary": "Receive Xiamen EDI receipt",
+        "description": "Receive and process EDI receipt data from Xiamen port",
+        "requestBody": {
+          "description": "EDI receipt data",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Xiamen port EDI receipt parameters"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/shipment-api/create-booking": {
+      "post": {
+        "tags": ["logisticsShipment"],
+        "summary": "Create booking",
+        "description": "Create new booking including cargo, route, customer and other information",
+        "requestBody": {
+          "description": "Booking creation parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Booking complete business parameters"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    }
+  }
+}

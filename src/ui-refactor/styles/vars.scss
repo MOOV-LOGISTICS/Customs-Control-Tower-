@@ -1,0 +1,46 @@
+// 该文件主要是负责定义全局的样式变量，例如颜色、字体大小等等
+
+// 主题色
+$colors: (
+  success: #58b37c,
+  success-light: #f2fcf1,
+  error: #e75e5e,
+  error-light: #FFF3F3,
+  warning: #E5951C,
+  warning-light: #FFF5E6,
+  info: #589BE2,
+  info-light: #E3F5FF,
+  loading:#004F7C,
+
+  blue: #004f7c,
+  green: #58b37c,
+  red: #e75e5e,
+  gray: #9a9a9a,
+  black: #000000,
+  white: #ffffff,
+);
+
+:root {
+  @each $name, $color in $colors {
+    --moov-#{$name}: #{$color};
+  }
+
+  --moov-background-color: #004f7c;
+  --moov-button-background-color: #004f7c;
+
+  // 和border相关
+  --moov-border: 1px solid #004f7c;
+  --moov-border-color: #004f7c;
+  --moov-border-radius: 8px;
+
+  // 和text相关
+  --moov-text-color: #000000;
+  --moov-text-color-white: #ffffff;
+  --moov-text-color-gray: #9a9a9a;
+  --moov-text-color-blue: #004f7c;
+  --moov-text-color-red: #e75e5e;
+  --moov-text-color-hover: #004f7c;
+
+  // 和input相关
+  --moov-input-background-color: #f7f8fa;
+}

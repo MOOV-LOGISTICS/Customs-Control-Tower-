@@ -1,0 +1,15 @@
+.moov-footer{
+    width: 100%;
+    height: 4rem;
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    a{
+        color:#004F7C ;
+        font-size: 1.4rem;
+        &:hover{
+            color: #337296;
+        }
+    }
+}

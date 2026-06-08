@@ -1,0 +1,841 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "仓储物流管理系统-全量OpenAPI接口文档",
+    "description": "包含采购订单、销售订单、入库、出库、库存、产品、仓储第三方导入、物流装运订舱EDI等全模块API",
+    "version": "1.0.0",
+    "contact": {
+      "name": "仓储系统技术组",
+      "description": "全量业务接口合集"
+    }
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "生产环境服务根路径"
+    }
+  ],
+  "tags": [
+    {
+      "name": "purchaseOrders",
+      "description": "采购订单相关接口"
+    },
+    {
+      "name": "salesOrders",
+      "description": "销售订单相关接口"
+    },
+    {
+      "name": "inbound",
+      "description": "入库相关接口(含ASN单)"
+    },
+    {
+      "name": "outbound",
+      "description": "出库相关接口(含WMS同步)"
+    },
+    {
+      "name": "inventory",
+      "description": "库存相关接口"
+    },
+    {
+      "name": "warehouseThird",
+      "description": "仓储第三方数据导入接口"
+    },
+    {
+      "name": "product",
+      "description": "产品相关接口"
+    },
+    {
+      "name": "logisticsShipment",
+      "description": "物流装运/订舱/EDI回执相关接口"
+    }
+  ],
+  "components": {
+    "parameters": {
+      "page": {
+        "name": "page",
+        "in": "query",
+        "description": "分页页码，默认1",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 1
+        }
+      },
+      "size": {
+        "name": "size",
+        "in": "query",
+        "description": "每页显示条数，默认10",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "format": "int32",
+          "default": 10
+        }
+      }
+    },
+    "responses": {
+      "SuccessResponse": {
+        "description": "请求成功通用响应",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "integer",
+                  "description": "响应码 200=成功",
+                  "example": 200
+                },
+                "msg": {
+                  "type": "string",
+                  "description": "响应描述",
+                  "example": "操作成功"
+                },
+                "data": {
+                  "type": "object",
+                  "description": "响应数据体"
+                }
+              },
+              "required": ["code", "msg"]
+            }
+          }
+        }
+      },
+      "FileResponse": {
+        "description": "文件下载/导出通用响应(Excel)",
+        "content": {
+          "application/vnd.ms-excel": {
+            "schema": {
+              "type": "string",
+              "format": "binary"
+            }
+          }
+        }
+      },
+      "FileUploadForm": {
+        "description": "Excel文件上传通用表单格式",
+        "content": {
+          "multipart/form-data": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "file": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "待导入的Excel文件"
+                }
+              },
+              "required": ["file"]
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/admin-api/openApi/purchaseOrders/delete": {
+      "post": {
+        "tags": ["purchaseOrders"],
+        "summary": "删除采购订单",
+        "description": "根据订单号删除指定采购订单",
+        "requestBody": {
+          "description": "采购订单删除参数",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "orderNo": {
+                    "type": "string",
+                    "description": "采购订单号",
+                    "example": "PO20260113001"
+                  }
+                },
+                "required": ["orderNo"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/purchaseOrders/update": {
+      "post": {
+        "tags": ["purchaseOrders"],
+        "summary": "更新采购订单",
+        "description": "根据订单号更新采购订单的相关信息",
+        "requestBody": {
+          "description": "采购订单更新参数",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "orderNo": {
+                    "type": "string",
+                    "description": "采购订单号",
+                    "example": "PO20260113001"
+                  }
+                },
+                "required": ["orderNo"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/purchaseOrders/create": {
+      "post": {
+        "tags": ["purchaseOrders"],
+        "summary": "创建采购订单",
+        "description": "新增一条采购订单数据",
+        "requestBody": {
+          "description": "采购订单创建参数",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "采购订单全量业务参数"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/purchaseOrders/query": {
+      "get": {
+        "tags": ["purchaseOrders"],
+        "summary": "查询采购订单",
+        "description": "分页查询采购订单信息，支持多条件筛选",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/salesOrders/create": {
+      "post": {
+        "tags": ["salesOrders"],
+        "summary": "创建销售订单",
+        "description": "新增一条销售订单数据",
+        "requestBody": {
+          "description": "销售订单创建参数",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "销售订单全量业务参数"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/salesOrders/query": {
+      "get": {
+        "tags": ["salesOrders"],
+        "summary": "查询销售订单",
+        "description": "分页查询销售订单信息，支持多条件筛选",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/salesOrders/delete": {
+      "post": {
+        "tags": ["salesOrders"],
+        "summary": "删除销售订单",
+        "description": "根据订单号删除指定销售订单",
+        "requestBody": {
+          "description": "销售订单删除参数",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "orderNo": {
+                    "type": "string",
+                    "description": "销售订单号",
+                    "example": "SO20260113001"
+                  }
+                },
+                "required": ["orderNo"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/salesOrders/update": {
+      "post": {
+        "tags": ["salesOrders"],
+        "summary": "更新销售订单",
+        "description": "根据订单号更新销售订单的相关信息",
+        "requestBody": {
+          "description": "销售订单更新参数",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "orderNo": {
+                    "type": "string",
+                    "description": "销售订单号",
+                    "example": "SO20260113001"
+                  }
+                },
+                "required": ["orderNo"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/getAsnPage": {
+      "get": {
+        "tags": ["inbound"],
+        "summary": "分页查询ASN单",
+        "description": "分页获取ASN（预到货通知）单列表，支持多条件筛选",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/downloadAsnTemplate": {
+      "get": {
+        "tags": ["inbound"],
+        "summary": "下载ASN导入模板",
+        "description": "下载ASN单批量导入的Excel模板文件",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/importAsnData": {
+      "post": {
+        "tags": ["inbound"],
+        "summary": "导入ASN数据",
+        "description": "批量导入ASN单数据，支持Excel文件上传",
+        "requestBody": {
+          "$ref": "#/components/responses/FileUploadForm"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/getInboundPage": {
+      "get": {
+        "tags": ["inbound"],
+        "summary": "分页查询入库单",
+        "description": "分页获取入库单列表，支持多条件筛选",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/downloadInboundTemplate": {
+      "get": {
+        "tags": ["inbound"],
+        "summary": "下载入库导入模板",
+        "description": "下载入库单批量导入的Excel模板文件",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/importInboundData": {
+      "post": {
+        "tags": ["inbound"],
+        "summary": "导入入库数据",
+        "description": "批量导入入库单数据，支持Excel文件上传",
+        "requestBody": {
+          "$ref": "#/components/responses/FileUploadForm"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/export-inbound-excel": {
+      "get": {
+        "tags": ["inbound"],
+        "summary": "导出入库单Excel",
+        "description": "将查询后的入库单数据导出为Excel文件",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/export-asn-excel": {
+      "get": {
+        "tags": ["inbound"],
+        "summary": "导出ASN单Excel",
+        "description": "将查询后的ASN单数据导出为Excel文件",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inbound/data-sync": {
+      "post": {
+        "tags": ["inbound"],
+        "summary": "同步入库数据",
+        "description": "将外部系统的入库数据同步到本系统",
+        "requestBody": {
+          "description": "外部入库同步数据",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "description": "入库单同步数据集合"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/warehouse/third/inbounds": {
+      "post": {
+        "tags": ["warehouseThird"],
+        "summary": "批量导入第三方入库单",
+        "description": "批量导入第三方系统的入库单数据",
+        "requestBody": {
+          "description": "第三方入库单数据",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "description": "第三方入库单数据集合"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/outbound/export-outbound-excel": {
+      "get": {
+        "tags": ["outbound"],
+        "summary": "导出出库单Excel",
+        "description": "将查询后的出库单数据导出为Excel文件",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/outbound/getOutboundPage": {
+      "get": {
+        "tags": ["outbound"],
+        "summary": "分页查询出库单",
+        "description": "分页获取出库单列表，支持多条件筛选",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/outbound/downloadOutboundTemplate": {
+      "get": {
+        "tags": ["outbound"],
+        "summary": "下载出库导入模板",
+        "description": "下载出库单批量导入的Excel模板文件",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/outbound/importOutboundData": {
+      "post": {
+        "tags": ["outbound"],
+        "summary": "导入出库数据",
+        "description": "批量导入出库单数据，支持Excel文件上传",
+        "requestBody": {
+          "$ref": "#/components/responses/FileUploadForm"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/outbound/wms-sync": {
+      "post": {
+        "tags": ["outbound"],
+        "summary": "同步WMS出库数据",
+        "description": "将WMS系统的出库数据同步到本系统",
+        "requestBody": {
+          "description": "WMS出库同步数据",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "description": "WMS出库单数据集合"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/inventory/list": {
+      "get": {
+        "tags": ["inventory"],
+        "summary": "查询库存列表",
+        "description": "分页查询当前库存信息，支持多条件筛选",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/page"
+          },
+          {
+            "$ref": "#/components/parameters/size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inventory/status": {
+      "get": {
+        "tags": ["inventory"],
+        "summary": "查询库存状态",
+        "description": "获取当前库存状态报表数据",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/openApi/inventory/importInventory": {
+      "post": {
+        "tags": ["inventory"],
+        "summary": "导入库存数据",
+        "description": "批量导入库存信息，支持Excel文件上传",
+        "requestBody": {
+          "$ref": "#/components/responses/FileUploadForm"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/warehouse/third/packing_list/container": {
+      "post": {
+        "tags": ["warehouseThird"],
+        "summary": "导入装箱单集装箱信息",
+        "description": "批量导入第三方装箱单的集装箱明细数据",
+        "requestBody": {
+          "description": "集装箱明细数据",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "description": "集装箱信息数据集合"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/warehouse/third/packing_lists": {
+      "post": {
+        "tags": ["warehouseThird"],
+        "summary": "批量导入装箱单",
+        "description": "批量导入第三方装箱单数据",
+        "requestBody": {
+          "description": "装箱单数据",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "description": "装箱单数据集合"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/system/product/open-api/get-import-template": {
+      "get": {
+        "tags": ["product"],
+        "summary": "获取产品导入模板",
+        "description": "下载产品批量导入的Excel模板文件",
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/FileResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/system/product/open-api/import": {
+      "post": {
+        "tags": ["product"],
+        "summary": "导入产品数据",
+        "description": "批量导入产品信息，支持Excel文件上传",
+        "requestBody": {
+          "$ref": "#/components/responses/FileUploadForm"
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/shipment-api/verifiedGrossMass": {
+      "post": {
+        "tags": ["logisticsShipment"],
+        "summary": "申报VGM毛重",
+        "description": "申报Verified Gross Mass（VGM）毛重信息",
+        "requestBody": {
+          "description": "VGM毛重申报参数",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "VGM毛重申报业务参数"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/shipment-api/shippingInstruction": {
+      "post": {
+        "tags": ["logisticsShipment"],
+        "summary": "提交装运指示",
+        "description": "提交Shipping Instruction（SI）装运指示信息",
+        "requestBody": {
+          "description": "装运指示参数",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "SI装运指示业务参数"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/shipment-api/receiveSinotransEdiReceipt": {
+      "post": {
+        "tags": ["logisticsShipment"],
+        "summary": "接收中外运EDI回执",
+        "description": "接收并处理来自中外运的EDI回执数据",
+        "requestBody": {
+          "description": "EDI回执数据",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "中外运EDI回执参数"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/shipment-api/receiveXiamenEdiReceipt": {
+      "post": {
+        "tags": ["logisticsShipment"],
+        "summary": "接收厦门EDI回执",
+        "description": "接收并处理来自厦门口岸的EDI回执数据",
+        "requestBody": {
+          "description": "EDI回执数据",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "厦门口岸EDI回执参数"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    },
+    "/admin-api/shipment-api/create-booking": {
+      "post": {
+        "tags": ["logisticsShipment"],
+        "summary": "创建订舱单",
+        "description": "创建新的订舱单，包含货物、航线、客户等信息",
+        "requestBody": {
+          "description": "订舱单创建参数",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "订舱单全量业务参数"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/SuccessResponse"
+          }
+        }
+      }
+    }
+  }
+}

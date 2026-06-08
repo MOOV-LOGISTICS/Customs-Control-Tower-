@@ -1,0 +1,10 @@
+import request from '@/utils/request'
+
+// 创建shipment
+export function shipmentContainerList(query) {
+  return request({
+    url: '/shipment/container/list',
+    method: 'get',
+    params: query
+  })
+}
