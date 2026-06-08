@@ -3,8 +3,7 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="logo">
-        <img src="@/assets/logo.png" alt="MOOV" class="logo-img" />
-        <span class="logo-text">smartMOOV</span>
+        <img src="/MoovLogoSmall.png" alt="MOOV" class="logo-img" />
       </div>
       <el-menu
         :default-active="$route.path"
@@ -106,12 +105,16 @@ export default {
 .logo {
   display: flex;
   align-items: center;
-  padding: 0 16px;
+  justify-content: center;
+  padding: 0 20px;
   height: $topbar-height;
   border-bottom: 1px solid rgba(255,255,255,0.1);
-  gap: 8px;
-  .logo-img { width: 28px; height: 28px; object-fit: contain; }
-  .logo-text { color: #fff; font-weight: 700; font-size: 15px; letter-spacing: 0.3px; }
+  .logo-img {
+    width: 100%;
+    max-width: 150px;
+    height: auto;
+    object-fit: contain;
+  }
 }
 
 .menu-section-label {
