@@ -1,304 +1,188 @@
 <template>
-  <div :class="classObj" class="app-wrapper" :style="{'--current-color': theme}">
-    <div v-if="device==='mobile'&&sidebar.opened" class="drawer-bg" @click="handleClickOutside"/>
-    <sidebar v-if="!sidebar.hide" class="sidebar-container" />
-    <div :class="{hasTagsView:needTagsView,sidebarHide:sidebar.hide}" class="main-container">
-      <div :class="{'fixed-header':fixedHeader}" style="box-shadow: 0 1px 15px 1px rgba(81,77,92,.5);
-    z-index: 999;
-    background: #fff;
-    position: relative;">
-        <navbar  :tenantName="tenantName"  />
+  <div class="layout-wrapper">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <img src="@/assets/logo.png" alt="MOOV" class="logo-img" />
+        <span class="logo-text">smartMOOV</span>
       </div>
-      <app-main />
-      <right-panel>
-        <settings />
-      </right-panel>
-      <div style="text-align:center ;height: 35px;line-height:35px;color: #337ab7;border-top:1px solid #337ab7;background:#fff; ">
-        <div>
-        <rating-popup @close-popup="showPopup = false" v-if="showPopup"></rating-popup>
-        <!-- <button @click="showPopup = true">任意界面弹出五星好评</button> -->
-      </div>
-        <a href="https://www.moovlogistics.com/" target="_blank">Copyright © 2019-{{new Date().getFullYear()}} MOOV || </a>
-        <a href="https://beian.miit.gov.cn/" target="_blank">沪ICP备20009454号-1</a>
-      </div>
+      <el-menu
+        :default-active="$route.path"
+        background-color="#004F7C"
+        text-color="rgba(255,255,255,0.85)"
+        active-text-color="#ffffff"
+        router
+        class="sidebar-menu"
+      >
+        <div class="menu-section-label">CUSTOMS</div>
+        <el-menu-item index="/customs/dashboard">
+          <i class="el-icon-s-home"></i>
+          <span>Dashboard</span>
+        </el-menu-item>
+        <el-menu-item index="/customs/document-upload">
+          <i class="el-icon-upload2"></i>
+          <span>Document Upload</span>
+        </el-menu-item>
+        <el-menu-item index="/customs/pepco-review">
+          <i class="el-icon-finished"></i>
+          <span>Pepco Review</span>
+        </el-menu-item>
+        <el-menu-item index="/customs/broker-download">
+          <i class="el-icon-download"></i>
+          <span>Broker Downloads</span>
+        </el-menu-item>
+      </el-menu>
 
+      <div class="sidebar-user">
+        <el-avatar :size="28" style="background:#3A71A8">D</el-avatar>
+        <div class="user-info">
+          <div class="user-name">Demo User</div>
+          <div class="user-role">MOOV Ops</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main area -->
+    <div class="main-area">
+      <!-- Topbar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <span class="page-title">{{ $route.meta.title }}</span>
+        </div>
+        <div class="topbar-right">
+          <el-tag size="mini" type="warning" style="margin-right:12px">
+            <i class="el-icon-warning-outline"></i> Demo Mode
+          </el-tag>
+          <el-dropdown>
+            <span class="role-switch">
+              Role: <strong>{{ currentRole }}</strong>
+              <i class="el-icon-arrow-down" style="margin-left:4px"></i>
+            </span>
+            <el-dropdown-menu slot="dropdown">
+              <el-dropdown-item @click.native="currentRole='MOOV Ops'">MOOV Ops</el-dropdown-item>
+              <el-dropdown-item @click.native="currentRole='Supplier'">Supplier</el-dropdown-item>
+              <el-dropdown-item @click.native="currentRole='Pepco PGS'">Pepco PGS</el-dropdown-item>
+              <el-dropdown-item @click.native="currentRole='Pepco Finance'">Pepco Finance</el-dropdown-item>
+              <el-dropdown-item @click.native="currentRole='Pepco Customs'">Pepco Customs</el-dropdown-item>
+              <el-dropdown-item @click.native="currentRole='Customs Broker'">Customs Broker</el-dropdown-item>
+            </el-dropdown-menu>
+          </el-dropdown>
+        </div>
+      </header>
+
+      <!-- Page content -->
+      <main class="page-content">
+        <router-view />
+      </main>
     </div>
   </div>
 </template>
 
 <script>
-import RightPanel from '@/components/RightPanel'
-import { AppMain, Navbar, Settings, Sidebar,
-  // TagsView
-} from './components'
-import ResizeMixin from './mixin/ResizeHandler'
-import { mapState } from 'vuex'
-import variables from '@/assets/styles/variables.scss'
-import RatingPopup from '../views/system/support/star/index.vue';
-import {getStar} from "@/utils/auth";
-
-import {createStayLog} from "@/api/system/stayLog";
-import {getAccessToken, getTenantId, getTenantName} from '@/utils/auth'
-import axios from 'axios'
-  import { getUserProfile } from "@/api/system/user";
-  import auth from "@/plugins/auth";
-
 export default {
   name: 'Layout',
-  components: {
-    AppMain,
-    Navbar,
-    RightPanel,
-    Settings,
-    Sidebar,
-    RatingPopup,
-    // TagsView
-  },
-  data() {
-    return {
-      showPopup: false,
-      tenantName:''
-    };
-  },
-  created() {
-        if (auth.hasPermi("system:tenant:query")) {
-              this.tenantName = getTenantName()
-        }
-  },
-  mounted() {
-    var day = 7;
-    var minite = 2;
-    var status = this.getDictDatas(this.DICT_TYPE.SYSTEM_STAR);
-    for (let dic of status) {
-      var label = dic.label;
-      var value = dic.value;
-      if(label==="loop_day"&&value!=null){
-        day = value;
-      }
-      if(label==="loop_minite"&&value!=null){
-        minite = value;
-      }
-    }
-    console.log(day)
-    console.log(minite)
-      var intervalId = setInterval(()=>{
-        const strTime = getStar();
-        let star=new Date(strTime);
-        var endData = this.addDays(star,day);
-        if(strTime==null||endData<new Date()) {
-          this.showPopup = true
-          clearInterval(intervalId);
-        } else {
-          clearInterval(intervalId);
-        }
-      },1000*60*minite); // 1000*60 1分钟
-  },
-  mixins: [ResizeMixin],
-  computed: {
-    ...mapState({
-      theme: state => state.settings.theme,
-      sideTheme: state => state.settings.sideTheme,
-      sidebar: state => state.app.sidebar,
-      device: state => state.app.device,
-      needTagsView: state => state.settings.tagsView,
-      fixedHeader: state => state.settings.fixedHeader
-    }),
-    classObj() {
-      return {
-        // hideSidebar: !this.sidebar.opened,
-        hideSidebar: false,
-        openSidebar: this.sidebar.opened,
-        withoutAnimation: this.sidebar.withoutAnimation,
-        mobile: this.device === 'mobile'
-      }
-    },
-    variables() {
-      return variables;
-    },
-  },
-  methods: {
-    handleClickOutside() {
-      this.$store.dispatch('app/closeSideBar', { withoutAnimation: false })
-    },
-    addDays(date, days) {
-      date.setDate(date.getDate() + days);
-      return date;
-    },
-  },
-  watch: {
-              // 监听路由对象$route的变化
-              '$route': {
-                handler: function (to, from) {
-                  // 路由发生变化时执行的代码
-                  console.log('Route changed from', from.path, 'to', to.path);
-
-                  let t = (new Date().getTime() - window.timeStr)
-                    let result = {
-                        curTime: new Date(),
-                        fromUrl: window.from,
-                        fromFull: window.fromFull,
-                        toUrl: window.location.pathname,
-                        toFull: window.location.href,
-                        stayTime: t
-                    };
-                    //重置数据
-                    resetData()
-
-                    //发送监控数据-----------------------
-                    sendTimeData(result)
-                },
-                // 设置为深度监听
-                deep: true
-              }
-            }
+  data() { return { currentRole: 'MOOV Ops' } }
 }
-
-let intervalId;
-function addListenerPage() {
-            try {
-              startTimer();
-                document.addEventListener("visibilitychange", () => {
-                  if (document.visibilityState == "hidden") {
-                    // console.log("离开");// 结算并取消定时
-                    clearInterval(intervalId);
-                    let t = (new Date().getTime() - window.timeStr)  // 计算时间差
-                    let result = {
-                        curTime: new Date(),
-                        fromUrl: window.from,
-                        fromFull: window.fromFull,
-                        toUrl: window.location.pathname,
-                        toFull: window.location.href,
-                        stayTime: t
-                    };
-                    //重置数据
-                    resetData()
-                    //发送监控数据-----------------------
-                    sendTimeData(result)
-                  } else {
-                    // console.log("回来");// 重置并开始定时
-                    //重置数据
-                    resetData()
-                  }
-                });
-                window.addEventListener("load", () => {
-                  resetData()
-                    // console.log("开始监控")
-                });
-
-            } catch (error) {
-                console.log("信息上报异常", error);
-            }
-        }
-        function startTimer() {
-          try {
-                // 定时检查用户是否有操作
-                intervalId = setInterval(() => {
-                let t = (new Date().getTime() - window.timeStr)  // 计算时间差
-                // console.log("stayTime:"+t);
-                if (t > 60*1000) { // 如果超过一分钟，调用回调函数
-                  // 上报时间；并重置时间
-                  let result = {
-                        curTime: new Date(),
-                        fromUrl: window.from,
-                        fromFull: window.fromFull,
-                        toUrl: window.location.pathname,
-                        toFull: window.location.href,
-                        stayTime: t
-                    };
-                    //重置数据
-                    resetData()
-
-                    // console.log(`用户停留时间超过一分钟，时间差：${t}`);
-
-                    //发送监控数据-----------------------
-                    sendTimeData(result)
-
-                }
-              }, 3*1000); // 每30秒检查一次
-            } catch (error) {
-                console.log("信息上报异常", error);
-            }
-        }
-        function resetData() {
-          window.timeStr = new Date().getTime()
-          window.fromFull = window.location.href
-          window.from = window.location.pathname
-        }
-        function sendTimeData(result) {
-          try {
-            const tenantId = getTenantId();
-            const token = getAccessToken();
-            const name = getTenantName();
-            if(tenantId==null||token==null||name==null) {
-            } else {
-              const headers = {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer '+token,
-                'tenant-id' : tenantId
-              };
-              // 发送POST请求
-              // axios.post(process.env.VUE_APP_BASE_API + "/admin-api/system/stay-log/create", result, { headers: headers })
-              //   .then(response => {
-              //     //console.log('Success:', response.data);
-              //   })
-              //   .catch(error => {
-              //     console.error('Error:', error);
-              //   });
-            }
-          // console.table(result)
-            } catch (error) {
-                console.log("信息上报异常", error);
-            }
-        }
-        addListenerPage()
-
-
 </script>
 
 <style lang="scss" scoped>
-@import "~@/assets/styles/mixin.scss";
-@import "~@/assets/styles/variables.scss";
+.layout-wrapper {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
 
-.app-wrapper {
-  @include clearfix;
-  position: relative;
-  height: 100%;
-  width: 100%;
+// ── Sidebar ──────────────────────────────────────────────────────────────────
+.sidebar {
+  width: $sidebar-width;
+  min-width: $sidebar-width;
+  background: $bg-sidebar;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
 
-  &.mobile.openSidebar {
-    position: fixed;
-    top: 0;
+.logo {
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  height: $topbar-height;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  gap: 8px;
+  .logo-img { width: 28px; height: 28px; object-fit: contain; }
+  .logo-text { color: #fff; font-weight: 700; font-size: 15px; letter-spacing: 0.3px; }
+}
+
+.menu-section-label {
+  padding: 16px 16px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: rgba(255,255,255,0.4);
+}
+
+.sidebar-menu {
+  flex: 1;
+  overflow-y: auto;
+  border: none !important;
+
+  ::v-deep .el-menu-item {
+    height: 38px;
+    line-height: 38px;
+    border-radius: 8px;
+    margin: 2px 8px;
+    font-size: 13px;
+    i { margin-right: 8px; font-size: 15px; }
+
+    &.is-active {
+      background: rgba(255,255,255,0.15) !important;
+      color: #fff !important;
+      font-weight: 600;
+    }
+    &:hover { background: rgba(255,255,255,0.1) !important; }
   }
 }
 
-.drawer-bg {
-  background: #000;
-  opacity: 0.3;
-  width: 100%;
-  top: 0;
-  height: 100%;
-  position: absolute;
-  z-index: 999;
+.sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  .user-info { .user-name { color: #fff; font-size: 12px; font-weight: 600; } .user-role { color: rgba(255,255,255,0.5); font-size: 11px; } }
 }
 
-.fixed-header {
-  position: fixed;
-  top: 0;
-  right: 0;
-  z-index: 9;
-  width: calc(100% - #{$base-sidebar-width});
-  transition: width 0.28s;
+// ── Main area ─────────────────────────────────────────────────────────────────
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.hideSidebar .fixed-header {
-  width: calc(100% - 54px);
+.topbar {
+  height: $topbar-height;
+  background: #fff;
+  border-bottom: 1px solid $border;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  flex-shrink: 0;
+
+  .page-title { font-size: 15px; font-weight: 600; color: $text-primary; }
+  .topbar-right { display: flex; align-items: center; }
+  .role-switch {
+    cursor: pointer; font-size: 12px; color: $text-secondary;
+    padding: 4px 10px; border: 1px solid $border; border-radius: 6px;
+    &:hover { border-color: $primary; color: $primary; }
+  }
 }
 
-.sidebarHide .fixed-header {
-  width: calc(100%);
-}
-
-.mobile .fixed-header {
-  width: 100%;
+.page-content {
+  flex: 1;
+  overflow-y: auto;
+  background: $bg-page;
 }
 </style>

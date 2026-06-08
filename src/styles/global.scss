@@ -1,0 +1,62 @@
+// ── Global styles matching smartMOOV production (variables auto-injected via vite) ──
+
+* { font-family: 'DM Sans', sans-serif !important; box-sizing: border-box; }
+body { margin: 0; background: $bg-page; overflow: hidden; }
+
+// Element UI overrides
+.el-button--primary { background-color: $primary; border-color: $primary; }
+.el-button--primary:hover { background-color: $primary-light; border-color: $primary-light; }
+
+.el-dialog__header {
+  height: 36px !important;
+  background-color: $primary !important;
+  padding: 4px 0 4px 10px !important;
+}
+.el-dialog__title { color: #fff !important; font-size: 14px !important; }
+.el-dialog__headerbtn { color: #fff !important; top: 5px !important; }
+.el-dialog__body { padding: 15px !important; }
+
+.el-card { border-radius: 8px; border: none !important; }
+.el-card + .el-card { margin-top: 12px; }
+
+.el-table th.el-table__cell { background-color: #fafafa !important; }
+.el-table th.el-table__cell > .cell,
+.el-table .cell { font-size: 12px !important; padding: 0 6px !important; }
+.el-table .el-table__header-wrapper th { height: 32px !important; }
+.el-table--mini .el-table__cell { padding: 3px 0 !important; }
+.el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell { background: #f0f7ff; }
+
+.el-tag { border-radius: 4px; }
+
+.el-descriptions-row th { color: $primary; font-weight: 700 !important; }
+.el-descriptions-item__label { color: $primary; }
+
+.el-tabs__nav-wrap::after { height: 1px; }
+
+// Scrollbar
+*::-webkit-scrollbar { width: 5px; height: 5px; }
+*::-webkit-scrollbar-thumb { border-radius: 5px; background: rgba(0,0,0,.2); }
+
+// App layout
+.app-container {
+  background: $bg-page;
+  min-height: calc(100vh - #{$topbar-height});
+  padding: 12px 16px;
+}
+
+// Status badge helpers
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  &.verified   { background: #e6f9ef; color: #13ce66; }
+  &.unverified { background: #fff8e0; color: #e6a817; }
+  &.rejected   { background: #fff0f0; color: #ff4949; }
+  &.pending    { background: #f4f4f5; color: #909399; }
+  &.completed  { background: #e6f9ef; color: #13ce66; }
+  &.in-progress { background: #ecf5ff; color: $primary; }
+  &.locked     { background: #f4f4f5; color: #c0c4cc; }
+  &.recheck    { background: #fff8e0; color: #e6a817; }
+}
