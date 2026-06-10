@@ -26,6 +26,7 @@
             <div style="display:flex;align-items:center;gap:8px">
               <span :class="['milestone-dot', row.dotClass]"></span>
               <span style="font-weight:600">{{ row.taskName }}</span>
+              <span v-if="row.legacy" style="font-size:10px;color:#999">({{ row.legacy }})</span>
               <el-tag v-if="row.isNew" size="mini" type="success" style="font-size:10px">New</el-tag>
             </div>
           </template>
@@ -136,7 +137,7 @@ export default {
       milestoneRows: [
         { key:'PGS',     taskName:'PGS Document Check',                partyRole:'Pepco PGS',     level:'HBL', possible:102, urgent:5,  overdue:18, finished:1234, dotClass:'dot-pgs',     isNew:true  },
         { key:'FINANCE', taskName:'Finance Document Check',            partyRole:'Pepco Finance',  level:'HBL', possible:87,  urgent:3,  overdue:9,  finished:1198, dotClass:'dot-finance',  isNew:true  },
-        { key:'CUSTOMS', taskName:'Shipping Documents Verify by Pepco',partyRole:'Pepco Customs',  level:'HBL', possible:45,  urgent:2,  overdue:6,  finished:1150, dotClass:'dot-customs',  isNew:false },
+        { key:'CUSTOMS', taskName:'Customs Document Check', legacy:'Shipping Documents Verify by Pepco', partyRole:'Pepco Customs',  level:'HBL', possible:45,  urgent:2,  overdue:6,  finished:1150, dotClass:'dot-customs',  isNew:false },
       ],
     }
   },

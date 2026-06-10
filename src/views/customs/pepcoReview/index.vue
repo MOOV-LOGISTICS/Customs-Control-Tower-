@@ -1,43 +1,36 @@
 <template>
   <div class="app-container">
 
-    <!-- ── Milestone Selector ─────────────────────────────────────────── -->
-    <div class="milestone-selector">
-      <div
-        v-for="m in milestoneConfig" :key="m.key"
-        :class="['ms-tab', { active: currentMilestone === m.key }]"
-        @click="switchMilestone(m.key)"
-      >
-        <span class="ms-tab-num">{{ m.step }}</span>
-        <div class="ms-tab-body">
-          <div class="ms-tab-name">{{ m.name }}</div>
-          <div class="ms-tab-role">{{ m.role }}</div>
+    <!-- ── Verify Documents Counter Board (follows selected Pending Task) ── -->
+    <el-card class="counter-board">
+      <div class="cb-inner">
+        <div class="cb-title">
+          <div class="cb-task-name">{{ currentMilestoneName }}</div>
+          <div v-if="currentMilestoneLegacy" class="cb-task-legacy">({{ currentMilestoneLegacy }})</div>
         </div>
-        <i v-if="m.key !== 'CUSTOMS'" class="el-icon-arrow-right ms-arrow"></i>
+        <div class="cb-stats">
+          <div class="cb-stat possible"><span class="cb-num">{{ currentKpi.possible }}</span><span class="cb-label">Possible</span></div>
+          <div class="cb-divider"></div>
+          <div class="cb-stat urgent"><span class="cb-num">{{ currentKpi.urgent }}</span><span class="cb-label">Urgent</span></div>
+          <div class="cb-divider"></div>
+          <div class="cb-stat overdue"><span class="cb-num">{{ currentKpi.overdue }}</span><span class="cb-label">Overdue</span></div>
+          <div class="cb-divider"></div>
+          <div class="cb-stat finished"><span class="cb-num">{{ currentKpi.finished }}</span><span class="cb-label">Finished</span></div>
+        </div>
       </div>
-    </div>
-
-    <!-- ── KPI Cards ──────────────────────────────────────────────────── -->
-    <el-row :gutter="12" style="margin-bottom:14px">
-      <el-col :span="6" v-for="(val, label) in currentKpi" :key="label">
-        <div :class="['kpi-pill', `kpi-${label}`]">
-          <span class="kpi-pill-num">{{ val }}</span>
-          <span class="kpi-pill-label">{{ label.charAt(0).toUpperCase() + label.slice(1) }}</span>
-        </div>
-      </el-col>
-    </el-row>
+    </el-card>
 
     <!-- ── Filters + Actions ──────────────────────────────────────────── -->
     <el-card style="margin-bottom:12px">
       <el-row :gutter="10" align="middle" type="flex">
-        <el-col :span="5"><el-input v-model="filterHbl" placeholder="HBL Number" size="mini" clearable prefix-icon="el-icon-search" /></el-col>
-        <el-col :span="5"><el-input v-model="filterSupplier" placeholder="Supplier Name" size="mini" clearable /></el-col>
-        <el-col :span="5">
-          <el-select v-model="filterStatus" size="mini" placeholder="Pending Task" clearable style="width:100%">
-            <el-option label="Possible" value="possible" />
-            <el-option label="Urgent"   value="urgent" />
-            <el-option label="Overdue"  value="overdue" />
-            <el-option label="Finished" value="finished" />
+        <el-col :span="4"><el-input v-model="filterHbl" placeholder="HBL Number" size="mini" clearable prefix-icon="el-icon-search" /></el-col>
+        <el-col :span="4"><el-input v-model="filterSupplier" placeholder="Supplier Name" size="mini" clearable /></el-col>
+        <el-col :span="7">
+          <el-select v-model="currentMilestone" size="mini" placeholder="Pending Task" style="width:100%" @change="selectedHbls = []">
+            <el-option v-for="m in milestoneConfig" :key="m.key" :value="m.key" :label="m.name">
+              <span>{{ m.name }}</span>
+              <span v-if="m.legacy" style="font-size:11px;color:#999;margin-left:6px">({{ m.legacy }})</span>
+            </el-option>
           </el-select>
         </el-col>
         <el-col :span="3"><el-button type="primary" size="mini" icon="el-icon-search" @click="$message.info('Filter applied')">Search</el-button></el-col>
@@ -66,18 +59,13 @@
         <el-table-column label="POD" prop="pod" width="70" />
         <el-table-column label="ETA" prop="eta" width="95" />
 
-        <!-- 3-Step Progress -->
-        <el-table-column label="3-Step Progress" width="200">
+        <!-- Current Stage (overall HBL progress) -->
+        <el-table-column label="Current Stage" width="200">
           <template #default="{row}">
-            <div class="progress-strip">
-              <el-tooltip v-for="m in milestoneConfig" :key="m.key"
-                :content="`${m.name}: ${stepLabel(row.milestones[m.key].status)}`" placement="top">
-                <div :class="['step-pip', stepPipClass(row.milestones[m.key].status)]">
-                  <i :class="stepPipIcon(row.milestones[m.key].status)"></i>
-                  <span>{{ m.short }}</span>
-                </div>
-              </el-tooltip>
-            </div>
+            <span :class="['stage-badge', currentStage(row).cls]">
+              <i :class="currentStage(row).icon"></i> {{ currentStage(row).label }}
+            </span>
+            <el-tag v-if="currentStage(row).recheck" size="mini" type="warning" style="margin-left:4px;font-size:9px">RE-CHECK</el-tag>
           </template>
         </el-table-column>
 
@@ -178,6 +166,33 @@
                 <i class="el-icon-warning-outline"></i>
                 <div>
                   <strong>RE-CHECK REQUIRED</strong> — This HBL was previously rejected and corrected. Please review the history below before proceeding.
+                </div>
+              </div>
+
+              <!-- 3-node milestone timeline -->
+              <div class="ms-timeline">
+                <div v-for="(m, i) in milestoneConfig" :key="m.key" class="tl-node">
+                  <div class="tl-top">
+                    <div :class="['tl-circle', tlCircleClass(row.milestones[m.key])]">
+                      <i :class="stepPipIcon(row.milestones[m.key].status)"></i>
+                    </div>
+                    <div v-if="i < milestoneConfig.length - 1"
+                      :class="['tl-connector', { done: row.milestones[m.key].status === 'COMPLETE' }]"></div>
+                  </div>
+                  <div class="tl-name">{{ m.short }} — {{ m.shortName }}</div>
+                  <div :class="['tl-status', tlCircleClass(row.milestones[m.key])]">
+                    {{ stepLabel(row.milestones[m.key].status) }}
+                    <span v-if="row.milestones[m.key].isRecheck" class="tl-recheck">RE-CHECK</span>
+                  </div>
+                  <div class="tl-meta">
+                    <template v-if="row.milestones[m.key].status === 'COMPLETE'">
+                      {{ row.milestones[m.key].completedBy }}<br>{{ row.milestones[m.key].completedAt }}
+                    </template>
+                    <template v-else-if="row.milestones[m.key].lockReason">
+                      {{ row.milestones[m.key].lockReason }}
+                    </template>
+                    <template v-else>—</template>
+                  </div>
                 </div>
               </div>
               <el-table :data="row.verifyHistory" size="mini" stripe border style="margin-top:8px">
@@ -385,9 +400,9 @@ export default {
       selectedHbls: [],
 
       milestoneConfig: [
-        { key:'PGS',     step:'①', name:'PGS Document Check',            role:'Pepco PGS',     short:'PGS'  },
-        { key:'FINANCE', step:'②', name:'Finance Document Check',         role:'Pepco Finance', short:'FIN'  },
-        { key:'CUSTOMS', step:'③', name:'Shipping Documents Verify by Pepco', role:'Pepco Customs', short:'CUS' },
+        { key:'PGS',     step:'①', name:'PGS Document Check',     shortName:'PGS Check',     role:'Pepco PGS',     short:'PGS', legacy:'' },
+        { key:'FINANCE', step:'②', name:'Finance Document Check', shortName:'Finance Check', role:'Pepco Finance', short:'FIN', legacy:'' },
+        { key:'CUSTOMS', step:'③', name:'Customs Document Check', shortName:'Customs Check', role:'Pepco Customs', short:'CUS', legacy:'Shipping Documents Verify by Pepco' },
       ],
 
       kpis: {
@@ -486,6 +501,9 @@ export default {
     currentMilestoneName() {
       return this.milestoneConfig.find(m => m.key === this.currentMilestone)?.name || ''
     },
+    currentMilestoneLegacy() {
+      return this.milestoneConfig.find(m => m.key === this.currentMilestone)?.legacy || ''
+    },
     filteredHbls() {
       return this.hbls.filter(h => {
         const q = this.filterHbl.toLowerCase()
@@ -511,6 +529,34 @@ export default {
 
     hasRecheck(row) {
       return Object.values(row.milestones).some(m => m.isRecheck)
+    },
+
+    // Overall HBL progress — which stage is it at right now (independent of selected task)
+    currentStage(row) {
+      const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
+      // Pending correction overrides everything
+      if (ORDER.some(k => row.milestones[k].status === 'PENDING_CORRECTION')) {
+        return { label:'Pending Correction', cls:'stage-correction', icon:'el-icon-warning-outline', recheck:false }
+      }
+      // All complete
+      if (ORDER.every(k => row.milestones[k].status === 'COMPLETE')) {
+        return { label:'All Stages Complete', cls:'stage-done', icon:'el-icon-circle-check', recheck:false }
+      }
+      // First non-complete = current stage
+      const idx = ORDER.findIndex(k => row.milestones[k].status !== 'COMPLETE')
+      const cfg = this.milestoneConfig[idx]
+      const ms = row.milestones[ORDER[idx]]
+      return {
+        label: `${cfg.step} ${cfg.shortName} — ${this.stepLabel(ms.status)}`,
+        cls: 'stage-active', icon: 'el-icon-time', recheck: ms.isRecheck,
+      }
+    },
+
+    tlCircleClass(ms) {
+      return {
+        COMPLETE: 'tl-done', IN_PROGRESS: 'tl-active', LOCKED: 'tl-locked',
+        PENDING: 'tl-locked', PENDING_CORRECTION: 'tl-correction',
+      }[ms.status] || 'tl-locked'
     },
 
     lockReason(row, milestone) {
@@ -679,57 +725,68 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-// ── Milestone Selector ───────────────────────────────────────────────────────
-.milestone-selector {
-  display:flex; align-items:stretch; margin-bottom:14px;
-  background:#fff; border-radius:8px; border:1px solid $border; overflow:hidden;
+// ── Verify Documents Counter Board ──────────────────────────────────────────
+.counter-board {
+  margin-bottom:12px;
+  ::v-deep .el-card__body { padding:12px 20px; }
 }
-.ms-tab {
-  flex:1; display:flex; align-items:center; gap:10px; padding:12px 16px;
-  cursor:pointer; transition:background 0.2s; position:relative;
-  border-right:1px solid $border;
-  &:last-child { border-right:none; }
-  &:hover { background:#f5f9fd; }
-  &.active { background:#004F7C;
-    .ms-tab-num  { background:rgba(255,255,255,0.2); color:#fff; }
-    .ms-tab-name { color:#fff; }
-    .ms-tab-role { color:rgba(255,255,255,0.65); }
-    .ms-arrow    { color:rgba(255,255,255,0.4); }
-  }
-}
-.ms-tab-num {
-  width:28px; height:28px; border-radius:50%; background:$bg-page; color:$primary;
-  display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; flex-shrink:0;
-}
-.ms-tab-body { flex:1; }
-.ms-tab-name { font-weight:600; font-size:13px; color:$text-primary; }
-.ms-tab-role { font-size:11px; color:$text-secondary; margin-top:2px; }
-.ms-arrow    { font-size:12px; color:$border; flex-shrink:0; }
+.cb-inner { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.cb-title { min-width:240px; }
+.cb-task-name   { font-weight:700; font-size:15px; color:$text-primary; }
+.cb-task-legacy { font-size:11px; color:#999; margin-top:2px; }
+.cb-stats { display:flex; align-items:center; gap:24px; flex:1; justify-content:flex-end; }
+.cb-stat  { text-align:center; min-width:70px; }
+.cb-num   { display:block; font-size:24px; font-weight:700; line-height:1.2; }
+.cb-label { font-size:12px; color:$text-secondary; }
+.cb-divider { width:1px; height:34px; background:$border; }
+.cb-stat.possible .cb-num { color:#3A71A8; }
+.cb-stat.urgent   .cb-num { color:#E6A817; }
+.cb-stat.overdue  .cb-num { color:#ff4949; }
+.cb-stat.finished .cb-num { color:#13ce66; }
 
-// ── KPI Pills ────────────────────────────────────────────────────────────────
-.kpi-pill {
-  border-radius:6px; padding:10px 16px; display:flex; align-items:center; gap:10px;
-  background:#fff; border:1px solid $border;
+// ── Current Stage badge ──────────────────────────────────────────────────────
+.stage-badge {
+  display:inline-flex; align-items:center; gap:4px;
+  padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600; white-space:nowrap;
+  i { font-size:12px; }
+  &.stage-active     { background:#ecf5ff; color:#004F7C; }
+  &.stage-done       { background:#e6f9ef; color:darken(#13ce66,10%); }
+  &.stage-correction { background:#fff8e0; color:#e6a817; }
 }
-.kpi-pill-num   { font-size:22px; font-weight:700; }
-.kpi-pill-label { font-size:12px; color:$text-secondary; }
-.kpi-possible .kpi-pill-num { color:#3A71A8; }
-.kpi-urgent   .kpi-pill-num { color:#E6A817; }
-.kpi-overdue  .kpi-pill-num { color:#ff4949; }
-.kpi-finished .kpi-pill-num { color:#13ce66; }
 
-// ── 3-Step Progress ──────────────────────────────────────────────────────────
-.progress-strip { display:flex; gap:4px; align-items:center; }
-.step-pip {
-  display:flex; align-items:center; gap:3px; padding:2px 6px; border-radius:10px;
-  font-size:10px; font-weight:700; white-space:nowrap;
-  i { font-size:10px; }
-  &.pip-done       { background:#e6f9ef; color:darken(#13ce66,10%); }
-  &.pip-active     { background:#ecf5ff; color:#004F7C; }
-  &.pip-locked     { background:#f4f4f5; color:#c0c4cc; }
-  &.pip-pending    { background:#f4f4f5; color:#909399; }
-  &.pip-correction { background:#fff8e0; color:#e6a817; }
+// ── Milestone Timeline (Documents Verified tab) ──────────────────────────────
+.ms-timeline {
+  display:flex; align-items:flex-start;
+  background:#fff; border:1px solid $border; border-radius:6px;
+  padding:16px 20px 12px; margin:8px 0 10px;
 }
+.tl-node { flex:1; position:relative; }
+.tl-top { display:flex; align-items:center; }
+.tl-circle {
+  width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:15px; flex-shrink:0; z-index:1;
+  &.tl-done       { background:#13ce66; color:#fff; }
+  &.tl-active     { background:#004F7C; color:#fff; }
+  &.tl-locked     { background:#e4e7ed; color:#c0c4cc; }
+  &.tl-correction { background:#E6A817; color:#fff; }
+}
+.tl-connector {
+  flex:1; height:2px; background:#e4e7ed; margin:0 6px;
+  &.done { background:#13ce66; }
+}
+.tl-name   { font-size:12px; font-weight:700; margin-top:8px; color:$text-primary; }
+.tl-status {
+  font-size:11px; font-weight:600; margin-top:2px;
+  &.tl-done       { color:darken(#13ce66,10%); }
+  &.tl-active     { color:#004F7C; }
+  &.tl-locked     { color:#c0c4cc; }
+  &.tl-correction { color:#e6a817; }
+}
+.tl-recheck {
+  display:inline-block; background:#fff8e0; color:#e6a817;
+  font-size:9px; font-weight:700; padding:0 4px; border-radius:3px; margin-left:4px;
+}
+.tl-meta { font-size:11px; color:#999; margin-top:3px; line-height:1.5; }
 
 // ── HBL link ─────────────────────────────────────────────────────────────────
 .hbl-link { color:$primary; cursor:pointer; font-weight:600;
