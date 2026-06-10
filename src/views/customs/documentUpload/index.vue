@@ -634,6 +634,18 @@ export default {
       const today = new Date().toISOString().slice(0, 10)
       let saved = 0
 
+      // ── Mandatory check: CI and PL must each be present, either uploaded
+      // in this session or already on the PO from an earlier upload ────────
+      const missing = this.mandatorySlots.filter(slot => {
+        const uploadedNow = slot.state === 'verified' || slot.state === 'force_saved'
+        const alreadyOnPo = this.currentPo.docs.some(d => d.docTypeLabel === slot.label)
+        return !uploadedNow && !alreadyOnPo
+      })
+      if (missing.length > 0) {
+        this.$message.error(`Cannot confirm: ${missing.map(s => s.label).join(' and ')} ${missing.length > 1 ? 'are' : 'is'} required`)
+        return
+      }
+
       this.mandatorySlots.forEach(slot => {
         if (slot.state === 'verified' || slot.state === 'force_saved') {
           this.currentPo.docs.push({
