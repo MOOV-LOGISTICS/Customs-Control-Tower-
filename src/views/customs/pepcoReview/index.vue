@@ -471,47 +471,75 @@ export default {
       const { hbl, result, reason, remark } = this.verifyDialog
       const targets = hbl ? [hbl] : this.selectedHbls
       const milestone = this.currentMilestone
+      const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
+      const milestoneIdx = ORDER.indexOf(milestone)
       const now = new Date().toLocaleString() + ' CET (UTC+1)'
 
+      // ── Prerequisite check (COMPLETE only) ──────────────────────────────
+      // All steps BEFORE the current one must be COMPLETE before this can be approved.
+      if (result === 'COMPLETE') {
+        const blocked = targets.filter(h =>
+          ORDER.slice(0, milestoneIdx).some(k => h.milestones[k].status !== 'COMPLETE')
+        )
+        if (blocked.length > 0) {
+          const names = blocked.map(h => h.hblNo).join(', ')
+          const missing = ORDER.slice(0, milestoneIdx).find(k =>
+            blocked[0].milestones[k].status !== 'COMPLETE'
+          )
+          const missingName = this.milestoneConfig.find(m => m.key === missing)?.name || missing
+          this.$message.error(`Cannot approve: "${missingName}" must be completed first for ${names}`)
+          return
+        }
+      }
+
       targets.forEach(h => {
-        const ms = h.milestones[milestone]
-
         if (result === 'COMPLETE') {
-          ms.status = 'COMPLETE'
-          ms.completedBy = 'Demo User'
-          ms.completedAt = now
-          h.verifyHistory.unshift({ milestone: this.currentMilestoneName, status:'Complete', user:'Demo User', time:now, reason:'', remark:'' })
+          // ── Mark current milestone complete ──────────────────────────────
+          this.$set(h.milestones[milestone], 'status', 'COMPLETE')
+          this.$set(h.milestones[milestone], 'completedBy', 'Demo User')
+          this.$set(h.milestones[milestone], 'completedAt', now)
+          this.$set(h.milestones[milestone], 'isRecheck', false)
 
-          // Unlock next milestone
-          const order = ['PGS','FINANCE','CUSTOMS']
-          const idx = order.indexOf(milestone)
-          if (idx < order.length - 1) {
-            const next = order[idx + 1]
-            if (h.milestones[next].status === 'LOCKED') {
-              h.milestones[next].status = 'IN_PROGRESS'
-              h.milestones[next].lockReason = ''
-            }
-          }
-          this.$message.success(`${this.currentMilestoneName} marked Complete for ${h.hblNo}`)
-        } else {
-          // Not complete → reset all 3 milestones
-          ms.status = 'IN_PROGRESS'
-          h.verifyHistory.unshift({ milestone: this.currentMilestoneName, status:'Incomplete', user:'Demo User', time:now, reason, remark })
-
-          const order = ['PGS','FINANCE','CUSTOMS']
-          order.forEach((k, i) => {
-            h.milestones[k].isRecheck = true
-            if (i > 0) {
-              h.milestones[k].status = 'LOCKED'
-              h.milestones[k].lockReason = `Waiting for ${order[i-1] === 'PGS' ? 'PGS' : 'Finance'} Check`
-            } else {
-              h.milestones[k].status = 'IN_PROGRESS'
-            }
-            h.milestones[k].completedBy = null
-            h.milestones[k].completedAt = null
+          h.verifyHistory.unshift({
+            milestone: this.currentMilestoneName, status: 'Complete',
+            user: 'Demo User', time: now, reason: '', remark: ''
           })
 
-          this.$message.error(`Rejected — all milestones reset to Re-check for ${h.hblNo}`)
+          // Unlock ONLY the immediately next milestone
+          if (milestoneIdx < ORDER.length - 1) {
+            const next = ORDER[milestoneIdx + 1]
+            if (h.milestones[next].status === 'LOCKED') {
+              this.$set(h.milestones[next], 'status', 'IN_PROGRESS')
+              this.$set(h.milestones[next], 'lockReason', '')
+            }
+          }
+          this.$message.success(`${this.currentMilestoneName} approved for ${h.hblNo}`)
+
+        } else {
+          // ── Not Complete → ALWAYS reset ALL 3 milestones back to step 1 ─
+          // Regardless of which step rejected, flow always restarts from PGS.
+          h.verifyHistory.unshift({
+            milestone: this.currentMilestoneName, status: 'Incomplete',
+            user: 'Demo User', time: now, reason, remark
+          })
+
+          ORDER.forEach((k, i) => {
+            this.$set(h.milestones[k], 'isRecheck', true)
+            this.$set(h.milestones[k], 'completedBy', null)
+            this.$set(h.milestones[k], 'completedAt', null)
+            if (i === 0) {
+              // PGS → back to In Progress (step 1 restarts)
+              this.$set(h.milestones[k], 'status', 'IN_PROGRESS')
+              this.$set(h.milestones[k], 'lockReason', '')
+            } else {
+              // FIN + CUS → locked until PGS passes again
+              this.$set(h.milestones[k], 'status', 'LOCKED')
+              this.$set(h.milestones[k], 'lockReason',
+                i === 1 ? 'Waiting for PGS Check' : 'Waiting for Finance Check')
+            }
+          })
+
+          this.$message.error(`Rejected — all milestones reset to step 1 (PGS Re-check) for ${h.hblNo}`)
         }
       })
 
