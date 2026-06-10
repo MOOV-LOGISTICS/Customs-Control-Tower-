@@ -27,6 +27,10 @@
         <el-col :span="4"><el-input v-model="filterSupplier" placeholder="Supplier Name" size="mini" clearable /></el-col>
         <el-col :span="7">
           <el-select v-model="currentMilestone" size="mini" placeholder="Pending Task" style="width:100%" @change="selectedHbls = []">
+            <el-option value="ALL" label="All Tasks">
+              <span style="font-weight:600">All Tasks</span>
+              <span style="font-size:11px;color:#999;margin-left:6px">(no filter — every HBL shown)</span>
+            </el-option>
             <el-option v-for="m in milestoneConfig" :key="m.key" :value="m.key" :label="m.name">
               <span>{{ m.name }}</span>
               <span v-if="m.legacy" style="font-size:11px;color:#999;margin-left:6px">({{ m.legacy }})</span>
@@ -69,14 +73,14 @@
           </template>
         </el-table-column>
 
-        <!-- Current milestone status -->
+        <!-- Status of the effective task (selected task, or current stage in All mode) -->
         <el-table-column label="Status" width="130">
           <template #default="{row}">
             <div>
-              <span :class="['status-badge', milestoneBadgeClass(row.milestones[currentMilestone].status)]">
-                {{ stepLabel(row.milestones[currentMilestone].status) }}
+              <span :class="['status-badge', milestoneBadgeClass(row.milestones[effectiveKey(row)].status)]">
+                {{ stepLabel(row.milestones[effectiveKey(row)].status) }}
               </span>
-              <el-tag v-if="row.milestones[currentMilestone].isRecheck" size="mini" type="warning" style="margin-left:4px;font-size:9px">RE-CHECK</el-tag>
+              <el-tag v-if="row.milestones[effectiveKey(row)].isRecheck" size="mini" type="warning" style="margin-left:4px;font-size:9px">RE-CHECK</el-tag>
             </div>
           </template>
         </el-table-column>
@@ -85,20 +89,20 @@
         <el-table-column label="Action" width="190" align="center">
           <template #default="{row}">
             <!-- Pending Correction: Pepco locked out; OHA demo entry shown -->
-            <template v-if="row.milestones[currentMilestone].status === 'PENDING_CORRECTION'">
+            <template v-if="row.milestones[effectiveKey(row)].status === 'PENDING_CORRECTION'">
               <el-tooltip content="Documents are being corrected by Supplier & OHA. This entry point belongs to the Document Management page — shown here for demo." placement="left">
                 <el-button size="mini" type="warning" plain icon="el-icon-check" @click="ohaConfirmCorrection(row)">
                   Confirm Correction (OHA)
                 </el-button>
               </el-tooltip>
             </template>
-            <el-tooltip v-else-if="row.milestones[currentMilestone].status === 'LOCKED'"
-              :content="`Waiting for ${lockReason(row, currentMilestone)}`" placement="left">
+            <el-tooltip v-else-if="row.milestones[effectiveKey(row)].status === 'LOCKED'"
+              :content="`Waiting for ${lockReason(row, effectiveKey(row))}`" placement="left">
               <span>
                 <el-button size="mini" type="primary" plain disabled icon="el-icon-lock">Locked</el-button>
               </span>
             </el-tooltip>
-            <el-button v-else-if="row.milestones[currentMilestone].status === 'COMPLETE'"
+            <el-button v-else-if="row.milestones[effectiveKey(row)].status === 'COMPLETE'"
               size="mini" type="text" icon="el-icon-view" @click="toggleExpand(row)">
               View History
             </el-button>
@@ -242,19 +246,19 @@
     </el-card>
 
     <!-- ── Verify Document Dialog ────────────────────────────────────── -->
-    <el-dialog :visible.sync="verifyDialog.visible" :title="`Document Verification — ${currentMilestoneName}`" width="520px">
+    <el-dialog :visible.sync="verifyDialog.visible" :title="`Document Verification — ${verifyDialogTaskName}`" width="520px">
       <div class="verify-dialog-body">
         <!-- HBL info -->
         <div class="verify-hbl-info" v-if="verifyDialog.hbl">
           <i class="el-icon-ship"></i>
           <span>{{ verifyDialog.hbl.hblNo }}</span>
           <span class="vd-supplier">{{ verifyDialog.hbl.supplier }}</span>
-          <el-tag size="mini" type="info">{{ currentMilestoneName }}</el-tag>
+          <el-tag size="mini" type="info">{{ verifyDialogTaskName }}</el-tag>
         </div>
         <div class="verify-hbl-info bulk" v-else>
           <i class="el-icon-finished"></i>
           <span>Bulk verify — {{ selectedHbls.length }} HBL(s) selected</span>
-          <el-tag size="mini" type="info">{{ currentMilestoneName }}</el-tag>
+          <el-tag size="mini" type="info">{{ verifyDialogTaskName }}</el-tag>
         </div>
 
         <el-divider style="margin:12px 0" />
@@ -291,7 +295,7 @@
         </div>
 
         <!-- Sanitary Certificate toggle (Customs milestone only) -->
-        <div v-if="currentMilestone === 'CUSTOMS'" class="sanitary-block">
+        <div v-if="verifyDialog.milestoneKey === 'CUSTOMS' || (!verifyDialog.milestoneKey && currentMilestone === 'CUSTOMS')" class="sanitary-block">
           <el-switch v-model="verifyDialog.sanitaryCert" />
           <span class="sanitary-label">Sanitary Certificate is required</span>
         </div>
@@ -395,7 +399,7 @@ export default {
   name: 'PepcoReview',
   data() {
     return {
-      currentMilestone: 'PGS',
+      currentMilestone: 'ALL',
       filterHbl: '', filterSupplier: '', filterStatus: '',
       selectedHbls: [],
 
@@ -481,6 +485,7 @@ export default {
       verifyDialog: {
         visible: false,
         hbl: null,
+        milestoneKey: null,
         result: 'COMPLETE',
         reason: '',
         remark: '',
@@ -497,12 +502,27 @@ export default {
   },
 
   computed: {
-    currentKpi() { return this.kpis[this.currentMilestone] },
+    currentKpi() {
+      if (this.currentMilestone === 'ALL') {
+        const keys = ['possible', 'urgent', 'overdue', 'finished']
+        const sum = {}
+        keys.forEach(k => { sum[k] = Object.values(this.kpis).reduce((a, v) => a + v[k], 0) })
+        return sum
+      }
+      return this.kpis[this.currentMilestone]
+    },
     currentMilestoneName() {
+      if (this.currentMilestone === 'ALL') return 'Verify Documents'
       return this.milestoneConfig.find(m => m.key === this.currentMilestone)?.name || ''
     },
     currentMilestoneLegacy() {
+      if (this.currentMilestone === 'ALL') return 'All tasks — PGS + Finance + Customs'
       return this.milestoneConfig.find(m => m.key === this.currentMilestone)?.legacy || ''
+    },
+    verifyDialogTaskName() {
+      if (this.verifyDialog.milestoneKey) return this.milestoneNameOf(this.verifyDialog.milestoneKey)
+      if (this.currentMilestone === 'ALL') return 'Current task per HBL'
+      return this.currentMilestoneName
     },
     filteredHbls() {
       return this.hbls.filter(h => {
@@ -529,6 +549,18 @@ export default {
 
     hasRecheck(row) {
       return Object.values(row.milestones).some(m => m.isRecheck)
+    },
+
+    // The milestone this row is operated against:
+    // a specific task when one is selected, or the row's current stage in All mode.
+    effectiveKey(row) {
+      if (this.currentMilestone !== 'ALL') return this.currentMilestone
+      const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
+      const idx = ORDER.findIndex(k => row.milestones[k].status !== 'COMPLETE')
+      return idx === -1 ? 'CUSTOMS' : ORDER[idx]
+    },
+    milestoneNameOf(key) {
+      return this.milestoneConfig.find(m => m.key === key)?.name || key
     },
 
     // Overall HBL progress — which stage is it at right now (independent of selected task)
@@ -627,47 +659,54 @@ export default {
     },
 
     openVerifyDialog(hbl) {
-      this.verifyDialog = { visible:true, hbl, result:'COMPLETE', reason:'', remark:'', sanitaryCert:false }
+      this.verifyDialog = { visible:true, hbl, milestoneKey:this.effectiveKey(hbl), result:'COMPLETE', reason:'', remark:'', sanitaryCert:false }
     },
     openBulkVerify() {
-      this.verifyDialog = { visible:true, hbl:null, result:'COMPLETE', reason:'', remark:'', sanitaryCert:false }
+      // Bulk: each HBL is processed against its own effective milestone (All mode)
+      this.verifyDialog = { visible:true, hbl:null, milestoneKey:null, result:'COMPLETE', reason:'', remark:'', sanitaryCert:false }
     },
 
     submitVerify() {
-      const { hbl, result, reason, remark } = this.verifyDialog
+      const { hbl, result, reason, remark, milestoneKey } = this.verifyDialog
       const targets = hbl ? [hbl] : this.selectedHbls
-      const milestone = this.currentMilestone
       const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
-      const milestoneIdx = ORDER.indexOf(milestone)
       const now = new Date().toLocaleString() + ' CET (UTC+1)'
+      // Milestone per target: fixed when opened from a row / a selected task;
+      // each row's own current stage when bulk-verifying in All mode.
+      const mkFor = h => milestoneKey || this.effectiveKey(h)
 
       // ── Prerequisite check (COMPLETE only) ──────────────────────────────
-      // All steps BEFORE the current one must be COMPLETE before this can be approved.
+      // All steps BEFORE the target one must be COMPLETE before it can be approved.
       if (result === 'COMPLETE') {
-        const blocked = targets.filter(h =>
-          ORDER.slice(0, milestoneIdx).some(k => h.milestones[k].status !== 'COMPLETE')
-        )
+        const blocked = targets.filter(h => {
+          const idx = ORDER.indexOf(mkFor(h))
+          return ORDER.slice(0, idx).some(k => h.milestones[k].status !== 'COMPLETE')
+        })
         if (blocked.length > 0) {
           const names = blocked.map(h => h.hblNo).join(', ')
-          const missing = ORDER.slice(0, milestoneIdx).find(k =>
+          const idx = ORDER.indexOf(mkFor(blocked[0]))
+          const missing = ORDER.slice(0, idx).find(k =>
             blocked[0].milestones[k].status !== 'COMPLETE'
           )
-          const missingName = this.milestoneConfig.find(m => m.key === missing)?.name || missing
-          this.$message.error(`Cannot approve: "${missingName}" must be completed first for ${names}`)
+          this.$message.error(`Cannot approve: "${this.milestoneNameOf(missing)}" must be completed first for ${names}`)
           return
         }
       }
 
       targets.forEach(h => {
+        const milestone = mkFor(h)
+        const milestoneIdx = ORDER.indexOf(milestone)
+        const milestoneName = this.milestoneNameOf(milestone)
+
         if (result === 'COMPLETE') {
-          // ── Mark current milestone complete ──────────────────────────────
+          // ── Mark target milestone complete ───────────────────────────────
           this.$set(h.milestones[milestone], 'status', 'COMPLETE')
           this.$set(h.milestones[milestone], 'completedBy', 'Demo User')
           this.$set(h.milestones[milestone], 'completedAt', now)
           this.$set(h.milestones[milestone], 'isRecheck', false)
 
           h.verifyHistory.unshift({
-            milestone: this.currentMilestoneName, status: 'Complete',
+            milestone: milestoneName, status: 'Complete',
             user: 'Demo User', time: now, reason: '', remark: ''
           })
 
@@ -679,14 +718,14 @@ export default {
               this.$set(h.milestones[next], 'lockReason', '')
             }
           }
-          this.$message.success(`${this.currentMilestoneName} approved for ${h.hblNo}`)
+          this.$message.success(`${milestoneName} approved for ${h.hblNo}`)
 
         } else {
           // ── Not Complete → ALL 3 milestones enter Pending Correction ────
           // Pepco is locked out. Reset to Re-check happens ONLY after OHA
           // confirms the correction (in Document Management page).
           h.verifyHistory.unshift({
-            milestone: this.currentMilestoneName, status: 'Incomplete',
+            milestone: milestoneName, status: 'Incomplete',
             user: 'Demo User', time: now, reason,
             remark: (remark ? remark + '. ' : '') + 'Email sent to supplier.'
           })
@@ -704,7 +743,7 @@ export default {
             title: 'Rejection submitted',
             dangerouslyUseHTMLString: true,
             message: `<div style="font-size:12px;line-height:1.7">
-              <div><b>${h.hblNo}</b> — ${this.currentMilestoneName}</div>
+              <div><b>${h.hblNo}</b> — ${milestoneName}</div>
               <div>Reason: ${reason}</div>
               <div style="color:#13ce66;margin-top:4px">
                 ✉ Notification email sent to supplier<br>
