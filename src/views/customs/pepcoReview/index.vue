@@ -117,6 +117,11 @@
           <el-tabs v-model="row.activeTab" size="mini" type="card">
             <!-- Documents tab -->
             <el-tab-pane label="Documents" name="documents">
+              <div style="display:flex;justify-content:flex-end;margin-top:8px">
+                <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadAllDocs(row)">
+                  Download All ({{ row.documents.length }})
+                </el-button>
+              </div>
               <el-table :data="row.documents" size="mini" stripe border style="margin-top:8px">
                 <el-table-column label="Document Type" min-width="160" prop="docType" />
                 <el-table-column label="File Name" min-width="180" prop="fileName" />
@@ -668,6 +673,18 @@ export default {
       })
 
       this.$message.success(`Supplier correction confirmed for ${h.hblNo} — all milestones reset, flow restarts at PGS (Re-check)`)
+    },
+
+    downloadAllDocs(h) {
+      this.$notify({
+        title: 'Download started',
+        dangerouslyUseHTMLString: true,
+        message: `<div style="font-size:12px;line-height:1.7">
+          <div><b>${h.hblNo}</b> — ${h.documents.length} file(s) packed as ZIP</div>
+          ${h.documents.map(d => `<div style="color:#999">📄 ${d.fileName} (v${d.version})</div>`).join('')}
+        </div>`,
+        type: 'success', duration: 4000,
+      })
     },
 
     openDocPreview(hblRow, doc) {
