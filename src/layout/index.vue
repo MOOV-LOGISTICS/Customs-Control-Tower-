@@ -43,12 +43,7 @@
             <i class="el-icon-arrow-down" style="margin-left:4px"></i>
           </span>
           <el-dropdown-menu slot="dropdown">
-            <el-dropdown-item @click.native="currentRole='MOOV Ops'">MOOV Ops</el-dropdown-item>
-            <el-dropdown-item @click.native="currentRole='Supplier'">Supplier</el-dropdown-item>
-            <el-dropdown-item @click.native="currentRole='Pepco PGS'">Pepco PGS</el-dropdown-item>
-            <el-dropdown-item @click.native="currentRole='Pepco Finance'">Pepco Finance</el-dropdown-item>
-            <el-dropdown-item @click.native="currentRole='Pepco Customs'">Pepco Customs</el-dropdown-item>
-            <el-dropdown-item @click.native="currentRole='Customs Broker'">Customs Broker</el-dropdown-item>
+            <el-dropdown-item v-for="r in roles" :key="r" @click.native="switchRole(r)">{{ r }}</el-dropdown-item>
           </el-dropdown-menu>
         </el-dropdown>
         <el-avatar :size="28" style="background:#3A71A8;cursor:default">D</el-avatar>
@@ -64,9 +59,20 @@
 </template>
 
 <script>
+import { roleStore, ROLES, setRole } from '@/store/role'
+
 export default {
   name: 'Layout',
-  data() { return { currentRole: 'MOOV Ops' } }
+  data() { return { roles: ROLES } },
+  computed: {
+    currentRole() { return roleStore.currentRole },
+  },
+  methods: {
+    switchRole(r) {
+      setRole(r)
+      this.$message.info(`Switched to role: ${r}`)
+    },
+  },
 }
 </script>
 

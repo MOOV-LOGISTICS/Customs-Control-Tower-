@@ -39,7 +39,10 @@
         </el-col>
         <el-col :span="3"><el-button type="primary" size="mini" icon="el-icon-search" @click="$message.info('Filter applied')">Search</el-button></el-col>
         <el-col :span="6" style="text-align:right">
-          <el-button type="primary" size="mini" icon="el-icon-finished" :disabled="selectedHbls.length===0" @click="openBulkVerify">
+          <el-tooltip v-if="!canVerify" content="Your role has read-only access to this page" placement="top">
+            <el-tag size="mini" type="info"><i class="el-icon-view"></i> Read-only</el-tag>
+          </el-tooltip>
+          <el-button v-else type="primary" size="mini" icon="el-icon-finished" :disabled="selectedHbls.length===0" @click="openBulkVerify">
             Verify Documents ({{ selectedHbls.length }})
           </el-button>
         </el-col>
@@ -52,7 +55,7 @@
         :data="filteredHbls" size="mini" stripe border
         @selection-change="selectedHbls = $event"
       >
-        <el-table-column type="selection" width="40" />
+        <el-table-column type="selection" width="40" :selectable="rowSelectable" />
         <el-table-column label="HBL Number" width="120">
           <template #default="{row}">
             <span class="hbl-link" @click="toggleExpand(row)">{{ row.hblNo }}</span>
@@ -66,9 +69,7 @@
         <!-- Current Stage (overall HBL progress) -->
         <el-table-column label="Current Stage" width="200">
           <template #default="{row}">
-            <span :class="['stage-badge', currentStage(row).cls]">
-              <i :class="currentStage(row).icon"></i> {{ currentStage(row).label }}
-            </span>
+            <span :class="['stage-badge', currentStage(row).cls]">{{ currentStage(row).label }}</span>
             <el-tag v-if="currentStage(row).recheck" size="mini" type="warning" style="margin-left:4px;font-size:9px">RE-CHECK</el-tag>
           </template>
         </el-table-column>
@@ -81,39 +82,14 @@
                 {{ stepLabel(row.milestones[effectiveKey(row)].status) }}
               </span>
               <el-tag v-if="row.milestones[effectiveKey(row)].isRecheck" size="mini" type="warning" style="margin-left:4px;font-size:9px">RE-CHECK</el-tag>
+              <div v-if="row.milestones[effectiveKey(row)].status==='LOCKED'" style="font-size:10px;color:#b0b6bf;margin-top:2px">
+                {{ row.milestones[effectiveKey(row)].lockReason }}
+              </div>
             </div>
           </template>
         </el-table-column>
 
         <!-- Action -->
-        <el-table-column label="Action" width="190" align="center">
-          <template #default="{row}">
-            <!-- Pending Correction: Pepco locked out; OHA demo entry shown -->
-            <template v-if="row.milestones[effectiveKey(row)].status === 'PENDING_CORRECTION'">
-              <el-tooltip content="Documents are being corrected by Supplier & OHA. This entry point belongs to the Document Management page — shown here for demo." placement="left">
-                <el-button size="mini" type="warning" plain icon="el-icon-check" @click="ohaConfirmCorrection(row)">
-                  Confirm Correction (OHA)
-                </el-button>
-              </el-tooltip>
-            </template>
-            <el-tooltip v-else-if="row.milestones[effectiveKey(row)].status === 'LOCKED'"
-              :content="`Waiting for ${lockReason(row, effectiveKey(row))}`" placement="left">
-              <span>
-                <el-button size="mini" type="primary" plain disabled icon="el-icon-lock">Locked</el-button>
-              </span>
-            </el-tooltip>
-            <el-button v-else-if="row.milestones[effectiveKey(row)].status === 'COMPLETE'"
-              size="mini" type="text" icon="el-icon-view" @click="toggleExpand(row)">
-              View History
-            </el-button>
-            <el-button v-else
-              size="mini" type="primary" icon="el-icon-finished"
-              @click="openVerifyDialog(row)">
-              Verify Docs
-            </el-button>
-          </template>
-        </el-table-column>
-
         <!-- Expand toggle -->
         <el-table-column width="40" align="center">
           <template #default="{row}">
@@ -165,6 +141,19 @@
             <!-- Documents Verified tab -->
             <el-tab-pane name="verified">
               <span slot="label"><i class="el-icon-finished"></i> Documents Verified</span>
+              <!-- Pending Correction banner + OHA demo entry -->
+              <div v-if="currentStage(row).cls==='stage-correction'" class="correction-banner">
+                <i class="el-icon-warning-outline"></i>
+                <div style="flex:1">
+                  <strong>PENDING CORRECTION</strong> — Documents are being corrected by Supplier &amp; OHA. All milestones are locked until OHA confirms the fix.
+                </div>
+                <el-tooltip content="This entry point belongs to the Document Management page — shown here for demo." placement="top">
+                  <el-button size="mini" type="warning" plain icon="el-icon-check" @click="ohaConfirmCorrection(row)">
+                    Confirm Correction (OHA)
+                  </el-button>
+                </el-tooltip>
+              </div>
+
               <!-- Re-check banner -->
               <div v-if="hasRecheck(row)" class="recheck-banner">
                 <i class="el-icon-warning-outline"></i>
@@ -200,9 +189,10 @@
                 </div>
               </div>
               <el-table :data="row.verifyHistory" size="mini" stripe border style="margin-top:8px">
-                <el-table-column label="Milestone" width="180">
+                <el-table-column label="Milestone" width="220">
                   <template #default="{row}">
                     <span :class="['ms-pill', `ms-pill-${row.milestone.toLowerCase()}`]">{{ row.milestone }}</span>
+                    <el-tag v-if="row.isRecheck" size="mini" type="warning" style="margin-left:4px;font-size:9px;vertical-align:middle">RE-CHECK</el-tag>
                   </template>
                 </el-table-column>
                 <el-table-column label="Status" width="110">
@@ -376,6 +366,8 @@
 </template>
 
 <script>
+import { roleStore, ROLE_MILESTONE } from '@/store/role'
+
 const mkHbl = (hblNo, mblNo, supplier, pol, pod, eta, pgs, fin, cus, docs, history) => ({
   hblNo, mblNo, supplier, pol, pod, eta,
   milestones: { PGS: pgs, FINANCE: fin, CUSTOMS: cus },
@@ -433,17 +425,18 @@ export default {
             { milestone:'PGS Check',  status:'Complete',   user:'Sarah J. (PGS)',  time:'2024-11-13 10:30 CET (UTC+1)', reason:'', remark:'' },
           ]
         ),
-        // 3. PGS rejected → all reset to Re-check
+        // 3. PGS rejected → reset → PGS re-checked OK → Finance now in re-check
         mkHbl('MOOV240003','CMDU240003','Ho Chi Minh Apparel','VNSGN','CZPRE','2024-12-02',
+          s('COMPLETE','Sarah J. (PGS)','2024-11-14 09:40 CET',true),
           s('IN_PROGRESS',null,null,true),
-          s('LOCKED',   null,null,true,'Waiting for PGS Check'),
           s('LOCKED',   null,null,true,'Waiting for Finance Check'),
           DOCS_BASE,
           [
-            { milestone:'PGS Check', status:'Complete',   user:'Sarah J. (PGS)',  time:'2024-11-10 09:15 CET (UTC+1)', reason:'', remark:'' },
-            { milestone:'PGS Check', status:'Incomplete', user:'Sarah J. (PGS)',  time:'2024-11-11 14:20 CET (UTC+1)', reason:'V002 - Incorrect shipping docs', remark:'CI date mismatch vs PL' },
-            { milestone:'PGS Check', status:'Revoke',     user:'PEPCO 4PL Admin', time:'2024-11-12 08:00 CET (UTC+1)', reason:'', remark:'' },
-            { milestone:'OHA Note',  status:'Correction', user:'OHA Bangladesh',  time:'2024-11-13 11:30 UTC+6',       reason:'', remark:'Updated CI v2 uploaded with correct dates. Packing list also re-uploaded.' },
+            { milestone:'PGS Check', status:'Complete',   user:'Sarah J. (PGS)',  time:'2024-11-14 09:40 CET (UTC+1)', reason:'', remark:'', isRecheck:true  },
+            { milestone:'OHA Note',  status:'Correction', user:'OHA Bangladesh',  time:'2024-11-13 11:30 UTC+6',       reason:'', remark:'Updated CI v2 uploaded with correct dates. Packing list also re-uploaded.', isRecheck:false },
+            { milestone:'PGS Check', status:'Revoke',     user:'PEPCO 4PL Admin', time:'2024-11-12 08:00 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
+            { milestone:'PGS Check', status:'Incomplete', user:'Sarah J. (PGS)',  time:'2024-11-11 14:20 CET (UTC+1)', reason:'V002 - Incorrect shipping docs', remark:'CI date mismatch vs PL', isRecheck:false },
+            { milestone:'PGS Check', status:'Complete',   user:'Sarah J. (PGS)',  time:'2024-11-10 09:15 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
           ]
         ),
         // 4. PGS + Finance complete, Customs in-progress
@@ -469,15 +462,16 @@ export default {
             { milestone:'Customs Check', status:'Complete', user:'Anna W. (Customs)',time:'2024-11-12 15:30 CET (UTC+1)', reason:'', remark:'' },
           ]
         ),
-        // 6. Finance rejected → ALL in Pending Correction (waiting for OHA to confirm fix)
+        // 6. Customs Check rejected → ALL in Pending Correction (reset will go back to PGS step 1)
         mkHbl('MOOV240006','EGLV240006','Guangzhou Clothing Co.','CNGZU','PLWAW','2024-12-18',
           s('PENDING_CORRECTION',null,null,false,'Waiting for OHA correction'),
           s('PENDING_CORRECTION',null,null,false,'Waiting for OHA correction'),
           s('PENDING_CORRECTION',null,null,false,'Waiting for OHA correction'),
           DOCS_BASE,
           [
-            { milestone:'PGS Check',     status:'Complete',   user:'Sarah J. (PGS)',   time:'2024-11-15 10:00 CET (UTC+1)', reason:'', remark:'' },
-            { milestone:'Finance Check', status:'Incomplete', user:'Tom K. (Finance)', time:'2024-11-16 09:30 CET (UTC+1)', reason:'V001 - Missing shipping docs', remark:'Sanitary cert missing for food items. Email sent to supplier.' },
+            { milestone:'PGS Check',     status:'Complete',   user:'Sarah J. (PGS)',    time:'2024-11-15 10:00 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
+            { milestone:'Finance Check', status:'Complete',   user:'Tom K. (Finance)',  time:'2024-11-16 09:30 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
+            { milestone:'Customs Check', status:'Incomplete', user:'Anna W. (Customs)', time:'2024-11-17 11:45 CET (UTC+1)', reason:'V003 - Sanitary certificate invalid', remark:'Sanitary cert expiry date does not match shipment ETA. Email sent to supplier.', isRecheck:false },
           ]
         ),
       ],
@@ -502,6 +496,14 @@ export default {
   },
 
   computed: {
+    // ── Role scoping (demo of RBAC: role ↔ milestone mapping) ────────────
+    role() { return roleStore.currentRole },
+    // milestone the current role operates on; null = not a reviewer
+    myKey() { return ROLE_MILESTONE[this.role] || null },
+    isOps() { return this.role === 'MOOV Ops' },
+    // Supplier / Customs Broker etc. can look but never verify
+    canVerify() { return this.isOps || !!this.myKey },
+
     currentKpi() {
       if (this.currentMilestone === 'ALL') {
         const keys = ['possible', 'urgent', 'overdue', 'finished']
@@ -539,7 +541,19 @@ export default {
     const q = this.$route.query
     if (q.milestone && ['PGS','FINANCE','CUSTOMS'].includes(q.milestone)) {
       this.currentMilestone = q.milestone
+    } else if (this.myKey) {
+      // Reviewer roles land on their own task queue by default
+      this.currentMilestone = this.myKey
     }
+  },
+
+  watch: {
+    // Switching role re-scopes the page: reviewers get their own queue,
+    // everyone else gets the global view
+    role() {
+      this.currentMilestone = this.myKey || 'ALL'
+      this.selectedHbls = []
+    },
   },
 
   methods: {
@@ -563,6 +577,16 @@ export default {
       return this.milestoneConfig.find(m => m.key === key)?.name || key
     },
 
+    // Row-level permission (front-end mirror of the backend RBAC check):
+    // a row is operable only when the milestone it sits at belongs to my role
+    // and is actually open for review. MOOV Ops bypasses the role scope.
+    rowSelectable(row) {
+      if (!this.canVerify) return false
+      const key = this.effectiveKey(row)
+      if (!this.isOps && key !== this.myKey) return false
+      return row.milestones[key].status === 'IN_PROGRESS'
+    },
+
     // Overall HBL progress — which stage is it at right now (independent of selected task)
     currentStage(row) {
       const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
@@ -579,7 +603,7 @@ export default {
       const cfg = this.milestoneConfig[idx]
       const ms = row.milestones[ORDER[idx]]
       return {
-        label: `${cfg.step} ${cfg.shortName} — ${this.stepLabel(ms.status)}`,
+        label: cfg.shortName,
         cls: 'stage-active', icon: 'el-icon-time', recheck: ms.isRecheck,
       }
     },
@@ -707,7 +731,8 @@ export default {
 
           h.verifyHistory.unshift({
             milestone: milestoneName, status: 'Complete',
-            user: 'Demo User', time: now, reason: '', remark: ''
+            user: 'Demo User', time: now, reason: '', remark: '',
+            isRecheck: !!h.milestones[milestone].isRecheck,
           })
 
           // Unlock ONLY the immediately next milestone
@@ -727,7 +752,8 @@ export default {
           h.verifyHistory.unshift({
             milestone: milestoneName, status: 'Incomplete',
             user: 'Demo User', time: now, reason,
-            remark: (remark ? remark + '. ' : '') + 'Email sent to supplier.'
+            remark: (remark ? remark + '. ' : '') + 'Email sent to supplier.',
+            isRecheck: !!h.milestones[milestone].isRecheck,
           })
 
           ORDER.forEach(k => {
@@ -849,6 +875,14 @@ export default {
   border:1px solid #ffd666; border-radius:6px; padding:10px 14px; margin-bottom:8px;
   font-size:12px; color:#7d5a00;
   i { font-size:16px; color:#E6A817; margin-top:1px; flex-shrink:0; }
+}
+
+// Pending Correction banner (with OHA demo entry)
+.correction-banner {
+  display:flex; align-items:center; gap:8px; background:#fff1f0;
+  border:1px solid #ffa39e; border-radius:6px; padding:10px 14px; margin-bottom:8px;
+  font-size:12px; color:#8c2e2b;
+  i { font-size:16px; color:#ff4949; flex-shrink:0; }
 }
 
 // Milestone pills in history table

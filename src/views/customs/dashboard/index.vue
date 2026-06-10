@@ -20,7 +20,7 @@
         <span>Customs Document Review — Milestones</span>
         <span style="font-size:11px;color:#999;font-weight:400">Click any status number to go directly to that milestone's HBL list</span>
       </div>
-      <el-table :data="milestoneRows" size="mini" border :header-cell-style="{background:'#fafafa'}">
+      <el-table :data="milestoneRows" size="mini" border :header-cell-style="{background:'#fafafa'}" :row-class-name="milestoneRowClass">
         <el-table-column label="Task Name" min-width="240">
           <template #default="{row}">
             <div style="display:flex;align-items:center;gap:8px">
@@ -28,6 +28,7 @@
               <span style="font-weight:600">{{ row.taskName }}</span>
               <span v-if="row.legacy" style="font-size:10px;color:#999">({{ row.legacy }})</span>
               <el-tag v-if="row.isNew" size="mini" type="success" style="font-size:10px">New</el-tag>
+              <el-tag v-if="myKey===row.key" size="mini" style="font-size:10px">My Task</el-tag>
             </div>
           </template>
         </el-table-column>
@@ -46,6 +47,13 @@
         <el-table-column label="Overdue" width="100" align="center">
           <template #default="{row}">
             <span class="ms-num overdue" @click="goToMilestone(row.key, 'overdue')">{{ row.overdue }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Pending Correction" width="140" align="center">
+          <template #default="{row}">
+            <el-tooltip content="Rejected at this milestone — waiting for Supplier/OHA correction. Re-enters the PGS queue once OHA confirms." placement="top">
+              <span class="ms-num correction" @click="goToMilestone(row.key, 'correction')">{{ row.pendingCorrection }}</span>
+            </el-tooltip>
           </template>
         </el-table-column>
         <el-table-column label="Finished" width="100" align="center">
@@ -121,6 +129,8 @@ const STATUS_MAP = {
   REJECTED:      { label:'Rejected',        cls:'rejected' },
 }
 
+import { roleStore, ROLE_MILESTONE } from '@/store/role'
+
 export default {
   name: 'CustomsDashboard',
   data() {
@@ -135,13 +145,14 @@ export default {
         { label:'Ready for Broker', value: 2, icon:'el-icon-download', color:'#13ce66', bg:'#e6f9ef' },
       ],
       milestoneRows: [
-        { key:'PGS',     taskName:'PGS Document Check',                partyRole:'Pepco PGS',     level:'HBL', possible:102, urgent:5,  overdue:18, finished:1234, dotClass:'dot-pgs',     isNew:true  },
-        { key:'FINANCE', taskName:'Finance Document Check',            partyRole:'Pepco Finance',  level:'HBL', possible:87,  urgent:3,  overdue:9,  finished:1198, dotClass:'dot-finance',  isNew:true  },
-        { key:'CUSTOMS', taskName:'Customs Document Check', legacy:'Shipping Documents Verify by Pepco', partyRole:'Pepco Customs',  level:'HBL', possible:45,  urgent:2,  overdue:6,  finished:1150, dotClass:'dot-customs',  isNew:false },
+        { key:'PGS',     taskName:'PGS Document Check',                partyRole:'Pepco PGS',     level:'HBL', possible:102, urgent:5,  overdue:18, pendingCorrection:2, finished:1234, dotClass:'dot-pgs',     isNew:true  },
+        { key:'FINANCE', taskName:'Finance Document Check',            partyRole:'Pepco Finance',  level:'HBL', possible:87,  urgent:3,  overdue:9,  pendingCorrection:3, finished:1198, dotClass:'dot-finance',  isNew:true  },
+        { key:'CUSTOMS', taskName:'Customs Document Check', legacy:'Shipping Documents Verify by Pepco', partyRole:'Pepco Customs',  level:'HBL', possible:45,  urgent:2,  overdue:6,  pendingCorrection:1, finished:1150, dotClass:'dot-customs',  isNew:false },
       ],
     }
   },
   computed: {
+    myKey() { return ROLE_MILESTONE[roleStore.currentRole] || null },
     filteredRows() {
       return this.rows.filter(r => {
         const q = this.search.toLowerCase()
@@ -157,6 +168,9 @@ export default {
     goTo(row) { this.$router.push('/customs/pepco-review') },
     goToMilestone(key, filter) {
       this.$router.push({ path: '/customs/pepco-review', query: { milestone: key, filter } })
+    },
+    milestoneRowClass({ row }) {
+      return this.myKey === row.key ? 'my-milestone-row' : ''
     },
   }
 }
@@ -179,6 +193,7 @@ export default {
   &.possible { color:#3A71A8; }
   &.urgent   { color:#E6A817; }
   &.overdue  { color:#ff4949; }
+  &.correction { color:#c25e00; }
   &.finished { color:#13ce66; }
 }
 
@@ -192,4 +207,6 @@ export default {
 }
 .kpi-value { font-size:24px; font-weight:700; color:$text-primary; line-height:1.2; }
 .kpi-label { font-size:11px; color:$text-secondary; margin-top:2px; }
+
+::v-deep .my-milestone-row { background:#f0f7ff !important; }
 </style>
