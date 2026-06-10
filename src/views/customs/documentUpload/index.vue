@@ -363,7 +363,11 @@
 
       <div slot="footer">
         <el-button size="small" @click="uploadDialog.visible=false">Cancel</el-button>
-        <el-button size="small" type="primary" @click="confirmUpload">Confirm</el-button>
+        <el-tooltip :disabled="canConfirm" content="Commercial Invoice and Packing List must both be uploaded and AI-verified" placement="top">
+          <span style="margin-left:10px">
+            <el-button size="small" type="primary" :disabled="!canConfirm" @click="confirmUpload">Confirm</el-button>
+          </span>
+        </el-tooltip>
       </div>
     </el-dialog>
 
@@ -538,6 +542,15 @@ export default {
     milestoneComplete() {
       return this.mandatorySlots.every(s => s.state === 'verified')
     },
+    // Confirm enabled only when each required doc type is covered:
+    // uploaded in this session (verified / force-saved) or already on the PO
+    canConfirm() {
+      if (!this.currentPo) return false
+      return this.mandatorySlots.every(slot =>
+        slot.state === 'verified' || slot.state === 'force_saved'
+        || this.currentPo.docs.some(d => d.docTypeLabel === slot.label)
+      )
+    },
     milestoneBarClass() {
       const states = this.mandatorySlots.map(s => s.state)
       if (states.every(s => s === 'verified')) return 'bar-complete'
@@ -634,15 +647,9 @@ export default {
       const today = new Date().toISOString().slice(0, 10)
       let saved = 0
 
-      // ── Mandatory check: CI and PL must each be present, either uploaded
-      // in this session or already on the PO from an earlier upload ────────
-      const missing = this.mandatorySlots.filter(slot => {
-        const uploadedNow = slot.state === 'verified' || slot.state === 'force_saved'
-        const alreadyOnPo = this.currentPo.docs.some(d => d.docTypeLabel === slot.label)
-        return !uploadedNow && !alreadyOnPo
-      })
-      if (missing.length > 0) {
-        this.$message.error(`Cannot confirm: ${missing.map(s => s.label).join(' and ')} ${missing.length > 1 ? 'are' : 'is'} required`)
+      // Backstop for the disabled button — same rule as canConfirm
+      if (!this.canConfirm) {
+        this.$message.error('Cannot confirm: Commercial Invoice and Packing List are both required')
         return
       }
 
