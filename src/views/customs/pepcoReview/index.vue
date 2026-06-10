@@ -155,7 +155,9 @@
                 </el-table-column>
                 <el-table-column label="Uploaded" width="130" prop="uploadedAt" />
                 <el-table-column label="" width="70" align="center">
-                  <template><el-button type="text" size="mini" icon="el-icon-view">Preview</el-button></template>
+                  <template #default="scope">
+                    <el-button type="text" size="mini" icon="el-icon-view" @click="openDocPreview(row, scope.row)">Preview</el-button>
+                  </template>
                 </el-table-column>
               </el-table>
             </el-tab-pane>
@@ -281,6 +283,68 @@
       </div>
     </el-dialog>
 
+    <!-- ── Document Preview Dialog ───────────────────────────────────── -->
+    <el-dialog :visible.sync="docPreview.visible" :title="`Preview — ${docPreview.docType} (v${docPreview.version})`" width="760px" top="5vh">
+      <div class="preview-dialog">
+        <div class="preview-meta">
+          <el-descriptions :column="3" size="mini" border>
+            <el-descriptions-item label="Document Type">{{ docPreview.docType }}</el-descriptions-item>
+            <el-descriptions-item label="Version">
+              <el-tag size="mini" :type="docPreview.status === 'VERIFIED' ? 'success' : 'warning'">
+                v{{ docPreview.version }} · {{ docPreview.status === 'VERIFIED' ? 'Verified' : 'Unverified' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="Uploaded">{{ docPreview.uploadedAt }}</el-descriptions-item>
+            <el-descriptions-item label="File Name" :span="2">{{ docPreview.fileName }}</el-descriptions-item>
+            <el-descriptions-item label="HBL Number">
+              <span style="color:#004F7C;font-weight:600">{{ docPreview.hblNo }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
+        </div>
+
+        <div v-if="docPreview.status === 'VERIFIED'" class="preview-verify-bar">
+          <i class="el-icon-circle-check" style="color:#13ce66"></i>
+          <span>AI Verified — Document type, PO Number and Supplier all matched</span>
+        </div>
+        <div v-else class="preview-verify-bar unverified">
+          <i class="el-icon-warning-outline" style="color:#E6A817"></i>
+          <span>Unverified — Pending OHA review</span>
+        </div>
+
+        <!-- Simulated PDF viewer -->
+        <div class="pdf-viewer">
+          <div class="pdf-page">
+            <div class="pdf-header-row">
+              <div class="pdf-company">{{ docPreview.supplier }}</div>
+              <div class="pdf-doc-title">{{ docPreview.docType }}</div>
+            </div>
+            <div class="pdf-divider"></div>
+            <div class="pdf-fields">
+              <div class="pdf-field"><span class="pdf-label">HBL Number</span><span class="pdf-value highlight">{{ docPreview.hblNo }}</span></div>
+              <div class="pdf-field"><span class="pdf-label">Document No.</span><span class="pdf-value">{{ docPreview.fileName.replace('.pdf','') }}</span></div>
+              <div class="pdf-field"><span class="pdf-label">Date</span><span class="pdf-value">{{ docPreview.uploadedAt }}</span></div>
+              <div class="pdf-field"><span class="pdf-label">Supplier</span><span class="pdf-value">{{ docPreview.supplier }}</span></div>
+            </div>
+            <div class="pdf-table-mock">
+              <div class="pdf-table-hdr"><span>Item Description</span><span>Qty</span><span>Unit Price</span><span>Amount</span></div>
+              <div class="pdf-table-row" v-for="i in 4" :key="i">
+                <span>Product Item {{ String.fromCharCode(64+i) }}</span>
+                <span>{{ i * 120 }}</span>
+                <span>USD {{ (i * 3.5).toFixed(2) }}</span>
+                <span>USD {{ (i * 120 * 3.5).toFixed(2) }}</span>
+              </div>
+              <div class="pdf-table-total"><span>Total</span><span></span><span></span><span>USD 4200.00</span></div>
+            </div>
+            <div class="pdf-footer">[ Simulated document preview — for demo purposes ]</div>
+          </div>
+        </div>
+      </div>
+      <div slot="footer">
+        <el-button size="small" icon="el-icon-download" type="primary" @click="$message.success(`Downloading ${docPreview.fileName}…`)">Download</el-button>
+        <el-button size="small" @click="docPreview.visible=false">Close</el-button>
+      </div>
+    </el-dialog>
+
   </div>
 </template>
 
@@ -401,6 +465,13 @@ export default {
         remark: '',
         sanitaryCert: false,
       },
+
+      docPreview: {
+        visible: false,
+        docType: '', fileName: '', version: 1,
+        status: 'VERIFIED', uploadedAt: '',
+        hblNo: '', supplier: '',
+      },
     }
   },
 
@@ -458,6 +529,19 @@ export default {
 
     historyStatusClass(status) {
       return { Complete:'completed', Incomplete:'rejected', Revoke:'pending', Correction:'recheck' }[status] || 'pending'
+    },
+
+    openDocPreview(hblRow, doc) {
+      this.docPreview = {
+        visible: true,
+        docType: doc.docType,
+        fileName: doc.fileName,
+        version: doc.version,
+        status: doc.status,
+        uploadedAt: doc.uploadedAt,
+        hblNo: hblRow.hblNo,
+        supplier: hblRow.supplier,
+      }
     },
 
     openVerifyDialog(hbl) {
@@ -660,4 +744,31 @@ export default {
 .status-badge {
   &.recheck { background:#f0fdf4; color:#13ce66; }
 }
+
+// ── Document Preview Dialog ──────────────────────────────────────────────────
+.preview-dialog { display:flex; flex-direction:column; gap:12px; }
+.preview-verify-bar {
+  display:flex; align-items:center; gap:8px; padding:8px 12px;
+  border-radius:6px; font-size:12px; font-weight:500;
+  background:#e6f9ef; color:darken(#13ce66,10%);
+  &.unverified { background:#fff8e0; color:#e6a817; }
+  i { font-size:16px; }
+}
+.pdf-viewer { border:1px solid $border; border-radius:6px; overflow:hidden; max-height:380px; overflow-y:auto; }
+.pdf-page { background:#fff; padding:24px 28px; font-size:12px; min-height:300px; }
+.pdf-header-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; }
+.pdf-company   { font-weight:700; font-size:14px; color:$primary; }
+.pdf-doc-title { font-weight:700; font-size:16px; color:$text-primary; }
+.pdf-divider   { height:2px; background:$primary; margin-bottom:14px; }
+.pdf-fields    { display:grid; grid-template-columns:1fr 1fr; gap:6px 20px; margin-bottom:16px; }
+.pdf-field     { display:flex; gap:8px; }
+.pdf-label     { color:$text-secondary; width:90px; flex-shrink:0; }
+.pdf-value     { color:$text-primary; font-weight:500; &.highlight { color:$primary; font-weight:700; } }
+.pdf-table-mock { border:1px solid $border; border-radius:4px; overflow:hidden; margin-bottom:12px; }
+.pdf-table-hdr { display:grid; grid-template-columns:3fr 1fr 1fr 1fr; background:#f5f7fa; padding:6px 10px; font-weight:600; font-size:11px; color:$text-secondary; gap:8px; }
+.pdf-table-row { display:grid; grid-template-columns:3fr 1fr 1fr 1fr; padding:5px 10px; border-top:1px solid $border; gap:8px;
+  &:nth-child(even) { background:#fafafa; }
+}
+.pdf-table-total { display:grid; grid-template-columns:3fr 1fr 1fr 1fr; padding:6px 10px; border-top:2px solid $border; font-weight:700; gap:8px; background:#f0f7ff; }
+.pdf-footer { text-align:center; color:#bbb; font-size:11px; margin-top:8px; font-style:italic; }
 </style>
