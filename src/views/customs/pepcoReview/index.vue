@@ -94,9 +94,17 @@
         </el-table-column>
 
         <!-- Action -->
-        <el-table-column label="Action" width="130" align="center">
+        <el-table-column label="Action" width="190" align="center">
           <template #default="{row}">
-            <el-tooltip v-if="row.milestones[currentMilestone].status === 'LOCKED'"
+            <!-- Pending Correction: Pepco locked out; OHA demo entry shown -->
+            <template v-if="row.milestones[currentMilestone].status === 'PENDING_CORRECTION'">
+              <el-tooltip content="Documents are being corrected by Supplier & OHA. This entry point belongs to the Document Management page — shown here for demo." placement="left">
+                <el-button size="mini" type="warning" plain icon="el-icon-check" @click="ohaConfirmCorrection(row)">
+                  Confirm Correction (OHA)
+                </el-button>
+              </el-tooltip>
+            </template>
+            <el-tooltip v-else-if="row.milestones[currentMilestone].status === 'LOCKED'"
               :content="`Waiting for ${lockReason(row, currentMilestone)}`" placement="left">
               <span>
                 <el-button size="mini" type="primary" plain disabled icon="el-icon-lock">Locked</el-button>
@@ -442,17 +450,15 @@ export default {
             { milestone:'Customs Check', status:'Complete', user:'Anna W. (Customs)',time:'2024-11-12 15:30 CET (UTC+1)', reason:'', remark:'' },
           ]
         ),
-        // 6. Finance rejected → PGS+Finance+Customs all reset
+        // 6. Finance rejected → ALL in Pending Correction (waiting for OHA to confirm fix)
         mkHbl('MOOV240006','EGLV240006','Guangzhou Clothing Co.','CNGZU','PLWAW','2024-12-18',
-          s('IN_PROGRESS',null,null,true),
-          s('LOCKED',null,null,true,'Waiting for PGS Check'),
-          s('LOCKED',null,null,true,'Waiting for Finance Check'),
+          s('PENDING_CORRECTION',null,null,false,'Waiting for OHA correction'),
+          s('PENDING_CORRECTION',null,null,false,'Waiting for OHA correction'),
+          s('PENDING_CORRECTION',null,null,false,'Waiting for OHA correction'),
           DOCS_BASE,
           [
             { milestone:'PGS Check',     status:'Complete',   user:'Sarah J. (PGS)',   time:'2024-11-15 10:00 CET (UTC+1)', reason:'', remark:'' },
-            { milestone:'Finance Check', status:'Incomplete', user:'Tom K. (Finance)', time:'2024-11-16 09:30 CET (UTC+1)', reason:'V001 - Missing shipping docs', remark:'Sanitary cert missing for food items' },
-            { milestone:'Finance Check', status:'Revoke',     user:'PEPCO 4PL Admin',  time:'2024-11-17 08:00 CET (UTC+1)', reason:'', remark:'' },
-            { milestone:'OHA Note',      status:'Correction', user:'OHA Guangzhou',    time:'2024-11-18 14:00 UTC+8',       reason:'', remark:'Sanitary cert uploaded. All docs re-verified by supplier.' },
+            { milestone:'Finance Check', status:'Incomplete', user:'Tom K. (Finance)', time:'2024-11-16 09:30 CET (UTC+1)', reason:'V001 - Missing shipping docs', remark:'Sanitary cert missing for food items. Email sent to supplier.' },
           ]
         ),
       ],
@@ -513,22 +519,52 @@ export default {
 
     stepLabel(status) {
       return { IN_PROGRESS:'In Progress', COMPLETE:'Complete', LOCKED:'Locked',
-               PENDING:'Pending' }[status] || status
+               PENDING:'Pending', PENDING_CORRECTION:'Pending Correction' }[status] || status
     },
 
     stepPipClass(status) {
-      return { IN_PROGRESS:'pip-active', COMPLETE:'pip-done', LOCKED:'pip-locked', PENDING:'pip-pending' }[status] || 'pip-pending'
+      return { IN_PROGRESS:'pip-active', COMPLETE:'pip-done', LOCKED:'pip-locked', PENDING:'pip-pending', PENDING_CORRECTION:'pip-correction' }[status] || 'pip-pending'
     },
     stepPipIcon(status) {
-      return { IN_PROGRESS:'el-icon-time', COMPLETE:'el-icon-check', LOCKED:'el-icon-lock', PENDING:'el-icon-minus' }[status] || 'el-icon-minus'
+      return { IN_PROGRESS:'el-icon-time', COMPLETE:'el-icon-check', LOCKED:'el-icon-lock', PENDING:'el-icon-minus', PENDING_CORRECTION:'el-icon-warning-outline' }[status] || 'el-icon-minus'
     },
 
     milestoneBadgeClass(status) {
-      return { IN_PROGRESS:'in-progress', COMPLETE:'completed', LOCKED:'locked', PENDING:'pending' }[status] || 'pending'
+      return { IN_PROGRESS:'in-progress', COMPLETE:'completed', LOCKED:'locked', PENDING:'pending', PENDING_CORRECTION:'recheck' }[status] || 'pending'
     },
 
     historyStatusClass(status) {
       return { Complete:'completed', Incomplete:'rejected', Revoke:'pending', Correction:'recheck' }[status] || 'pending'
+    },
+
+    // ── OHA confirms correction → reset all 3 milestones to Re-check ──────
+    // In production this entry point lives in the Document Management page;
+    // shown here for demo purposes.
+    ohaConfirmCorrection(h) {
+      const now = new Date().toLocaleString() + ' CET (UTC+1)'
+      const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
+
+      h.verifyHistory.unshift({
+        milestone: 'OHA Note', status: 'Correction',
+        user: 'OHA (Demo)', time: now, reason: '',
+        remark: 'Correction confirmed by OHA. Documents updated and re-verified. All milestones reset for re-check.'
+      })
+
+      ORDER.forEach((k, i) => {
+        this.$set(h.milestones[k], 'isRecheck', true)
+        this.$set(h.milestones[k], 'completedBy', null)
+        this.$set(h.milestones[k], 'completedAt', null)
+        if (i === 0) {
+          this.$set(h.milestones[k], 'status', 'IN_PROGRESS')
+          this.$set(h.milestones[k], 'lockReason', '')
+        } else {
+          this.$set(h.milestones[k], 'status', 'LOCKED')
+          this.$set(h.milestones[k], 'lockReason',
+            i === 1 ? 'Waiting for PGS Check' : 'Waiting for Finance Check')
+        }
+      })
+
+      this.$message.success(`OHA correction confirmed for ${h.hblNo} — all milestones reset, flow restarts at PGS (Re-check)`)
     },
 
     openDocPreview(hblRow, doc) {
@@ -600,30 +636,38 @@ export default {
           this.$message.success(`${this.currentMilestoneName} approved for ${h.hblNo}`)
 
         } else {
-          // ── Not Complete → ALWAYS reset ALL 3 milestones back to step 1 ─
-          // Regardless of which step rejected, flow always restarts from PGS.
+          // ── Not Complete → ALL 3 milestones enter Pending Correction ────
+          // Pepco is locked out. Reset to Re-check happens ONLY after OHA
+          // confirms the correction (in Document Management page).
           h.verifyHistory.unshift({
             milestone: this.currentMilestoneName, status: 'Incomplete',
-            user: 'Demo User', time: now, reason, remark
+            user: 'Demo User', time: now, reason,
+            remark: (remark ? remark + '. ' : '') + 'Email sent to supplier.'
           })
 
-          ORDER.forEach((k, i) => {
-            this.$set(h.milestones[k], 'isRecheck', true)
+          ORDER.forEach(k => {
+            this.$set(h.milestones[k], 'status', 'PENDING_CORRECTION')
+            this.$set(h.milestones[k], 'lockReason', 'Waiting for OHA correction')
             this.$set(h.milestones[k], 'completedBy', null)
             this.$set(h.milestones[k], 'completedAt', null)
-            if (i === 0) {
-              // PGS → back to In Progress (step 1 restarts)
-              this.$set(h.milestones[k], 'status', 'IN_PROGRESS')
-              this.$set(h.milestones[k], 'lockReason', '')
-            } else {
-              // FIN + CUS → locked until PGS passes again
-              this.$set(h.milestones[k], 'status', 'LOCKED')
-              this.$set(h.milestones[k], 'lockReason',
-                i === 1 ? 'Waiting for PGS Check' : 'Waiting for Finance Check')
-            }
+            this.$set(h.milestones[k], 'isRecheck', false)
           })
 
-          this.$message.error(`Rejected — all milestones reset to step 1 (PGS Re-check) for ${h.hblNo}`)
+          // Email notification feedback
+          this.$notify({
+            title: 'Rejection submitted',
+            dangerouslyUseHTMLString: true,
+            message: `<div style="font-size:12px;line-height:1.7">
+              <div><b>${h.hblNo}</b> — ${this.currentMilestoneName}</div>
+              <div>Reason: ${reason}</div>
+              <div style="color:#13ce66;margin-top:4px">
+                ✉ Notification email sent to supplier<br>
+                <span style="color:#999">${h.supplier.toLowerCase().replace(/[^a-z]/g,'')}@supplier-mail.com</span>
+              </div>
+              <div style="color:#999;margin-top:4px">All milestones locked until OHA confirms correction.</div>
+            </div>`,
+            type: 'warning', duration: 6000,
+          })
         }
       })
 
@@ -680,10 +724,11 @@ export default {
   display:flex; align-items:center; gap:3px; padding:2px 6px; border-radius:10px;
   font-size:10px; font-weight:700; white-space:nowrap;
   i { font-size:10px; }
-  &.pip-done    { background:#e6f9ef; color:darken(#13ce66,10%); }
-  &.pip-active  { background:#ecf5ff; color:#004F7C; }
-  &.pip-locked  { background:#f4f4f5; color:#c0c4cc; }
-  &.pip-pending { background:#f4f4f5; color:#909399; }
+  &.pip-done       { background:#e6f9ef; color:darken(#13ce66,10%); }
+  &.pip-active     { background:#ecf5ff; color:#004F7C; }
+  &.pip-locked     { background:#f4f4f5; color:#c0c4cc; }
+  &.pip-pending    { background:#f4f4f5; color:#909399; }
+  &.pip-correction { background:#fff8e0; color:#e6a817; }
 }
 
 // ── HBL link ─────────────────────────────────────────────────────────────────
