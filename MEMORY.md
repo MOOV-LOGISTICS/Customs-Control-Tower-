@@ -1,7 +1,7 @@
 # smartMOOV Customs Project — Memory File
 
 > 上下文压缩后，优先读取此文件恢复项目记忆。
-> 最后更新：2026-06-09
+> 最后更新：2026-06-10
 
 ---
 
@@ -183,7 +183,7 @@ Phase 1 核心逻辑：
 |------|------|---------|
 | **Dashboard** | `/customs/dashboard` | ✅ 完成：KPI 卡片、HBL 列表、状态色标、搜索过滤 |
 | **Document Upload** | `/customs/document-upload` | ✅ 完成：双强制槽位（CI+PL）、异步 AI 校验三种结果、Milestone 门控、其他文件可选上传 |
-| **Pepco Review** | `/customs/pepco-review` | ✅ 完成：三阶段 Milestone、顺序锁定、拒绝+OHA确认+全部重置、Re-check 标识、历史记录 |
+| **Pepco Review** | `/customs/pepco-review` | ✅ 完成（已 merge main，PR #2）：三阶段 Milestone、顺序锁定、拒绝→Pending Correction→OHA确认→全部重置回PGS、Re-check 标识（含历史记录条目）、Role 驱动视图、All Tasks 默认全局模式 |
 | **Broker Downloads** | `/customs/broker-download` | ✅ 完成：文件列表、全选/批量下载、通知时间展示 |
 | **Document Management** | 待建 | ❌ 未做：独立文档管理模块（Phase 1 新增需求） |
 
@@ -191,6 +191,16 @@ Phase 1 核心逻辑：
 - 顶部横向导航栏（深蓝 #004F7C）
 - MOOV Logo 在左侧
 - 右侧有 Role 切换器（Demo 用途）和 Demo Mode 标签
+- Element UI 已配置英文语言包（main.js 引入 `element-ui/lib/locale/lang/en`）
+
+### Role 驱动视图（`src/store/role.js`，2026-06-10 实现）
+- 全局 role store（Vue.observable），Role 切换器真实驱动所有页面
+- `ROLE_MILESTONE` 映射：Pepco PGS→PGS / Pepco Finance→FINANCE / Pepco Customs→CUSTOMS
+- 审核角色：进 Pepco Review 默认锁定自己的任务队列，非自己 milestone 的行复选框禁用
+- Supplier / Customs Broker：全只读（Read-only 标签）
+- MOOV Ops：All Tasks 全权限视图
+- Dashboard：Pending Correction 列 + 当前 role 行高亮 "My Task" 标签
+- 计数器流转规则：reject 时该 milestone 计数不进 finished（finished 只统计通过）；PO 进 Pending Correction 池；OHA 确认后回 PGS possible（+Re-check）。不引入 processed 指标
 
 ---
 
