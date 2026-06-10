@@ -26,7 +26,7 @@
         <el-col :span="4"><el-input v-model="filterHbl" placeholder="HBL Number" size="mini" clearable prefix-icon="el-icon-search" /></el-col>
         <el-col :span="4"><el-input v-model="filterSupplier" placeholder="Supplier Name" size="mini" clearable /></el-col>
         <el-col :span="7">
-          <el-select v-model="currentMilestone" size="mini" placeholder="Pending Task" style="width:100%" @change="selectedHbls = []">
+          <el-select v-model="currentMilestone" size="mini" placeholder="Pending Task" style="width:100%" @change="clearSelection">
             <el-option value="ALL" label="All Tasks">
               <span style="font-weight:600">All Tasks</span>
               <span style="font-size:11px;color:#999;margin-left:6px">(no filter — every HBL shown)</span>
@@ -52,6 +52,7 @@
     <!-- ── HBL Table ──────────────────────────────────────────────────── -->
     <el-card>
       <el-table
+        ref="hblTable"
         :data="filteredHbls" size="mini" stripe border
         @selection-change="selectedHbls = $event"
       >
@@ -552,12 +553,12 @@ export default {
     // everyone else gets the global view
     role() {
       this.currentMilestone = this.myKey || 'ALL'
-      this.selectedHbls = []
+      this.clearSelection()
     },
   },
 
   methods: {
-    switchMilestone(key) { this.currentMilestone = key; this.selectedHbls = [] },
+    switchMilestone(key) { this.currentMilestone = key; this.clearSelection() },
 
     toggleExpand(row) { row.expanded = !row.expanded },
 
@@ -783,7 +784,12 @@ export default {
       })
 
       this.verifyDialog.visible = false
+      this.clearSelection()
+    },
+
+    clearSelection() {
       this.selectedHbls = []
+      this.$refs.hblTable && this.$refs.hblTable.clearSelection()
     },
   },
 }
