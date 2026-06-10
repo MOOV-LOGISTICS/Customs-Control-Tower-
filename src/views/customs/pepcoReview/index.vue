@@ -142,15 +142,15 @@
             <!-- Documents Verified tab -->
             <el-tab-pane name="verified">
               <span slot="label"><i class="el-icon-finished"></i> Documents Verified</span>
-              <!-- Pending Correction banner + OHA demo entry -->
+              <!-- Pending Correction banner + Supplier demo entry -->
               <div v-if="currentStage(row).cls==='stage-correction'" class="correction-banner">
                 <i class="el-icon-warning-outline"></i>
                 <div style="flex:1">
-                  <strong>PENDING CORRECTION</strong> — Documents are being corrected by Supplier &amp; OHA. All milestones are locked until OHA confirms the fix.
+                  <strong>PENDING CORRECTION</strong> — Documents are being corrected by the Supplier. All milestones are locked until the Supplier confirms the fix.
                 </div>
                 <el-tooltip content="This entry point belongs to the Document Management page — shown here for demo." placement="top">
-                  <el-button size="mini" type="warning" plain icon="el-icon-check" @click="ohaConfirmCorrection(row)">
-                    Confirm Correction (OHA)
+                  <el-button size="mini" type="warning" plain icon="el-icon-check" @click="supplierConfirmCorrection(row)">
+                    Confirm Correction (Supplier)
                   </el-button>
                 </el-tooltip>
               </div>
@@ -434,7 +434,7 @@ export default {
           DOCS_BASE,
           [
             { milestone:'PGS Check', status:'Complete',   user:'Sarah J. (PGS)',  time:'2024-11-14 09:40 CET (UTC+1)', reason:'', remark:'', isRecheck:true  },
-            { milestone:'OHA Note',  status:'Correction', user:'OHA Bangladesh',  time:'2024-11-13 11:30 UTC+6',       reason:'', remark:'Updated CI v2 uploaded with correct dates. Packing list also re-uploaded.', isRecheck:false },
+            { milestone:'Supplier Note', status:'Correction', user:'Ho Chi Minh Apparel (Supplier)', time:'2024-11-13 11:30 UTC+7', reason:'', remark:'Updated CI v2 uploaded with correct dates. Packing list also re-uploaded.', isRecheck:false },
             { milestone:'PGS Check', status:'Revoke',     user:'PEPCO 4PL Admin', time:'2024-11-12 08:00 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
             { milestone:'PGS Check', status:'Incomplete', user:'Sarah J. (PGS)',  time:'2024-11-11 14:20 CET (UTC+1)', reason:'V002 - Incorrect shipping docs', remark:'CI date mismatch vs PL', isRecheck:false },
             { milestone:'PGS Check', status:'Complete',   user:'Sarah J. (PGS)',  time:'2024-11-10 09:15 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
@@ -465,9 +465,9 @@ export default {
         ),
         // 6. Customs Check rejected → ALL in Pending Correction (reset will go back to PGS step 1)
         mkHbl('MOOV240006','EGLV240006','Guangzhou Clothing Co.','CNGZU','PLWAW','2024-12-18',
-          s('PENDING_CORRECTION',null,null,false,'Waiting for OHA correction'),
-          s('PENDING_CORRECTION',null,null,false,'Waiting for OHA correction'),
-          s('PENDING_CORRECTION',null,null,false,'Waiting for OHA correction'),
+          s('PENDING_CORRECTION',null,null,false,'Waiting for Supplier correction'),
+          s('PENDING_CORRECTION',null,null,false,'Waiting for Supplier correction'),
+          s('PENDING_CORRECTION',null,null,false,'Waiting for Supplier correction'),
           DOCS_BASE,
           [
             { milestone:'PGS Check',     status:'Complete',   user:'Sarah J. (PGS)',    time:'2024-11-15 10:00 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
@@ -640,17 +640,17 @@ export default {
       return { Complete:'completed', Incomplete:'rejected', Revoke:'pending', Correction:'recheck' }[status] || 'pending'
     },
 
-    // ── OHA confirms correction → reset all 3 milestones to Re-check ──────
+    // ── Supplier confirms correction → reset all 3 milestones to Re-check ──
     // In production this entry point lives in the Document Management page;
     // shown here for demo purposes.
-    ohaConfirmCorrection(h) {
+    supplierConfirmCorrection(h) {
       const now = new Date().toLocaleString() + ' CET (UTC+1)'
       const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
 
       h.verifyHistory.unshift({
-        milestone: 'OHA Note', status: 'Correction',
-        user: 'OHA (Demo)', time: now, reason: '',
-        remark: 'Correction confirmed by OHA. Documents updated and re-verified. All milestones reset for re-check.'
+        milestone: 'Supplier Note', status: 'Correction',
+        user: `${h.supplier} (Supplier)`, time: now, reason: '',
+        remark: 'Correction confirmed by Supplier. Documents updated and re-uploaded. All milestones reset for re-check.'
       })
 
       ORDER.forEach((k, i) => {
@@ -667,7 +667,7 @@ export default {
         }
       })
 
-      this.$message.success(`OHA correction confirmed for ${h.hblNo} — all milestones reset, flow restarts at PGS (Re-check)`)
+      this.$message.success(`Supplier correction confirmed for ${h.hblNo} — all milestones reset, flow restarts at PGS (Re-check)`)
     },
 
     openDocPreview(hblRow, doc) {
@@ -748,8 +748,8 @@ export default {
 
         } else {
           // ── Not Complete → ALL 3 milestones enter Pending Correction ────
-          // Pepco is locked out. Reset to Re-check happens ONLY after OHA
-          // confirms the correction (in Document Management page).
+          // Pepco is locked out. Reset to Re-check happens ONLY after the
+          // Supplier confirms the correction (in Document Management page).
           h.verifyHistory.unshift({
             milestone: milestoneName, status: 'Incomplete',
             user: 'Demo User', time: now, reason,
@@ -759,7 +759,7 @@ export default {
 
           ORDER.forEach(k => {
             this.$set(h.milestones[k], 'status', 'PENDING_CORRECTION')
-            this.$set(h.milestones[k], 'lockReason', 'Waiting for OHA correction')
+            this.$set(h.milestones[k], 'lockReason', 'Waiting for Supplier correction')
             this.$set(h.milestones[k], 'completedBy', null)
             this.$set(h.milestones[k], 'completedAt', null)
             this.$set(h.milestones[k], 'isRecheck', false)
@@ -776,7 +776,7 @@ export default {
                 ✉ Notification email sent to supplier<br>
                 <span style="color:#999">${h.supplier.toLowerCase().replace(/[^a-z]/g,'')}@supplier-mail.com</span>
               </div>
-              <div style="color:#999;margin-top:4px">All milestones locked until OHA confirms correction.</div>
+              <div style="color:#999;margin-top:4px">All milestones locked until the Supplier confirms correction.</div>
             </div>`,
             type: 'warning', duration: 6000,
           })
@@ -883,7 +883,7 @@ export default {
   i { font-size:16px; color:#E6A817; margin-top:1px; flex-shrink:0; }
 }
 
-// Pending Correction banner (with OHA demo entry)
+// Pending Correction banner (with Supplier demo entry)
 .correction-banner {
   display:flex; align-items:center; gap:8px; background:#fff1f0;
   border:1px solid #ffa39e; border-radius:6px; padding:10px 14px; margin-bottom:8px;
@@ -897,7 +897,7 @@ export default {
   &.ms-pill-pgs\ check     { background:#ecf5ff; color:#3A71A8; }
   &.ms-pill-finance\ check { background:#fff8e0; color:#e6a817; }
   &.ms-pill-customs\ check { background:#f0f7ff; color:#004F7C; }
-  &.ms-pill-oha\ note      { background:#f0fdf4; color:#13ce66; }
+  &.ms-pill-supplier\ note { background:#f0fdf4; color:#13ce66; }
 }
 
 // ── Verify Dialog ────────────────────────────────────────────────────────────
