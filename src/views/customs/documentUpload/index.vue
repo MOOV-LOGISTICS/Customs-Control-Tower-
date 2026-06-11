@@ -105,8 +105,11 @@
         </el-table-column>
         <el-table-column label="File Name" min-width="160" prop="fileName" />
         <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" />
-        <el-table-column label="Action" width="175" align="center">
+        <el-table-column label="Action" width="220" align="center">
           <template #default="{row}">
+            <el-tooltip content="Update — upload a new version of this document" placement="top">
+              <el-button type="warning" size="mini" icon="el-icon-refresh-left" @click="openUpdateDialog(row)" />
+            </el-tooltip>
             <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
             <el-button type="primary" size="mini" icon="el-icon-view" @click="previewPoDoc(row)" />
             <el-button type="danger" size="mini" icon="el-icon-delete" @click="deletePoDoc(row)" />
@@ -437,6 +440,73 @@
       </div>
     </el-dialog>
 
+    <!-- ── Update document dialog (direct new-version upload) ───────────── -->
+    <el-dialog
+      :visible.sync="updateDialog.visible"
+      :title="updateDialog.doc ? `Update — ${updateDialog.doc.docTypeLabel}` : 'Update Document'"
+      width="520px" custom-class="brand-dialog" append-to-body
+      :close-on-click-modal="false"
+    >
+      <template v-if="updateDialog.doc">
+        <!-- Current version summary -->
+        <div class="update-current">
+          <i class="el-icon-document" style="color:#004F7C;font-size:18px"></i>
+          <div style="flex:1">
+            <div style="font-size:12px;font-weight:600">{{ updateDialog.doc.fileName }}</div>
+            <div style="margin-top:3px">
+              <el-tag size="mini" type="info">v{{ updateDialog.doc.version }} Current</el-tag>
+              <span style="margin-left:6px;color:#999;font-size:11px">Uploaded {{ updateDialog.doc.uploadDate }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- IDLE: choose new file -->
+        <div v-if="updateDialog.state === 'idle'" style="margin-top:12px">
+          <div v-if="updateNeedsAi" class="upload-hint" style="margin-bottom:10px">
+            <div class="hint-title">AI will verify the new version:</div>
+            <div class="hint-item"><i class="el-icon-check"></i> Document is a {{ updateDialog.doc.docTypeLabel }}</div>
+            <div class="hint-item"><i class="el-icon-check"></i> PO Number matches <strong>{{ currentPo.orderNo }}</strong></div>
+            <div class="hint-item"><i class="el-icon-check"></i> Supplier matches <strong>{{ currentPo.supplier }}</strong></div>
+          </div>
+          <div v-else style="font-size:12px;color:#666;margin-bottom:10px">
+            This document type does not require AI verification — the new version is saved directly.
+          </div>
+          <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpdate(f)">
+            <el-button type="primary" size="small" icon="el-icon-upload2">
+              {{ updateNeedsAi ? 'Upload & AI Verify' : 'Upload New Version' }}
+            </el-button>
+          </el-upload>
+        </div>
+
+        <!-- VERIFYING (CI / PL only) -->
+        <div v-if="updateDialog.state === 'verifying'" style="margin-top:12px">
+          <div class="verify-filename"><i class="el-icon-document"></i> {{ updateDialog.fileName }}</div>
+          <div class="verify-steps">
+            <div v-for="(step, i) in updateDialog.steps" :key="i" :class="['verify-step', stepClass(step.status)]">
+              <i :class="stepIcon(step.status)"></i>
+              <span>{{ step.label }}</span>
+              <span v-if="step.status === 'running'" class="step-spinner"></span>
+            </div>
+          </div>
+          <el-progress :percentage="updateDialog.progress" :stroke-width="4" :show-text="false" color="#004F7C" style="margin-top:8px" />
+        </div>
+
+        <!-- DONE -->
+        <div v-if="updateDialog.state === 'done'" style="margin-top:12px">
+          <el-alert type="success" :closable="false" show-icon
+            :title="`New version saved as v${updateDialog.newVersion}`">
+            <div style="font-size:12px;margin-top:2px">
+              {{ updateDialog.fileName }} — previous versions are preserved (visible in Document Center later).
+            </div>
+          </el-alert>
+        </div>
+      </template>
+
+      <div slot="footer">
+        <el-button size="small" @click="updateDialog.visible=false">{{ updateDialog.state === 'done' ? 'Close' : 'Cancel' }}</el-button>
+      </div>
+    </el-dialog>
+
     <!-- Delete confirm dialog -->
     <el-dialog :visible.sync="deleteConfirm.visible" title="Delete Document" width="400px" append-to-body>
       <div style="font-size:13px;line-height:1.8">
@@ -529,6 +599,13 @@ export default {
       },
 
       deleteConfirm: { visible: false, doc: null, fileName: '' },
+
+      // Direct new-version upload for an existing document row
+      updateDialog: {
+        visible: false, doc: null,
+        state: 'idle',          // idle | verifying | done
+        fileName: '', steps: [], progress: 0, newVersion: 1,
+      },
     }
   },
 
@@ -541,6 +618,11 @@ export default {
 
     milestoneComplete() {
       return this.mandatorySlots.every(s => s.state === 'verified')
+    },
+    // Invoice / Packing List updates must pass AI verification
+    updateNeedsAi() {
+      const t = this.updateDialog.doc && this.updateDialog.doc.docTypeLabel
+      return t === 'Commercial Invoice' || t === 'Packing List'
     },
     // Confirm enabled only when each required doc type is covered:
     // uploaded in this session (verified / force-saved) or already on the PO
@@ -691,6 +773,60 @@ export default {
       this.uploadDialog.visible = false
       this.$message.success(`${saved} document(s) saved to ${this.currentPo.orderNo}`)
       // back on the PO docs dialog — list already shows the new files
+    },
+
+    // ── Update an existing document (new version, AI-checked for CI/PL) ──
+    openUpdateDialog(doc) {
+      this.updateDialog = {
+        visible: true, doc,
+        state: 'idle', fileName: '', steps: [], progress: 0, newVersion: doc.version + 1,
+      }
+    },
+
+    startUpdate(file) {
+      const d = this.updateDialog
+      d.fileName = file ? file.name : `${d.doc.docTypeLabel.replace(/\s+/g,'').toUpperCase()}-UPDATE.pdf`
+
+      if (!this.updateNeedsAi) {
+        // Non CI/PL types save directly
+        this.saveUpdatedVersion()
+        return
+      }
+
+      // CI / PL: run the same 4-step AI verification
+      d.state = 'verifying'; d.progress = 0
+      d.steps = VERIFY_STEPS.map(s => ({ ...s }))
+      d.steps[0].status = 'running'
+
+      const timings = [
+        { delay: 600,  step: 0, progress: 20,  nextStep: 1 },
+        { delay: 1400, step: 1, progress: 55,  nextStep: 2 },
+        { delay: 2400, step: 2, progress: 75,  nextStep: 3 },
+        { delay: 3400, step: 3, progress: 100 },
+      ]
+      timings.forEach(({ delay, step, progress, nextStep }) => {
+        setTimeout(() => {
+          d.steps[step].status = 'done'
+          d.progress = progress
+          if (nextStep !== undefined) d.steps[nextStep].status = 'running'
+          if (step === 3) setTimeout(() => this.saveUpdatedVersion(), 400)
+        }, delay)
+      })
+    },
+
+    saveUpdatedVersion() {
+      const d = this.updateDialog
+      const today = new Date().toISOString().slice(0, 10)
+      d.newVersion = d.doc.version + 1
+      // Replace the row in place: same list entry, new file/version/doc number.
+      // Superseded versions are archived to the Document Center (Phase 1 backlog).
+      d.doc.docNumber = ++DOC_NO
+      d.doc.fileName = d.fileName
+      d.doc.uploadDate = today
+      d.doc.version = d.newVersion
+      d.doc.status = 'VERIFIED'
+      d.state = 'done'
+      this.$message.success(`${d.doc.docTypeLabel} updated to v${d.newVersion}`)
     },
 
     // ── Slot upload flow (unchanged AI-verify simulation) ────────────────
@@ -922,6 +1058,12 @@ export default {
 
 // Other upload form
 .other-upload-form { background:#f8fafc; border-radius:6px; padding:10px 12px; margin-bottom:10px; border:1px dashed $border; }
+
+// Update dialog — current version summary
+.update-current {
+  display:flex; align-items:center; gap:10px;
+  background:#f8fafc; border:1px solid $border; border-radius:6px; padding:10px 12px;
+}
 
 // ── Preview Dialog ────────────────────────────────────────────────────────
 .preview-dialog { display:flex; flex-direction:column; gap:12px; }
