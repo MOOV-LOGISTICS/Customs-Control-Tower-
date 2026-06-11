@@ -817,19 +817,14 @@ export default {
     saveUpdatedVersion() {
       const d = this.updateDialog
       const today = new Date().toISOString().slice(0, 10)
-      d.newVersion = this.nextVersion(d.doc.docTypeLabel)
-      // Previous versions stay in the list — full history lives in Document Center (Phase 1 backlog)
-      this.currentPo.docs.push({
-        docNumber: ++DOC_NO,
-        poNumber: this.currentPo.orderNo,
-        soRef: this.currentPo.soRef,
-        docTypeLabel: d.doc.docTypeLabel,
-        blType: d.doc.blType,
-        fileName: d.fileName,
-        uploadDate: today,
-        version: d.newVersion,
-        status: 'VERIFIED',
-      })
+      d.newVersion = d.doc.version + 1
+      // Replace the row in place: same list entry, new file/version/doc number.
+      // Superseded versions are archived to the Document Center (Phase 1 backlog).
+      d.doc.docNumber = ++DOC_NO
+      d.doc.fileName = d.fileName
+      d.doc.uploadDate = today
+      d.doc.version = d.newVersion
+      d.doc.status = 'VERIFIED'
       d.state = 'done'
       this.$message.success(`${d.doc.docTypeLabel} updated to v${d.newVersion}`)
     },
