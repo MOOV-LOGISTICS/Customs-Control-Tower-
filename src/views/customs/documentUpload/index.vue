@@ -486,8 +486,16 @@
         <el-table-column label="Document Type" width="150">
           <template #default="{row}">{{ row.doc.docType }}</template>
         </el-table-column>
-        <el-table-column label="File" min-width="150">
-          <template #default="{row}">{{ row.doc.fileName }} <el-tag size="mini" type="info">v{{ row.doc.version }}</el-tag></template>
+        <el-table-column label="File" min-width="160">
+          <template #default="{row}">
+            <el-tooltip content="Click to preview file" placement="top">
+              <span
+                style="color:#004F7C;cursor:pointer;text-decoration:underline;font-size:12px"
+                @click="previewRejectedDoc(row)"
+              >{{ row.doc.fileName }}</span>
+            </el-tooltip>
+            <el-tag size="mini" type="info" style="margin-left:4px">v{{ row.doc.version }}</el-tag>
+          </template>
         </el-table-column>
         <el-table-column label="Rejected By" width="160">
           <template #default="{row}">
@@ -495,10 +503,15 @@
             <div style="font-size:10px;color:#999">{{ row.doc.reject.at }} · {{ row.doc.reject.milestone }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="Reject Reason" min-width="220">
+        <el-table-column label="Reject Reason" width="200">
           <template #default="{row}">
             <div style="color:#ff4949;font-size:12px">{{ row.doc.reject.reason }}</div>
-            <div v-if="row.doc.reject.remark" style="font-size:11px;color:#999">{{ row.doc.reject.remark }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="Reviewer Remark" min-width="200">
+          <template #default="{row}">
+            <span v-if="row.doc.reject.remark" style="font-size:12px;color:#303133">{{ row.doc.reject.remark }}</span>
+            <span v-else style="color:#c0c4cc">—</span>
           </template>
         </el-table-column>
         <el-table-column label="Action" width="110" align="center">
@@ -925,6 +938,106 @@ export default {
     },
 
     // ── Document Correction (rejected docs re-upload) ────────────────────
+    previewRejectedDoc(row) {
+      const { hbl, doc } = row
+      const w = window.open('', '_blank')
+      if (!w) { this.$message.warning('Pop-up blocked — please allow pop-ups for this site and try again'); return }
+      const statusColor = '#ff4949'
+      w.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>${doc.docType} — ${hbl.hblNo} [REJECTED]</title>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; background:#EBF0F4; margin:0; padding:24px; }
+    .wrapper { max-width:760px; margin:0 auto; }
+    .topbar { background:#004F7C; color:#fff; padding:12px 20px; border-radius:8px 8px 0 0;
+              display:flex; justify-content:space-between; align-items:center; }
+    .topbar-title { font-size:15px; font-weight:700; }
+    .topbar-meta  { font-size:11px; opacity:0.8; }
+    .meta-card { background:#fff; border:1px solid #dce3ea; padding:14px 20px; margin-bottom:14px; }
+    .meta-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 20px; font-size:12px; }
+    .meta-label { color:#909399; margin-bottom:2px; font-size:11px; text-transform:uppercase; letter-spacing:0.4px; }
+    .meta-value { color:#303133; font-weight:600; }
+    .reject-banner { background:#fff0f0; border:1px solid #ffcdd2; border-radius:6px; padding:10px 14px;
+                     margin-bottom:14px; font-size:12px; }
+    .reject-code { color:#ff4949; font-weight:700; margin-bottom:4px; }
+    .reject-remark { color:#606266; }
+    .reject-by { color:#909399; font-size:11px; margin-top:4px; }
+    .pdf-page { background:#fff; border:1px solid #dce3ea; padding:28px 32px; border-radius:0 0 8px 8px; }
+    .pdf-header { display:flex; justify-content:space-between; margin-bottom:14px; }
+    .pdf-company { font-weight:700; font-size:15px; color:#004F7C; }
+    .pdf-doctype { font-weight:700; font-size:18px; color:#303133; }
+    .pdf-divider { height:2px; background:#ff4949; margin-bottom:16px; }
+    .pdf-fields { display:grid; grid-template-columns:1fr 1fr; gap:6px 24px; margin-bottom:18px; font-size:12px; }
+    .pdf-label { color:#909399; width:110px; display:inline-block; }
+    .pdf-value { color:#303133; font-weight:500; }
+    .pdf-value.hi { color:#004F7C; font-weight:700; }
+    table { width:100%; border-collapse:collapse; font-size:12px; margin-bottom:14px; }
+    thead tr { background:#f5f7fa; }
+    th, td { padding:6px 10px; border:1px solid #ebeef5; text-align:left; }
+    th { font-weight:600; color:#606266; font-size:11px; }
+    .footer { text-align:center; color:#bbb; font-size:11px; margin-top:14px; font-style:italic; }
+    .simulate-note { background:#fffbe6; border:1px solid #ffe58f; border-radius:4px; padding:6px 12px;
+                     font-size:11px; color:#876800; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="topbar">
+      <span class="topbar-title">${doc.docType} — REJECTED</span>
+      <span class="topbar-meta">${hbl.hblNo} · ${hbl.supplier} · v${doc.version}</span>
+    </div>
+    <div class="reject-banner">
+      <div class="reject-code">✕ ${doc.reject.reason}</div>
+      ${doc.reject.remark ? `<div class="reject-remark">${doc.reject.remark}</div>` : ''}
+      <div class="reject-by">Rejected by ${doc.reject.by} · ${doc.reject.at} · ${doc.reject.milestone}</div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-grid">
+        <div><div class="meta-label">Document Number</div><div class="meta-value" style="color:#004F7C">${doc.docNumber || '—'}</div></div>
+        <div><div class="meta-label">Document Type</div><div class="meta-value">${doc.docType}</div></div>
+        <div><div class="meta-label">Version</div><div class="meta-value" style="color:#ff4949">v${doc.version} (Rejected)</div></div>
+        <div><div class="meta-label">PO Number</div><div class="meta-value">${doc.poNo}</div></div>
+        <div><div class="meta-label">HBL Number</div><div class="meta-value">${hbl.hblNo}</div></div>
+        <div><div class="meta-label">Uploaded</div><div class="meta-value">${doc.uploadedAt}</div></div>
+        <div><div class="meta-label">File Name</div><div class="meta-value">${doc.fileName}</div></div>
+        <div><div class="meta-label">Supplier</div><div class="meta-value">${hbl.supplier}</div></div>
+      </div>
+    </div>
+    <div class="pdf-page">
+      <div class="pdf-header">
+        <div class="pdf-company">${hbl.supplier}</div>
+        <div class="pdf-doctype">${doc.docType}</div>
+      </div>
+      <div class="pdf-divider"></div>
+      <div class="pdf-fields">
+        <div><span class="pdf-label">Document No.</span><span class="pdf-value hi">${doc.docNumber || doc.fileName.replace('.pdf','')}</span></div>
+        <div><span class="pdf-label">PO Number</span><span class="pdf-value hi">${doc.poNo}</span></div>
+        <div><span class="pdf-label">HBL</span><span class="pdf-value">${hbl.hblNo}</span></div>
+        <div><span class="pdf-label">Date</span><span class="pdf-value">${doc.uploadedAt}</span></div>
+        <div><span class="pdf-label">Supplier</span><span class="pdf-value">${hbl.supplier}</span></div>
+        <div><span class="pdf-label">Version</span><span class="pdf-value" style="color:#ff4949">v${doc.version} — Rejected</span></div>
+      </div>
+      <table>
+        <thead><tr><th>Item Description</th><th>Qty</th><th>Unit Price</th><th>Amount</th></tr></thead>
+        <tbody>
+          <tr><td>Product Item A</td><td>120</td><td>USD 3.50</td><td>USD 420.00</td></tr>
+          <tr><td>Product Item B</td><td>240</td><td>USD 7.00</td><td>USD 1,680.00</td></tr>
+          <tr><td>Product Item C</td><td>360</td><td>USD 10.50</td><td>USD 3,780.00</td></tr>
+          <tr><td>Product Item D</td><td>480</td><td>USD 14.00</td><td>USD 6,720.00</td></tr>
+        </tbody>
+        <tfoot><tr style="font-weight:700;background:#f0f7ff"><td>Total</td><td></td><td></td><td>USD 12,600.00</td></tr></tfoot>
+      </table>
+      <div class="footer">[ Simulated document preview — for demo purposes ]</div>
+      <div class="simulate-note">This is a prototype simulation. In production this tab would display the actual uploaded PDF file.</div>
+    </div>
+  </div>
+</body>
+</html>`)
+      w.document.close()
+    },
+
     openCorrReupload(item) {
       this.corrUpload = {
         visible: true, item,
