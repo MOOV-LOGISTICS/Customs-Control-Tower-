@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="app-container">
 
     <!-- ── Verify Documents Counter Board (follows selected Pending Task) ── -->
@@ -123,16 +123,30 @@
                 </el-button>
               </div>
               <el-table :data="row.documents" size="mini" stripe border style="margin-top:8px">
-                <el-table-column label="Document Type" min-width="160" prop="docType" />
-                <el-table-column label="File Name" min-width="180" prop="fileName" />
+                <el-table-column label="PO Number" width="120" prop="poNo" />
+                <el-table-column label="Document Type" min-width="150" prop="docType" />
+                <el-table-column label="File Name" min-width="170" prop="fileName" />
                 <el-table-column label="Version" width="70" align="center">
                   <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
                 </el-table-column>
-                <el-table-column label="Status" width="100">
+                <el-table-column label="AI Check" width="95">
                   <template #default="{row}">
                     <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
                       {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
                     </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="Review Status" width="150">
+                  <template #default="{row}">
+                    <el-tooltip v-if="row.reviewStatus==='REJECTED'" placement="top"
+                      :content="`${row.reject.reason} — ${row.reject.by}, ${row.reject.at}`">
+                      <span class="status-badge rejected">Rejected</span>
+                    </el-tooltip>
+                    <el-tooltip v-else-if="row.reviewStatus==='RESUBMITTED'" placement="top"
+                      :content="`Re-uploaded after rejection: ${row.reject.reason}`">
+                      <span class="status-badge resubmitted">Resubmitted v{{ row.version }}</span>
+                    </el-tooltip>
+                    <span v-else style="color:#c0c4cc">—</span>
                   </template>
                 </el-table-column>
                 <el-table-column label="Uploaded" width="130" prop="uploadedAt" />
@@ -147,17 +161,25 @@
             <!-- Documents Verified tab -->
             <el-tab-pane name="verified">
               <span slot="label"><i class="el-icon-finished"></i> Documents Verified</span>
-              <!-- Pending Correction banner + Supplier demo entry -->
+              <!-- Pending Correction banner — live progress of the supplier's re-uploads -->
               <div v-if="currentStage(row).cls==='stage-correction'" class="correction-banner">
                 <i class="el-icon-warning-outline"></i>
                 <div style="flex:1">
-                  <strong>PENDING CORRECTION</strong> — Documents are being corrected by the Supplier. All milestones are locked until the Supplier confirms the fix.
+                  <strong>PENDING CORRECTION</strong> —
+                  Waiting for supplier: <strong>{{ progress(row).done }} of {{ progress(row).total }}</strong> rejected document(s) re-uploaded.
+                  Flow resets to PGS re-check automatically when all are corrected.
+                  <div class="corr-doc-list">
+                    <div v-for="(d, i) in progress(row).docs" :key="i" class="corr-doc-row">
+                      <i :class="d.reviewStatus === 'RESUBMITTED' ? 'el-icon-circle-check ok' : 'el-icon-remove-outline waiting'"></i>
+                      <span class="cdr-po">{{ d.poNo }}</span>
+                      <span class="cdr-type">{{ d.docType }}</span>
+                      <span class="cdr-file">{{ d.fileName }} (v{{ d.version }})</span>
+                      <span :class="['cdr-state', d.reviewStatus === 'RESUBMITTED' ? 'ok' : 'waiting']">
+                        {{ d.reviewStatus === 'RESUBMITTED' ? 'Re-uploaded' : 'Waiting for re-upload' }}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <el-tooltip content="This entry point belongs to the Document Management page — shown here for demo." placement="top">
-                  <el-button size="mini" type="warning" plain icon="el-icon-check" @click="supplierConfirmCorrection(row)">
-                    Confirm Correction (Supplier)
-                  </el-button>
-                </el-tooltip>
               </div>
 
               <!-- Re-check banner -->
@@ -288,6 +310,20 @@
               <el-input v-model="verifyDialog.remark" type="textarea" :rows="2" placeholder="Additional notes (optional)..." />
             </el-form-item>
           </el-form>
+
+          <!-- Problem documents — required; these are returned to the supplier -->
+          <template v-if="verifyDialog.hbl">
+            <div class="doc-sel-label">Problem document(s) * <span>— will be returned to the supplier for re-upload</span></div>
+            <el-checkbox-group v-model="verifyDialog.docSel" class="doc-sel-list">
+              <el-checkbox v-for="(d, i) in verifyDialog.hbl.documents" :key="i" :label="i" class="doc-sel-row">
+                <span class="dsr-po">{{ d.poNo }}</span>
+                <span class="dsr-type">{{ d.docType }}</span>
+                <span class="dsr-file">{{ d.fileName }} (v{{ d.version }})</span>
+              </el-checkbox>
+            </el-checkbox-group>
+          </template>
+          <el-alert v-else type="warning" :closable="false" show-icon
+            title="Rejection requires selecting the problem documents — please verify HBLs one at a time when rejecting." />
         </div>
 
         <!-- Sanitary Certificate toggle (Customs milestone only) -->
@@ -300,7 +336,7 @@
       <div slot="footer">
         <el-button size="small" @click="verifyDialog.visible=false">Cancel</el-button>
         <el-button size="small" type="primary" @click="submitVerify"
-          :disabled="verifyDialog.result==='NOT_COMPLETE' && !verifyDialog.reason">
+          :disabled="verifyDialog.result==='NOT_COMPLETE' && (!verifyDialog.reason || !verifyDialog.hbl || verifyDialog.docSel.length === 0)">
           Submit
         </el-button>
       </div>
@@ -373,25 +409,9 @@
 
 <script>
 import { roleStore, ROLE_MILESTONE } from '@/store/role'
-
-const mkHbl = (hblNo, mblNo, supplier, pol, pod, eta, pgs, fin, cus, docs, history) => ({
-  hblNo, mblNo, supplier, pol, pod, eta,
-  milestones: { PGS: pgs, FINANCE: fin, CUSTOMS: cus },
-  documents: docs,
-  verifyHistory: history,
-  expanded: false,
-  activeTab: 'verified',
-})
-
-const DOCS_BASE = [
-  { docType:'Commercial Invoice', fileName:'INV-2024.pdf',  version:2, status:'VERIFIED', uploadedAt:'2024-11-11 09:23' },
-  { docType:'Packing List',       fileName:'PL-2024.pdf',   version:1, status:'VERIFIED', uploadedAt:'2024-11-11 09:25' },
-  { docType:'Bill of Lading',     fileName:'HBL.pdf',       version:1, status:'VERIFIED', uploadedAt:'2024-11-12 14:10' },
-]
-
-const s = (status, by=null, at=null, recheck=false, lock='') => ({
-  status, completedBy:by, completedAt:at, isRecheck:recheck, lockReason:lock
-})
+// Shared with the Document Upload tab: HBL/milestone/document state lives in
+// one store so PEPCO rejections and supplier re-uploads stay in sync.
+import { reviewStore, rejectDocuments, correctionProgress } from '@/store/reviewFlow'
 
 export default {
   name: 'PepcoReview',
@@ -413,74 +433,6 @@ export default {
         CUSTOMS: { possible:45,  urgent:2, overdue:6,  finished:1150 },
       },
 
-      // 6 HBLs covering all state combinations
-      hbls: [
-        // 1. PGS pending → all downstream locked
-        mkHbl('MOOV240001','MAEU240001','Shanghai Textile Co.','CNSHA','PLGDN','2024-12-05',
-          s('IN_PROGRESS'), s('LOCKED',null,null,false,'Waiting for PGS Check'), s('LOCKED',null,null,false,'Waiting for Finance Check'),
-          DOCS_BASE,
-          []
-        ),
-        // 2. PGS complete, Finance in-progress, Customs locked
-        mkHbl('MOOV240002','MAEU240002','Dhaka Garments Ltd.','BGCGP','DEHAM','2024-12-15',
-          s('COMPLETE','Sarah J. (PGS)','2024-11-13 10:30 CET'),
-          s('IN_PROGRESS'),
-          s('LOCKED',null,null,false,'Waiting for Finance Check'),
-          DOCS_BASE,
-          [
-            { milestone:'PGS Check',  status:'Complete',   user:'Sarah J. (PGS)',  time:'2024-11-13 10:30 CET (UTC+1)', reason:'', remark:'' },
-          ]
-        ),
-        // 3. PGS rejected → reset → PGS re-checked OK → Finance now in re-check
-        mkHbl('MOOV240003','CMDU240003','Ho Chi Minh Apparel','VNSGN','CZPRE','2024-12-02',
-          s('COMPLETE','Sarah J. (PGS)','2024-11-14 09:40 CET',true),
-          s('IN_PROGRESS',null,null,true),
-          s('LOCKED',   null,null,true,'Waiting for Finance Check'),
-          DOCS_BASE,
-          [
-            { milestone:'PGS Check', status:'Complete',   user:'Sarah J. (PGS)',  time:'2024-11-14 09:40 CET (UTC+1)', reason:'', remark:'', isRecheck:true  },
-            { milestone:'Supplier Note', status:'Correction', user:'Ho Chi Minh Apparel (Supplier)', time:'2024-11-13 11:30 UTC+7', reason:'', remark:'Updated CI v2 uploaded with correct dates. Packing list also re-uploaded.', isRecheck:false },
-            { milestone:'PGS Check', status:'Revoke',     user:'PEPCO 4PL Admin', time:'2024-11-12 08:00 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
-            { milestone:'PGS Check', status:'Incomplete', user:'Sarah J. (PGS)',  time:'2024-11-11 14:20 CET (UTC+1)', reason:'V002 - Incorrect shipping docs', remark:'CI date mismatch vs PL', isRecheck:false },
-            { milestone:'PGS Check', status:'Complete',   user:'Sarah J. (PGS)',  time:'2024-11-10 09:15 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
-          ]
-        ),
-        // 4. PGS + Finance complete, Customs in-progress
-        mkHbl('MOOV240004','HLCU240004','Istanbul Fashion AS','TRIST','ROBUH','2024-12-10',
-          s('COMPLETE','Sarah J. (PGS)',   '2024-11-13 10:30 CET'),
-          s('COMPLETE','Tom K. (Finance)', '2024-11-14 14:15 CET'),
-          s('IN_PROGRESS'),
-          DOCS_BASE,
-          [
-            { milestone:'PGS Check',     status:'Complete', user:'Sarah J. (PGS)',  time:'2024-11-13 10:30 CET (UTC+1)', reason:'', remark:'' },
-            { milestone:'Finance Check', status:'Complete', user:'Tom K. (Finance)',time:'2024-11-14 14:15 CET (UTC+1)', reason:'', remark:'' },
-          ]
-        ),
-        // 5. All three complete
-        mkHbl('MOOV240005','MAEU240005','Mumbai Textiles Pvt','INNSA','HUBU','2024-11-28',
-          s('COMPLETE','Sarah J. (PGS)',    '2024-11-10 09:00 CET'),
-          s('COMPLETE','Tom K. (Finance)',  '2024-11-11 11:00 CET'),
-          s('COMPLETE','Anna W. (Customs)', '2024-11-12 15:30 CET'),
-          DOCS_BASE,
-          [
-            { milestone:'PGS Check',     status:'Complete', user:'Sarah J. (PGS)',   time:'2024-11-10 09:00 CET (UTC+1)', reason:'', remark:'' },
-            { milestone:'Finance Check', status:'Complete', user:'Tom K. (Finance)', time:'2024-11-11 11:00 CET (UTC+1)', reason:'', remark:'' },
-            { milestone:'Customs Check', status:'Complete', user:'Anna W. (Customs)',time:'2024-11-12 15:30 CET (UTC+1)', reason:'', remark:'' },
-          ]
-        ),
-        // 6. Customs Check rejected → ALL in Pending Correction (reset will go back to PGS step 1)
-        mkHbl('MOOV240006','EGLV240006','Guangzhou Clothing Co.','CNGZU','PLWAW','2024-12-18',
-          s('PENDING_CORRECTION',null,null,false,'Waiting for Supplier correction'),
-          s('PENDING_CORRECTION',null,null,false,'Waiting for Supplier correction'),
-          s('PENDING_CORRECTION',null,null,false,'Waiting for Supplier correction'),
-          DOCS_BASE,
-          [
-            { milestone:'PGS Check',     status:'Complete',   user:'Sarah J. (PGS)',    time:'2024-11-15 10:00 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
-            { milestone:'Finance Check', status:'Complete',   user:'Tom K. (Finance)',  time:'2024-11-16 09:30 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
-            { milestone:'Customs Check', status:'Incomplete', user:'Anna W. (Customs)', time:'2024-11-17 11:45 CET (UTC+1)', reason:'V003 - Sanitary certificate invalid', remark:'Sanitary cert expiry date does not match shipment ETA. Email sent to supplier.', isRecheck:false },
-          ]
-        ),
-      ],
 
       verifyDialog: {
         visible: false,
@@ -490,6 +442,7 @@ export default {
         reason: '',
         remark: '',
         sanitaryCert: false,
+        docSel: [],   // indices of documents flagged as problematic (Not Complete)
       },
 
       docPreview: {
@@ -502,6 +455,9 @@ export default {
   },
 
   computed: {
+    // HBL/milestone/document state shared with the Document Upload tab
+    hbls() { return reviewStore.hbls },
+
     // ── Role scoping (demo of RBAC: role ↔ milestone mapping) ────────────
     role() { return roleStore.currentRole },
     // milestone the current role operates on; null = not a reviewer
@@ -645,35 +601,8 @@ export default {
       return { Complete:'completed', Incomplete:'rejected', Revoke:'pending', Correction:'recheck' }[status] || 'pending'
     },
 
-    // ── Supplier confirms correction → reset all 3 milestones to Re-check ──
-    // In production this entry point lives in the Document Management page;
-    // shown here for demo purposes.
-    supplierConfirmCorrection(h) {
-      const now = new Date().toLocaleString() + ' CET (UTC+1)'
-      const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
-
-      h.verifyHistory.unshift({
-        milestone: 'Supplier Note', status: 'Correction',
-        user: `${h.supplier} (Supplier)`, time: now, reason: '',
-        remark: 'Correction confirmed by Supplier. Documents updated and re-uploaded. All milestones reset for re-check.'
-      })
-
-      ORDER.forEach((k, i) => {
-        this.$set(h.milestones[k], 'isRecheck', true)
-        this.$set(h.milestones[k], 'completedBy', null)
-        this.$set(h.milestones[k], 'completedAt', null)
-        if (i === 0) {
-          this.$set(h.milestones[k], 'status', 'IN_PROGRESS')
-          this.$set(h.milestones[k], 'lockReason', '')
-        } else {
-          this.$set(h.milestones[k], 'status', 'LOCKED')
-          this.$set(h.milestones[k], 'lockReason',
-            i === 1 ? 'Waiting for PGS Check' : 'Waiting for Finance Check')
-        }
-      })
-
-      this.$message.success(`Supplier correction confirmed for ${h.hblNo} — all milestones reset, flow restarts at PGS (Re-check)`)
-    },
+    // Correction progress of the current rejection round (shared store)
+    progress(h) { return correctionProgress(h) },
 
     downloadAllDocs(h) {
       this.$notify({
@@ -701,11 +630,16 @@ export default {
     },
 
     openVerifyDialog(hbl) {
-      this.verifyDialog = { visible:true, hbl, milestoneKey:this.effectiveKey(hbl), result:'COMPLETE', reason:'', remark:'', sanitaryCert:false }
+      this.verifyDialog = { visible:true, hbl, milestoneKey:this.effectiveKey(hbl), result:'COMPLETE', reason:'', remark:'', sanitaryCert:false, docSel:[] }
     },
     openBulkVerify() {
-      // Bulk: each HBL is processed against its own effective milestone (All mode)
-      this.verifyDialog = { visible:true, hbl:null, milestoneKey:null, result:'COMPLETE', reason:'', remark:'', sanitaryCert:false }
+      // Bulk with a single selection keeps the full dialog (incl. rejection);
+      // multi-selection can only approve — rejection needs per-document flags.
+      const single = this.selectedHbls.length === 1 ? this.selectedHbls[0] : null
+      this.verifyDialog = {
+        visible:true, hbl:single, milestoneKey:single ? this.effectiveKey(single) : null,
+        result:'COMPLETE', reason:'', remark:'', sanitaryCert:false, docSel:[],
+      }
     },
 
     submitVerify() {
@@ -764,23 +698,12 @@ export default {
           this.$message.success(`${milestoneName} approved for ${h.hblNo}`)
 
         } else {
-          // ── Not Complete → ALL 3 milestones enter Pending Correction ────
-          // Pepco is locked out. Reset to Re-check happens ONLY after the
-          // Supplier confirms the correction (in Document Management page).
-          h.verifyHistory.unshift({
-            milestone: milestoneName, status: 'Incomplete',
-            user: 'Demo User', time: now, reason,
-            remark: (remark ? remark + '. ' : '') + 'Email sent to supplier.',
-            isRecheck: !!h.milestones[milestone].isRecheck,
-          })
-
-          ORDER.forEach(k => {
-            this.$set(h.milestones[k], 'status', 'PENDING_CORRECTION')
-            this.$set(h.milestones[k], 'lockReason', 'Waiting for Supplier correction')
-            this.$set(h.milestones[k], 'completedBy', null)
-            this.$set(h.milestones[k], 'completedAt', null)
-            this.$set(h.milestones[k], 'isRecheck', false)
-          })
+          // ── Not Complete → reject the flagged documents ──────────────────
+          // Documents go REJECTED, all milestones go PENDING_CORRECTION.
+          // The reset to PGS re-check happens automatically once the supplier
+          // has re-uploaded every rejected document (Document Upload tab).
+          const docs = this.verifyDialog.docSel.map(i => h.documents[i])
+          rejectDocuments(h, docs, { reason, remark, milestoneName, user: 'Demo User' })
 
           // Email notification feedback
           this.$notify({
@@ -789,11 +712,12 @@ export default {
             message: `<div style="font-size:12px;line-height:1.7">
               <div><b>${h.hblNo}</b> — ${milestoneName}</div>
               <div>Reason: ${reason}</div>
+              <div style="margin-top:4px">Returned documents:<br>${docs.map(d => `<span style="color:#c25e00">· ${d.poNo} — ${d.docType} (${d.fileName})</span>`).join('<br>')}</div>
               <div style="color:#13ce66;margin-top:4px">
                 ✉ Notification email sent to supplier<br>
                 <span style="color:#999">${h.supplier.toLowerCase().replace(/[^a-z]/g,'')}@supplier-mail.com</span>
               </div>
-              <div style="color:#999;margin-top:4px">All milestones locked until the Supplier confirms correction.</div>
+              <div style="color:#999;margin-top:4px">Flow resets to PGS re-check automatically after the supplier re-uploads all returned documents.</div>
             </div>`,
             type: 'warning', duration: 6000,
           })
@@ -940,7 +864,39 @@ export default {
 
 // History status badges
 .status-badge {
-  &.recheck { background:#f0fdf4; color:#13ce66; }
+  &.recheck     { background:#f0fdf4; color:#13ce66; }
+  &.resubmitted { background:#fdf3e3; color:#c25e00; }
+}
+
+// Problem-document checklist (reject flow in verify dialog)
+.doc-sel-label {
+  font-size:12px; font-weight:600; color:$text-primary; margin:4px 0 6px;
+  span { font-weight:400; color:#999; font-size:11px; }
+}
+.doc-sel-list { display:flex; flex-direction:column; gap:4px; }
+.doc-sel-row {
+  margin:0 !important; padding:6px 10px; background:#fff; border:1px solid $border; border-radius:6px;
+  display:flex; align-items:center;
+  ::v-deep .el-checkbox__label { display:inline-flex; gap:8px; align-items:center; font-size:12px; }
+  .dsr-po   { color:#3A71A8; font-weight:600; }
+  .dsr-type { font-weight:600; }
+  .dsr-file { color:#999; font-size:11px; }
+}
+
+// Correction progress list inside the Pending Correction banner
+.corr-doc-list { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+.corr-doc-row {
+  display:flex; align-items:center; gap:8px; font-size:11px;
+  background:rgba(255,255,255,0.6); border-radius:4px; padding:4px 8px;
+  i.ok      { color:#13ce66; }
+  i.waiting { color:#e6a817; }
+  .cdr-po   { color:#3A71A8; font-weight:600; }
+  .cdr-type { font-weight:600; }
+  .cdr-file { color:#999; }
+  .cdr-state { margin-left:auto; font-weight:600;
+    &.ok      { color:#13ce66; }
+    &.waiting { color:#c25e00; }
+  }
 }
 
 // ── Document Preview Dialog ──────────────────────────────────────────────────

@@ -7,7 +7,7 @@
         <span>Origin</span>
         <span style="font-size:11px;color:#999;font-weight:400">Click any status number on "Upload Shipping Documents" to see the PO list</span>
       </div>
-      <el-table :data="taskRows" size="mini" border :header-cell-style="{background:'#fafafa'}" :row-class-name="taskRowClass">
+      <el-table :data="allTaskRows" size="mini" border :header-cell-style="{background:'#fafafa'}" :row-class-name="taskRowClass">
         <el-table-column label="Task Name" min-width="220">
           <template #default="{row}">
             <div style="display:flex;align-items:center;gap:6px">
@@ -16,6 +16,7 @@
                 <i class="el-icon-question" style="color:#3A71A8;font-size:13px;cursor:help"></i>
               </el-tooltip>
               <el-tag v-if="row.key==='UPLOAD_DOCS'" size="mini" type="success" style="font-size:10px">New flow</el-tag>
+              <el-tag v-if="row.key==='DOC_CORRECTION'" size="mini" type="warning" style="font-size:10px">New flow</el-tag>
             </div>
           </template>
         </el-table-column>
@@ -440,6 +441,137 @@
       </div>
     </el-dialog>
 
+    <!-- ── Document Correction queue (rejected during Pepco review) ──────── -->
+    <el-dialog
+      :visible.sync="correctionDialog.visible"
+      title="Document Correction — Rejected by Pepco Review"
+      width="1080px" top="6vh" custom-class="brand-dialog"
+    >
+      <el-alert v-if="correctionQueue.length" type="warning" :closable="false" show-icon style="margin-bottom:10px"
+        title="These documents were rejected during Pepco review. Re-upload each one — once all rejected documents of a HBL are corrected, its review flow automatically restarts at PGS (re-check).">
+      </el-alert>
+      <el-table :data="correctionQueue" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
+        <el-table-column label="HBL" width="110">
+          <template #default="{row}"><span style="font-weight:600;color:#004F7C">{{ row.hbl.hblNo }}</span></template>
+        </el-table-column>
+        <el-table-column label="PO Number" width="120">
+          <template #default="{row}">{{ row.doc.poNo }}</template>
+        </el-table-column>
+        <el-table-column label="Document Type" width="150">
+          <template #default="{row}">{{ row.doc.docType }}</template>
+        </el-table-column>
+        <el-table-column label="File" min-width="150">
+          <template #default="{row}">{{ row.doc.fileName }} <el-tag size="mini" type="info">v{{ row.doc.version }}</el-tag></template>
+        </el-table-column>
+        <el-table-column label="Rejected By" width="160">
+          <template #default="{row}">
+            <div style="font-size:11px">{{ row.doc.reject.by }}</div>
+            <div style="font-size:10px;color:#999">{{ row.doc.reject.at }} · {{ row.doc.reject.milestone }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="Reject Reason" min-width="220">
+          <template #default="{row}">
+            <div style="color:#ff4949;font-size:12px">{{ row.doc.reject.reason }}</div>
+            <div v-if="row.doc.reject.remark" style="font-size:11px;color:#999">{{ row.doc.reject.remark }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="Action" width="110" align="center">
+          <template #default="{row}">
+            <el-button type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-if="!correctionQueue.length" style="text-align:center;padding:28px;color:#13ce66;font-size:13px">
+        <i class="el-icon-circle-check" style="font-size:20px"></i><br>
+        No rejected documents — all corrections are done
+      </div>
+    </el-dialog>
+
+    <!-- ── Correction re-upload dialog (AI-checked for CI / PL) ──────────── -->
+    <el-dialog
+      :visible.sync="corrUpload.visible"
+      :title="corrUpload.item ? `Re-upload — ${corrUpload.item.doc.docType} (${corrUpload.item.hbl.hblNo})` : 'Re-upload'"
+      width="540px" custom-class="brand-dialog" append-to-body
+      :close-on-click-modal="false"
+    >
+      <template v-if="corrUpload.item">
+        <!-- Reject reason -->
+        <div class="corr-reject-banner">
+          <i class="el-icon-warning-outline"></i>
+          <div>
+            <div><strong>{{ corrUpload.item.doc.reject.reason }}</strong></div>
+            <div v-if="corrUpload.item.doc.reject.remark" style="font-size:11px;margin-top:2px">{{ corrUpload.item.doc.reject.remark }}</div>
+            <div style="font-size:10px;color:#999;margin-top:2px">
+              Rejected by {{ corrUpload.item.doc.reject.by }} · {{ corrUpload.item.doc.reject.at }} · {{ corrUpload.item.doc.reject.milestone }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Current file -->
+        <div class="update-current" style="margin-top:10px">
+          <i class="el-icon-document" style="color:#004F7C;font-size:18px"></i>
+          <div style="flex:1">
+            <div style="font-size:12px;font-weight:600">{{ corrUpload.item.doc.fileName }}</div>
+            <div style="margin-top:3px">
+              <el-tag size="mini" type="danger">v{{ corrUpload.item.doc.version }} Rejected</el-tag>
+              <span style="margin-left:6px;color:#999;font-size:11px">{{ corrUpload.item.doc.poNo }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- IDLE -->
+        <div v-if="corrUpload.state === 'idle'" style="margin-top:12px">
+          <div v-if="corrNeedsAi(corrUpload.item)" class="upload-hint" style="margin-bottom:10px">
+            <div class="hint-title">AI will verify the new version:</div>
+            <div class="hint-item"><i class="el-icon-check"></i> Document is a {{ corrUpload.item.doc.docType }}</div>
+            <div class="hint-item"><i class="el-icon-check"></i> PO Number matches <strong>{{ corrUpload.item.doc.poNo }}</strong></div>
+            <div class="hint-item"><i class="el-icon-check"></i> Supplier matches <strong>{{ corrUpload.item.hbl.supplier }}</strong></div>
+          </div>
+          <div v-else style="font-size:12px;color:#666;margin-bottom:10px">
+            This document type does not require AI verification — the new version is saved directly.
+          </div>
+          <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startCorrUpload(f)">
+            <el-button type="primary" size="small" icon="el-icon-upload2">
+              {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
+            </el-button>
+          </el-upload>
+        </div>
+
+        <!-- VERIFYING -->
+        <div v-if="corrUpload.state === 'verifying'" style="margin-top:12px">
+          <div class="verify-filename"><i class="el-icon-document"></i> {{ corrUpload.fileName }}</div>
+          <div class="verify-steps">
+            <div v-for="(step, i) in corrUpload.steps" :key="i" :class="['verify-step', stepClass(step.status)]">
+              <i :class="stepIcon(step.status)"></i>
+              <span>{{ step.label }}</span>
+              <span v-if="step.status === 'running'" class="step-spinner"></span>
+            </div>
+          </div>
+          <el-progress :percentage="corrUpload.progress" :stroke-width="4" :show-text="false" color="#004F7C" style="margin-top:8px" />
+        </div>
+
+        <!-- DONE -->
+        <div v-if="corrUpload.state === 'done'" style="margin-top:12px">
+          <el-alert type="success" :closable="false" show-icon
+            :title="`Re-uploaded as v${corrUpload.item.doc.version}`">
+            <div style="font-size:12px;margin-top:2px">
+              <template v-if="corrUpload.resetTriggered">
+                All rejected documents of {{ corrUpload.item.hbl.hblNo }} are corrected —
+                <strong>review flow restarted at PGS Check (re-check)</strong>, PGS team notified.
+              </template>
+              <template v-else>
+                Saved. Other rejected documents on {{ corrUpload.item.hbl.hblNo }} still need re-upload before the review flow restarts.
+              </template>
+            </div>
+          </el-alert>
+        </div>
+      </template>
+
+      <div slot="footer">
+        <el-button size="small" @click="corrUpload.visible=false">{{ corrUpload.state === 'done' ? 'Close' : 'Cancel' }}</el-button>
+      </div>
+    </el-dialog>
+
     <!-- ── Update document dialog (direct new-version upload) ───────────── -->
     <el-dialog
       :visible.sync="updateDialog.visible"
@@ -524,6 +656,8 @@
 </template>
 
 <script>
+import { rejectedDocs, resubmittedCount, resubmitDocument } from '@/store/reviewFlow'
+
 const VERIFY_STEPS = [
   { label: 'Uploading file to server',      status: 'pending' },
   { label: 'Extracting content via OCR',    status: 'pending' },
@@ -606,10 +740,37 @@ export default {
         state: 'idle',          // idle | verifying | done
         fileName: '', steps: [], progress: 0, newVersion: 1,
       },
+
+      // Rejected-document correction queue (shared with Pepco Review)
+      correctionDialog: { visible: false },
+      corrUpload: {
+        visible: false, item: null,
+        state: 'idle',          // idle | verifying | done
+        fileName: '', steps: [], progress: 0, resetTriggered: false,
+      },
     }
   },
 
   computed: {
+    // Static task rows + the live Document Correction row (shared review store)
+    allTaskRows() {
+      const rejected = rejectedDocs().length
+      const corrRow = {
+        key: 'DOC_CORRECTION',
+        taskName: 'Document Correction (Re-upload)',
+        partyRole: 'Supplier',
+        possible: rejected, urgent: rejected, overdue: 0, finished: resubmittedCount(),
+        hint: 'Documents rejected during Pepco review — re-upload to restart the review flow at PGS',
+      }
+      const idx = this.taskRows.findIndex(r => r.key === 'UPLOAD_DOCS')
+      return [...this.taskRows.slice(0, idx + 1), corrRow]
+    },
+
+    // Supplier correction work queue (rejected documents across all HBLs)
+    correctionQueue() {
+      return rejectedDocs()
+    },
+
     poListFiltered() {
       const k = this.poListDialog.statusKey
       if (!k) return this.poList
@@ -669,12 +830,74 @@ export default {
 
     // ── Dialog 1: PO list ────────────────────────────────────────────────
     openPoList(taskRow, statusKey) {
+      if (taskRow.key === 'DOC_CORRECTION') {
+        this.correctionDialog.visible = true
+        return
+      }
       if (taskRow.key !== 'UPLOAD_DOCS') {
         this.$message.info(`"${taskRow.taskName}" is an existing milestone — demo focuses on Upload Shipping Documents`)
         return
       }
       const labels = { possible:'Possible', urgent:'Urgent', overdue:'Overdue', finished:'Finished' }
       this.poListDialog = { visible: true, statusKey, statusLabel: labels[statusKey] || '' }
+    },
+
+    // ── Document Correction (rejected docs re-upload) ────────────────────
+    openCorrReupload(item) {
+      this.corrUpload = {
+        visible: true, item,
+        state: 'idle', fileName: '', steps: [], progress: 0, resetTriggered: false,
+      }
+    },
+    corrNeedsAi(item) {
+      return ['Commercial Invoice', 'Packing List'].includes(item.doc.docType)
+    },
+    startCorrUpload(file) {
+      const c = this.corrUpload
+      c.fileName = file ? file.name : `${c.item.doc.docType.replace(/\s+/g, '').toUpperCase()}-FIXED.pdf`
+
+      if (!this.corrNeedsAi(c.item)) {
+        this.finishCorrUpload()
+        return
+      }
+      c.state = 'verifying'; c.progress = 0
+      c.steps = VERIFY_STEPS.map(s => ({ ...s }))
+      c.steps[0].status = 'running'
+      const timings = [
+        { delay: 600,  step: 0, progress: 20,  nextStep: 1 },
+        { delay: 1400, step: 1, progress: 55,  nextStep: 2 },
+        { delay: 2400, step: 2, progress: 75,  nextStep: 3 },
+        { delay: 3400, step: 3, progress: 100 },
+      ]
+      timings.forEach(({ delay, step, progress, nextStep }) => {
+        setTimeout(() => {
+          c.steps[step].status = 'done'
+          c.progress = progress
+          if (nextStep !== undefined) c.steps[nextStep].status = 'running'
+          if (step === 3) setTimeout(() => this.finishCorrUpload(), 400)
+        }, delay)
+      })
+    },
+    finishCorrUpload() {
+      const c = this.corrUpload
+      const { hbl, doc } = c.item
+      const result = resubmitDocument(hbl, doc, c.fileName, `${hbl.supplier} (Supplier)`)
+      c.state = 'done'
+      c.resetTriggered = result.reset
+      if (result.reset) {
+        this.$notify({
+          title: 'Review flow restarted',
+          dangerouslyUseHTMLString: true,
+          message: `<div style="font-size:12px;line-height:1.7">
+            <div><b>${hbl.hblNo}</b> — all rejected documents corrected.</div>
+            <div style="color:#13ce66">✔ Milestones reset — flow restarts at <b>PGS Check (Re-check)</b></div>
+            <div style="color:#999">✉ PGS team notified for re-review</div>
+          </div>`,
+          type: 'success', duration: 6000,
+        })
+      } else {
+        this.$message.success(`${doc.docType} re-uploaded (v${doc.version}) — ${result.remaining} rejected document(s) still pending on ${hbl.hblNo}`)
+      }
     },
 
     // ── Dialog 2: PO docs history ────────────────────────────────────────
@@ -1063,6 +1286,14 @@ export default {
 .update-current {
   display:flex; align-items:center; gap:10px;
   background:#f8fafc; border:1px solid $border; border-radius:6px; padding:10px 12px;
+}
+
+// Correction re-upload — reject reason banner
+.corr-reject-banner {
+  display:flex; gap:8px; align-items:flex-start;
+  background:#fff0f0; border:1px solid #ffa39e; border-radius:6px;
+  padding:9px 12px; font-size:12px; color:#8c2e2b;
+  i { color:#ff4949; font-size:15px; margin-top:1px; flex-shrink:0; }
 }
 
 // ── Preview Dialog ────────────────────────────────────────────────────────
