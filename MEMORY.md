@@ -184,8 +184,7 @@ Phase 1 核心逻辑：
 | **Dashboard** | `/customs/dashboard` | ✅ 完成：KPI 卡片、HBL 列表、状态色标、搜索过滤 |
 | **Document Upload** | `/customs/document-upload` | ✅ 完成（PR #4，2026-06-10 重构）：四层任务驱动流程 — Origin 任务看板（7 milestone 计数器）→ PO 列表弹窗（按状态过滤）→ PO 文档历史弹窗（含版本/下载/预览/删除）→ 上传弹窗（CI+PL 双强制槽位 + AI 校验，原页面功能整体内嵌）；Confirm 默认禁用，CI+PL 均覆盖（本次上传或 PO 历史已有）才启用；版本号按文档类型自动递增 |
 | **Pepco Review** | `/customs/pepco-review` | ✅ 完成（已 merge main，PR #2）：三阶段 Milestone、顺序锁定、拒绝→Pending Correction→OHA确认→全部重置回PGS、Re-check 标识（含历史记录条目）、Role 驱动视图、All Tasks 默认全局模式 |
-| **Broker Downloads** | `/customs/broker-download` | ✅ 完成：文件列表、全选/批量下载、通知时间展示 |
-| **Document Management** | 待建 | ❌ 未做：独立文档管理模块（Phase 1 新增需求） |
+| **Document Center** | `/customs/document-center` | ✅ 完成（PR #6，2026-06-11）：统一文档管理中心，替换原 Broker Downloads tab（旧路由重定向）。共享 store `src/store/documents.js`：Document 第一公民对象 + 版本链 + 状态机（PENDING_REVIEW/REJECTED/PENDING_REREVIEW/APPROVED），文档只挂 PO，HBL/MBL/Container 关系实时解析。Shipment View（HBL 锚点两级展开）+ Document View（扁平）+ Detail 抽屉（版本历史/时间线/Phase2 Extracted Fields 占位）。共享文档 Shared 标记（PO-004 拆分双 HBL 场景）、全局搜索 roll-up、broker 打包下载 + version snapshot + Updated since last download 徽标。⚠ 不含 approve/reject——审核动作只在 Pepco Review tab |
 
 ### Layout
 - 顶部横向导航栏（深蓝 #004F7C）
@@ -216,6 +215,13 @@ Phase 1 核心逻辑：
 - 任一 Milestone 被拒绝 → OHA 修正确认后 → **三个全部重置**（不只重置被拒的那个）
 - 重置后标记 "Re-check"，历史拒绝原因和 OHA 备注保留可见
 - 目的：让 Pepco 知道哪里改过，避免重复审查已通过的内容
+
+### 待做：Document Upload ↔ Pepco Review 拒绝-修正闭环（设计已确认，2026-06-11）
+- 暂不联动 Document Center（用户还在思考 DC 的联动设计）
+- 方案：新建轻量共享 store `reviewFlow.js`，把 Pepco Review 的 6 条 MOOV HBL mock 搬入，文档加 poNo + 状态（OK/REJECTED/RESUBMITTED）
+- PEPCO 侧：reject 弹窗升级（必须勾选问题文件 + 原因）；删除 Confirm Correction (Supplier) 演示按钮；Pending Correction 横幅显示修正进度（1 of 2 corrected）
+- Supplier 侧：Origin 看板新增 "Document Correction (Re-upload)" 任务行，计数=REJECTED 文档数，点击列出被拒文件（HBL/PO/类型/原因/拒绝人），行内 Re-upload（CI/PL 走 AI 检测）
+- 自动触发：HBL 无剩余 REJECTED 文档 → 三 milestone 自动重置回 PGS re-check + 通知 PGS + 写历史
 
 ### 现有系统改造策略
 - **在现有模块上叠加，不重建**
