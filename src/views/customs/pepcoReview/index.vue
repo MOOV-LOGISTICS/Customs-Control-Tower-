@@ -54,6 +54,7 @@
       <el-table
         ref="hblTable"
         :data="filteredHbls" size="mini" stripe border
+        row-key="hblNo"
         @selection-change="selectedHbls = $event"
       >
         <el-table-column type="selection" width="40" :selectable="rowSelectable" />
@@ -90,173 +91,166 @@
           </template>
         </el-table-column>
 
-        <!-- Action -->
-        <!-- Expand toggle -->
-        <el-table-column width="40" align="center">
+        <!-- Inline expand: content inserts directly below the clicked row -->
+        <el-table-column type="expand">
           <template #default="{row}">
-            <i :class="row.expanded ? 'el-icon-arrow-up' : 'el-icon-arrow-down'"
-              style="cursor:pointer;color:#909399" @click="toggleExpand(row)" />
+            <div class="expanded-detail">
+              <div class="expanded-hbl-header">
+                <span class="exp-hbl-no">{{ row.hblNo }}</span>
+                <span class="exp-hbl-supplier">{{ row.supplier }}</span>
+                <el-descriptions :column="4" size="mini" border style="flex:1;margin-left:16px">
+                  <el-descriptions-item label="MBL">{{ row.mblNo }}</el-descriptions-item>
+                  <el-descriptions-item label="POL">{{ row.pol }}</el-descriptions-item>
+                  <el-descriptions-item label="POD">{{ row.pod }}</el-descriptions-item>
+                  <el-descriptions-item label="ETA">{{ row.eta }}</el-descriptions-item>
+                </el-descriptions>
+              </div>
+
+              <el-tabs v-model="row.activeTab" size="mini" type="card">
+                <!-- Documents tab -->
+                <el-tab-pane label="Documents" name="documents">
+                  <div style="display:flex;justify-content:flex-end;margin-top:8px">
+                    <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadAllDocs(row)">
+                      Download All ({{ row.documents.length }})
+                    </el-button>
+                  </div>
+                  <el-table :data="row.documents" size="mini" stripe border style="margin-top:8px">
+                    <el-table-column label="PO Number" width="120" prop="poNo" />
+                    <el-table-column label="Document Type" min-width="150" prop="docType" />
+                    <el-table-column label="File Name" min-width="170" prop="fileName" />
+                    <el-table-column label="Version" width="70" align="center">
+                      <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
+                    </el-table-column>
+                    <el-table-column label="AI Check" width="95">
+                      <template #default="{row}">
+                        <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
+                          {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
+                        </span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="Review Status" width="150">
+                      <template #default="{row}">
+                        <el-tooltip v-if="row.reviewStatus==='REJECTED'" placement="top"
+                          :content="`${row.reject.reason} — ${row.reject.by}, ${row.reject.at}`">
+                          <span class="status-badge rejected">Rejected</span>
+                        </el-tooltip>
+                        <el-tooltip v-else-if="row.reviewStatus==='RESUBMITTED'" placement="top"
+                          :content="`Re-uploaded after rejection: ${row.reject.reason}`">
+                          <span class="status-badge resubmitted">Resubmitted v{{ row.version }}</span>
+                        </el-tooltip>
+                        <span v-else style="color:#c0c4cc">—</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="Uploaded" width="130" prop="uploadedAt" />
+                    <el-table-column label="" width="70" align="center">
+                      <template #default="scope">
+                        <el-button type="text" size="mini" icon="el-icon-view" @click="openDocPreview(row, scope.row)">Preview</el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </el-tab-pane>
+
+                <!-- Documents Verified tab -->
+                <el-tab-pane name="verified">
+                  <span slot="label"><i class="el-icon-finished"></i> Documents Verified</span>
+                  <!-- Pending Correction banner — live progress of the supplier's re-uploads -->
+                  <div v-if="currentStage(row).cls==='stage-correction'" class="correction-banner">
+                    <i class="el-icon-warning-outline"></i>
+                    <div style="flex:1">
+                      <strong>PENDING CORRECTION</strong> —
+                      Waiting for supplier: <strong>{{ progress(row).done }} of {{ progress(row).total }}</strong> rejected document(s) re-uploaded.
+                      Flow resets to PGS re-check automatically when all are corrected.
+                      <div class="corr-doc-list">
+                        <div v-for="(d, i) in progress(row).docs" :key="i" class="corr-doc-row">
+                          <i :class="d.reviewStatus === 'RESUBMITTED' ? 'el-icon-circle-check ok' : 'el-icon-remove-outline waiting'"></i>
+                          <span class="cdr-po">{{ d.poNo }}</span>
+                          <span class="cdr-type">{{ d.docType }}</span>
+                          <span class="cdr-file">{{ d.fileName }} (v{{ d.version }})</span>
+                          <span :class="['cdr-state', d.reviewStatus === 'RESUBMITTED' ? 'ok' : 'waiting']">
+                            {{ d.reviewStatus === 'RESUBMITTED' ? 'Re-uploaded' : 'Waiting for re-upload' }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Re-check banner -->
+                  <div v-if="hasRecheck(row)" class="recheck-banner">
+                    <i class="el-icon-warning-outline"></i>
+                    <div>
+                      <strong>RE-CHECK REQUIRED</strong> — This HBL was previously rejected and corrected. Please review the history below before proceeding.
+                    </div>
+                  </div>
+
+                  <!-- 3-node milestone timeline -->
+                  <div class="ms-timeline">
+                    <div v-for="(m, i) in milestoneConfig" :key="m.key" class="tl-node">
+                      <div class="tl-top">
+                        <div :class="['tl-circle', tlCircleClass(row.milestones[m.key])]">
+                          <i :class="stepPipIcon(row.milestones[m.key].status)"></i>
+                        </div>
+                        <div v-if="i < milestoneConfig.length - 1"
+                          :class="['tl-connector', { done: row.milestones[m.key].status === 'COMPLETE' }]"></div>
+                      </div>
+                      <div class="tl-name">{{ m.short }} — {{ m.shortName }}</div>
+                      <div :class="['tl-status', tlCircleClass(row.milestones[m.key])]">
+                        {{ stepLabel(row.milestones[m.key].status) }}
+                        <span v-if="row.milestones[m.key].isRecheck" class="tl-recheck">RE-CHECK</span>
+                      </div>
+                      <div class="tl-meta">
+                        <template v-if="row.milestones[m.key].status === 'COMPLETE'">
+                          {{ row.milestones[m.key].completedBy }}<br>{{ row.milestones[m.key].completedAt }}
+                        </template>
+                        <template v-else-if="row.milestones[m.key].lockReason">
+                          {{ row.milestones[m.key].lockReason }}
+                        </template>
+                        <template v-else>—</template>
+                      </div>
+                    </div>
+                  </div>
+                  <el-table :data="row.verifyHistory" size="mini" stripe border style="margin-top:8px">
+                    <el-table-column label="Milestone" width="220">
+                      <template #default="{row}">
+                        <span :class="['ms-pill', `ms-pill-${row.milestone.toLowerCase()}`]">{{ row.milestone }}</span>
+                        <el-tag v-if="row.isRecheck" size="mini" type="warning" style="margin-left:4px;font-size:9px;vertical-align:middle">RE-CHECK</el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="Status" width="110">
+                      <template #default="{row}">
+                        <span :class="['status-badge', historyStatusClass(row.status)]">{{ row.status }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="Update User" width="160" prop="user" />
+                    <el-table-column label="Update Time" width="185" prop="time" />
+                    <el-table-column label="Incomplete Reason" min-width="200">
+                      <template #default="{row}">
+                        <span v-if="row.reason" style="color:#ff4949">{{ row.reason }}</span>
+                        <span v-else style="color:#c0c4cc">—</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="Remark" min-width="180">
+                      <template #default="{row}">
+                        <span v-if="row.remark" style="color:#666">{{ row.remark }}</span>
+                        <span v-else style="color:#c0c4cc">—</span>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </el-tab-pane>
+
+                <!-- Containers/HBL placeholder -->
+                <el-tab-pane label="Containers/HBL" name="containers">
+                  <div style="padding:20px;text-align:center;color:#c0c4cc">Container data will display here</div>
+                </el-tab-pane>
+
+                <!-- POs/HBL placeholder -->
+                <el-tab-pane label="POs/HBL" name="pos">
+                  <div style="padding:20px;text-align:center;color:#c0c4cc">PO data will display here</div>
+                </el-tab-pane>
+              </el-tabs>
+            </div>
           </template>
         </el-table-column>
       </el-table>
-
-      <!-- Expanded row detail -->
-      <template v-for="row in filteredHbls">
-        <div v-if="row.expanded" :key="'exp-'+row.hblNo" class="expanded-detail">
-          <div class="expanded-hbl-header">
-            <span class="exp-hbl-no">{{ row.hblNo }}</span>
-            <span class="exp-hbl-supplier">{{ row.supplier }}</span>
-            <el-descriptions :column="4" size="mini" border style="flex:1;margin-left:16px">
-              <el-descriptions-item label="MBL">{{ row.mblNo }}</el-descriptions-item>
-              <el-descriptions-item label="POL">{{ row.pol }}</el-descriptions-item>
-              <el-descriptions-item label="POD">{{ row.pod }}</el-descriptions-item>
-              <el-descriptions-item label="ETA">{{ row.eta }}</el-descriptions-item>
-            </el-descriptions>
-          </div>
-
-          <el-tabs v-model="row.activeTab" size="mini" type="card">
-            <!-- Documents tab -->
-            <el-tab-pane label="Documents" name="documents">
-              <div style="display:flex;justify-content:flex-end;margin-top:8px">
-                <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadAllDocs(row)">
-                  Download All ({{ row.documents.length }})
-                </el-button>
-              </div>
-              <el-table :data="row.documents" size="mini" stripe border style="margin-top:8px">
-                <el-table-column label="PO Number" width="120" prop="poNo" />
-                <el-table-column label="Document Type" min-width="150" prop="docType" />
-                <el-table-column label="File Name" min-width="170" prop="fileName" />
-                <el-table-column label="Version" width="70" align="center">
-                  <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
-                </el-table-column>
-                <el-table-column label="AI Check" width="95">
-                  <template #default="{row}">
-                    <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
-                      {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
-                    </span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="Review Status" width="150">
-                  <template #default="{row}">
-                    <el-tooltip v-if="row.reviewStatus==='REJECTED'" placement="top"
-                      :content="`${row.reject.reason} — ${row.reject.by}, ${row.reject.at}`">
-                      <span class="status-badge rejected">Rejected</span>
-                    </el-tooltip>
-                    <el-tooltip v-else-if="row.reviewStatus==='RESUBMITTED'" placement="top"
-                      :content="`Re-uploaded after rejection: ${row.reject.reason}`">
-                      <span class="status-badge resubmitted">Resubmitted v{{ row.version }}</span>
-                    </el-tooltip>
-                    <span v-else style="color:#c0c4cc">—</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="Uploaded" width="130" prop="uploadedAt" />
-                <el-table-column label="" width="70" align="center">
-                  <template #default="scope">
-                    <el-button type="text" size="mini" icon="el-icon-view" @click="openDocPreview(row, scope.row)">Preview</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-tab-pane>
-
-            <!-- Documents Verified tab -->
-            <el-tab-pane name="verified">
-              <span slot="label"><i class="el-icon-finished"></i> Documents Verified</span>
-              <!-- Pending Correction banner — live progress of the supplier's re-uploads -->
-              <div v-if="currentStage(row).cls==='stage-correction'" class="correction-banner">
-                <i class="el-icon-warning-outline"></i>
-                <div style="flex:1">
-                  <strong>PENDING CORRECTION</strong> —
-                  Waiting for supplier: <strong>{{ progress(row).done }} of {{ progress(row).total }}</strong> rejected document(s) re-uploaded.
-                  Flow resets to PGS re-check automatically when all are corrected.
-                  <div class="corr-doc-list">
-                    <div v-for="(d, i) in progress(row).docs" :key="i" class="corr-doc-row">
-                      <i :class="d.reviewStatus === 'RESUBMITTED' ? 'el-icon-circle-check ok' : 'el-icon-remove-outline waiting'"></i>
-                      <span class="cdr-po">{{ d.poNo }}</span>
-                      <span class="cdr-type">{{ d.docType }}</span>
-                      <span class="cdr-file">{{ d.fileName }} (v{{ d.version }})</span>
-                      <span :class="['cdr-state', d.reviewStatus === 'RESUBMITTED' ? 'ok' : 'waiting']">
-                        {{ d.reviewStatus === 'RESUBMITTED' ? 'Re-uploaded' : 'Waiting for re-upload' }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Re-check banner -->
-              <div v-if="hasRecheck(row)" class="recheck-banner">
-                <i class="el-icon-warning-outline"></i>
-                <div>
-                  <strong>RE-CHECK REQUIRED</strong> — This HBL was previously rejected and corrected. Please review the history below before proceeding.
-                </div>
-              </div>
-
-              <!-- 3-node milestone timeline -->
-              <div class="ms-timeline">
-                <div v-for="(m, i) in milestoneConfig" :key="m.key" class="tl-node">
-                  <div class="tl-top">
-                    <div :class="['tl-circle', tlCircleClass(row.milestones[m.key])]">
-                      <i :class="stepPipIcon(row.milestones[m.key].status)"></i>
-                    </div>
-                    <div v-if="i < milestoneConfig.length - 1"
-                      :class="['tl-connector', { done: row.milestones[m.key].status === 'COMPLETE' }]"></div>
-                  </div>
-                  <div class="tl-name">{{ m.short }} — {{ m.shortName }}</div>
-                  <div :class="['tl-status', tlCircleClass(row.milestones[m.key])]">
-                    {{ stepLabel(row.milestones[m.key].status) }}
-                    <span v-if="row.milestones[m.key].isRecheck" class="tl-recheck">RE-CHECK</span>
-                  </div>
-                  <div class="tl-meta">
-                    <template v-if="row.milestones[m.key].status === 'COMPLETE'">
-                      {{ row.milestones[m.key].completedBy }}<br>{{ row.milestones[m.key].completedAt }}
-                    </template>
-                    <template v-else-if="row.milestones[m.key].lockReason">
-                      {{ row.milestones[m.key].lockReason }}
-                    </template>
-                    <template v-else>—</template>
-                  </div>
-                </div>
-              </div>
-              <el-table :data="row.verifyHistory" size="mini" stripe border style="margin-top:8px">
-                <el-table-column label="Milestone" width="220">
-                  <template #default="{row}">
-                    <span :class="['ms-pill', `ms-pill-${row.milestone.toLowerCase()}`]">{{ row.milestone }}</span>
-                    <el-tag v-if="row.isRecheck" size="mini" type="warning" style="margin-left:4px;font-size:9px;vertical-align:middle">RE-CHECK</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="Status" width="110">
-                  <template #default="{row}">
-                    <span :class="['status-badge', historyStatusClass(row.status)]">{{ row.status }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="Update User" width="160" prop="user" />
-                <el-table-column label="Update Time" width="185" prop="time" />
-                <el-table-column label="Incomplete Reason" min-width="200">
-                  <template #default="{row}">
-                    <span v-if="row.reason" style="color:#ff4949">{{ row.reason }}</span>
-                    <span v-else style="color:#c0c4cc">—</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="Remark" min-width="180">
-                  <template #default="{row}">
-                    <span v-if="row.remark" style="color:#666">{{ row.remark }}</span>
-                    <span v-else style="color:#c0c4cc">—</span>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-tab-pane>
-
-            <!-- Containers/HBL placeholder -->
-            <el-tab-pane label="Containers/HBL" name="containers">
-              <div style="padding:20px;text-align:center;color:#c0c4cc">Container data will display here</div>
-            </el-tab-pane>
-
-            <!-- POs/HBL placeholder -->
-            <el-tab-pane label="POs/HBL" name="pos">
-              <div style="padding:20px;text-align:center;color:#c0c4cc">PO data will display here</div>
-            </el-tab-pane>
-          </el-tabs>
-        </div>
-      </template>
 
       <div style="text-align:right;margin-top:10px">
         <el-pagination layout="total, sizes, prev, pager, next" :total="filteredHbls.length" :page-size="20" small />
@@ -521,7 +515,7 @@ export default {
   methods: {
     switchMilestone(key) { this.currentMilestone = key; this.clearSelection() },
 
-    toggleExpand(row) { row.expanded = !row.expanded },
+    toggleExpand(row) { this.$refs.hblTable.toggleRowExpansion(row) },
 
     hasRecheck(row) {
       return Object.values(row.milestones).some(m => m.isRecheck)
