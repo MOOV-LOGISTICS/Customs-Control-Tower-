@@ -191,7 +191,13 @@
                       Download All ({{ row.documents.length }})
                     </el-button>
                   </div>
-                  <el-table :data="row.documents" size="mini" stripe border style="margin-top:8px">
+                  <el-table :data="sortedDocs(row.documents)" size="mini" stripe border style="margin-top:8px">
+                    <el-table-column label="Document Number" width="140" align="center">
+                      <template #default="{row}">
+                        <span v-if="row.docNumber" style="font-family:monospace;font-size:11px;color:#004F7C;font-weight:600">{{ row.docNumber }}</span>
+                        <span v-else style="color:#c0c4cc">—</span>
+                      </template>
+                    </el-table-column>
                     <el-table-column label="PO Number" width="120" prop="poNo" />
                     <el-table-column label="Document Type" min-width="150" prop="docType" />
                     <el-table-column label="File Name" min-width="170" prop="fileName" />
@@ -666,6 +672,9 @@ export default {
   methods: {
     switchMilestone(key) { this.currentMilestone = key; this.clearSelection() },
 
+    sortedDocs(docs) {
+      return [...docs].sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))
+    },
     enterMilestone(key) { this.currentMilestone = key; this.pageView = 'list' },
     boardRowClass({ row }) { return row.isMilestone ? 'board-milestone-row' : '' },
     toggleExpand(row) { this.$refs.hblTable.toggleRowExpansion(row) },
