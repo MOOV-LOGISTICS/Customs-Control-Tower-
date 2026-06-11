@@ -27,8 +27,8 @@
         <el-menu-item index="/customs/pepco-review">
           <i class="el-icon-finished"></i> Pepco Review
         </el-menu-item>
-        <el-menu-item index="/customs/broker-download">
-          <i class="el-icon-download"></i> Broker Downloads
+        <el-menu-item index="/customs/document-center">
+          <i class="el-icon-folder-opened"></i> Document Center
         </el-menu-item>
       </el-menu>
 
