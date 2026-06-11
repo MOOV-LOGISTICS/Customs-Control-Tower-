@@ -1,6 +1,83 @@
 ﻿<template>
   <div class="app-container">
 
+    <!-- ══ BOARD VIEW ════════════════════════════════════════════════════ -->
+    <template v-if="pageView==='board'">
+
+      <!-- Search bar -->
+      <el-card style="margin-bottom:12px">
+        <el-row :gutter="10" type="flex" align="middle">
+          <el-col :span="5"><el-input placeholder="Shipper Booking No" size="mini" clearable prefix-icon="el-icon-search" /></el-col>
+          <el-col :span="5"><el-input placeholder="Carrier Booking No" size="mini" clearable /></el-col>
+          <el-col :span="5"><el-input placeholder="Container No" size="mini" clearable /></el-col>
+          <el-col :span="4">
+            <el-select placeholder="DC" size="mini" style="width:100%">
+              <el-option label="DC-01" value="DC-01" />
+              <el-option label="DC-02" value="DC-02" />
+            </el-select>
+          </el-col>
+          <el-col :span="5">
+            <el-button type="primary" size="mini" icon="el-icon-search" @click="$message.info('Filter applied')">Search</el-button>
+          </el-col>
+        </el-row>
+      </el-card>
+
+      <!-- Destination task board -->
+      <el-card>
+        <div slot="header" class="card-hdr">
+          <span>Destination</span>
+          <span style="font-size:11px;color:#999;font-weight:400">Click any status number on the document check rows to open the review list</span>
+        </div>
+        <el-table :data="allBoardRows" size="mini" border :header-cell-style="{background:'#fafafa'}" :row-class-name="boardRowClass">
+          <el-table-column label="Task Name" min-width="240">
+            <template #default="{row}">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-weight:600">{{ row.taskName }}</span>
+                <el-tag v-if="row.isNew" size="mini" type="success" style="font-size:10px">New</el-tag>
+              </div>
+              <div v-if="row.legacy" style="font-size:11px;color:#999;margin-top:2px">({{ row.legacy }})</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="Party Role" width="160" prop="partyRole" />
+          <el-table-column label="Based On" width="150" prop="basedOn" />
+          <el-table-column label="Possible" width="100" align="center">
+            <template #default="{row}">
+              <span v-if="row.isMilestone" class="ms-num possible" @click="enterMilestone(row.key)">{{ row.possible }}</span>
+              <span v-else class="ms-num-plain possible">{{ row.possible }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Urgent" width="100" align="center">
+            <template #default="{row}">
+              <span v-if="row.isMilestone" class="ms-num urgent" @click="enterMilestone(row.key)">{{ row.urgent }}</span>
+              <span v-else class="ms-num-plain urgent">{{ row.urgent }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Overdue" width="100" align="center">
+            <template #default="{row}">
+              <span v-if="row.isMilestone" class="ms-num overdue" @click="enterMilestone(row.key)">{{ row.overdue }}</span>
+              <span v-else class="ms-num-plain overdue">{{ row.overdue }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Finished" width="100" align="center">
+            <template #default="{row}">
+              <span v-if="row.isMilestone" class="ms-num finished" @click="enterMilestone(row.key)">{{ row.finished }}</span>
+              <span v-else class="ms-num-plain finished">{{ row.finished }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+
+    </template><!-- end board view -->
+
+    <!-- ══ LIST VIEW ═════════════════════════════════════════════════════ -->
+    <template v-if="pageView==='list'">
+
+      <!-- Breadcrumb / back button -->
+      <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px">
+        <el-button size="mini" icon="el-icon-arrow-left" @click="pageView='board'">Overview</el-button>
+        <span style="font-size:12px;color:#666">Destination / <strong style="color:#004F7C">{{ currentMilestoneName }}</strong></span>
+      </div>
+
     <!-- ── Verify Documents Counter Board (follows selected Pending Task) ── -->
     <el-card class="counter-board">
       <div class="cb-inner">
@@ -265,6 +342,8 @@
       </div>
     </el-card>
 
+    </template><!-- end list view -->
+
     <!-- ── Verify Document Dialog ────────────────────────────────────── -->
     <el-dialog :visible.sync="verifyDialog.visible" :title="`Document Verification — ${verifyDialogTaskName}`" width="520px">
       <div class="verify-dialog-body">
@@ -458,9 +537,22 @@ export default {
   name: 'PepcoReview',
   data() {
     return {
+      pageView: 'board',   // 'board' | 'list'
       currentMilestone: 'ALL',
       filterHbl: '', filterSupplier: '', filterStatus: '',
       selectedHbls: [],
+
+      boardDestRows: [
+        { key:'DELIVERY_PREPLAN',     taskName:'Delivery Pre-plan',          partyRole:'Pepco Transport',       basedOn:'Container Level', possible:3447, urgent:984, overdue:206, finished:34610 },
+        { key:'BROKER_ASSIGN',        taskName:'Customs Broker Assign',      partyRole:'Pepco Customs',         basedOn:'Container Level', possible:1063, urgent:20,  overdue:2,   finished:38162 },
+        { key:'DELIVERY_PLAN',        taskName:'Delivery Plan',              partyRole:'DHA',                   basedOn:'Container Level', possible:5925, urgent:269, overdue:147, finished:32906 },
+        { key:'INVOICES_CUSTOMS',     taskName:'Invoices to Customs',        partyRole:'Pepco Freight Invoice', basedOn:'Container Level', possible:4476, urgent:525, overdue:3,   finished:34243 },
+        { key:'VESSEL_ARRIVAL',       taskName:'Vessel Arrival',             partyRole:'DHA',                   basedOn:'Container Level', possible:5629, urgent:0,   overdue:0,   finished:33618 },
+        { key:'CUSTOMS_CLEARANCE',    taskName:'Customs Clearance Finished', partyRole:'Customs Broker',        basedOn:'Container Level', possible:5861, urgent:120, overdue:90,  finished:33176 },
+        { key:'CONTAINER_DISCHARGED', taskName:'Container Discharged',       partyRole:'DHA',                   basedOn:'Container Level', possible:5620, urgent:19,  overdue:31,  finished:33577 },
+        { key:'ARRIVAL_DC',           taskName:'Arrival DC',                 partyRole:'Yard Admin',            basedOn:'Container Level', possible:6933, urgent:6,   overdue:0,   finished:32308 },
+        { key:'EMPTY_CONTAINER',      taskName:'Empty Container Returned',   partyRole:'DHA',                   basedOn:'Container Level', possible:6981, urgent:88,  overdue:248, finished:31930 },
+      ],
 
       milestoneConfig: [
         { key:'PGS',     step:'①', name:'PGS Document Check',     shortName:'PGS Check',     role:'Pepco PGS',     short:'PGS', legacy:'' },
@@ -500,6 +592,16 @@ export default {
   computed: {
     // HBL/milestone/document state shared with the Document Upload tab
     hbls() { return reviewStore.hbls },
+
+    allBoardRows() {
+      const milestoneRows = this.milestoneConfig.map(m => ({
+        key: m.key, taskName: m.name, legacy: m.legacy,
+        partyRole: m.role, basedOn: 'HBL Level',
+        isNew: true, isMilestone: true,
+        ...this.kpis[m.key],
+      }))
+      return [...milestoneRows, ...this.boardDestRows]
+    },
 
     // ── Role scoping (demo of RBAC: role ↔ milestone mapping) ────────────
     role() { return roleStore.currentRole },
@@ -564,6 +666,8 @@ export default {
   methods: {
     switchMilestone(key) { this.currentMilestone = key; this.clearSelection() },
 
+    enterMilestone(key) { this.currentMilestone = key; this.pageView = 'list' },
+    boardRowClass({ row }) { return row.isMilestone ? 'board-milestone-row' : '' },
     toggleExpand(row) { this.$refs.hblTable.toggleRowExpansion(row) },
 
     hasRecheck(row) {
@@ -800,6 +904,25 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+// ── Board view ───────────────────────────────────────────────────────────────
+.card-hdr { display:flex; justify-content:space-between; align-items:center; font-weight:600; }
+.ms-num {
+  font-weight:700; cursor:pointer; padding:2px 8px; border-radius:4px; font-size:13px;
+  text-decoration:underline;
+  &.possible { color:#3A71A8; }
+  &.urgent   { color:#E6A817; }
+  &.overdue  { color:#ff4949; }
+  &.finished { color:#13ce66; }
+}
+.ms-num-plain {
+  font-weight:600; font-size:13px;
+  &.possible { color:#3A71A8; }
+  &.urgent   { color:#E6A817; }
+  &.overdue  { color:#ff4949; }
+  &.finished { color:#13ce66; }
+}
+::v-deep .board-milestone-row { background:#f0f7ff !important; }
+
 // ── Verify Documents Counter Board ──────────────────────────────────────────
 .counter-board {
   margin-bottom:12px;
