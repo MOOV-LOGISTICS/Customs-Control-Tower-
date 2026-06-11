@@ -29,7 +29,7 @@
         Viewing as <strong>{{ role }}</strong> —
         <template v-if="isSupplier">your POs; rejected documents need your re-upload</template>
         <template v-else-if="isBroker">your assigned HBLs; use Download All to package the latest files</template>
-        <template v-else>all shipments; documents pending review are highlighted</template>
+        <template v-else>all shipments — review &amp; approve actions live in the Pepco Review tab; this page is for tracking and downloads</template>
       </div>
     </el-card>
 
@@ -104,10 +104,6 @@
                   <el-button type="text" size="mini" icon="el-icon-download" @click="downloadOne(doc)">Download</el-button>
                   <el-button v-if="canUpload && doc.status === 'REJECTED'" type="text" size="mini"
                     icon="el-icon-refresh-left" class="act-reupload" @click="openReupload(doc)">Re-upload</el-button>
-                  <template v-if="canReview && (doc.status === 'PENDING_REVIEW' || doc.status === 'PENDING_REREVIEW')">
-                    <el-button type="text" size="mini" icon="el-icon-check" class="act-approve" @click="doApprove(doc)">Approve</el-button>
-                    <el-button type="text" size="mini" icon="el-icon-close" class="act-reject" @click="openReject(doc)">Reject</el-button>
-                  </template>
                   <el-button v-if="canUpload && doc.status !== 'APPROVED'" type="text" size="mini"
                     icon="el-icon-delete" class="act-delete" @click="doDelete(doc)" />
                 </span>
@@ -156,14 +152,11 @@
             <div style="font-size:11px;color:#999">{{ cv(row).at }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="Actions" width="230" align="center">
+        <el-table-column label="Actions" width="200" align="center">
           <template #default="{row}">
             <el-button type="text" size="mini" icon="el-icon-view" @click="openDetail(row)">Detail</el-button>
+            <el-button type="text" size="mini" icon="el-icon-download" @click="downloadOne(row)">Download</el-button>
             <el-button v-if="canUpload && row.status === 'REJECTED'" type="text" size="mini" class="act-reupload" @click="openReupload(row)">Re-upload</el-button>
-            <template v-if="canReview && (row.status === 'PENDING_REVIEW' || row.status === 'PENDING_REREVIEW')">
-              <el-button type="text" size="mini" class="act-approve" @click="doApprove(row)">Approve</el-button>
-              <el-button type="text" size="mini" class="act-reject" @click="openReject(row)">Reject</el-button>
-            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -238,13 +231,10 @@
           <div class="phase2-hint">AI-extracted document fields (and manual correction) will appear here in Phase 2.</div>
         </div>
 
-        <!-- Footer actions -->
+        <!-- Footer actions (review/approve lives in the Pepco Review page) -->
         <div class="detail-actions">
           <el-button v-if="canUpload && detail.doc.status === 'REJECTED'" type="warning" size="small" icon="el-icon-refresh-left" @click="openReupload(detail.doc)">Re-upload New Version</el-button>
-          <template v-if="canReview && (detail.doc.status === 'PENDING_REVIEW' || detail.doc.status === 'PENDING_REREVIEW')">
-            <el-button type="success" size="small" icon="el-icon-check" @click="doApprove(detail.doc)">Approve</el-button>
-            <el-button type="danger" size="small" icon="el-icon-close" plain @click="openReject(detail.doc)">Reject</el-button>
-          </template>
+          <el-button type="primary" size="small" icon="el-icon-download" plain @click="downloadOne(detail.doc)">Download</el-button>
           <el-button size="small" @click="detail.visible = false">Close</el-button>
         </div>
       </div>
@@ -281,19 +271,6 @@
         <el-button size="small" type="primary" :disabled="!upload.fileName || (!upload.doc && !upload.docType)" @click="submitUpload">
           {{ upload.doc ? 'Upload New Version' : 'Upload' }}
         </el-button>
-      </div>
-    </el-dialog>
-
-    <!-- ════════════════ Reject dialog ════════════════ -->
-    <el-dialog :visible.sync="reject.visible" title="Reject Document" width="460px" custom-class="brand-dialog">
-      <div style="font-size:12px;margin-bottom:8px">
-        Rejecting <strong>{{ reject.doc ? reject.doc.docType : '' }}</strong>
-        ({{ reject.doc ? cv(reject.doc).fileName : '' }}) — the supplier will be asked to re-upload.
-      </div>
-      <el-input v-model="reject.reason" type="textarea" :rows="3" placeholder="Reject reason (required)" />
-      <div slot="footer">
-        <el-button size="small" @click="reject.visible = false">Cancel</el-button>
-        <el-button size="small" type="danger" :disabled="!reject.reason.trim()" @click="submitReject">Reject</el-button>
       </div>
     </el-dialog>
 
@@ -349,7 +326,7 @@ import { roleStore } from '@/store/role'
 import {
   docStore, DOC_TYPES, DOC_STATUS, REQUIRED_TYPES,
   poById, docsForPo, docsForHbl, unassignedPos, entitiesForDoc, isShared, currentVersion,
-  addDocument, addVersion, approveDoc, rejectDoc, softDeleteDoc,
+  addDocument, addVersion, softDeleteDoc,
   activityForDoc, recordPackageDownload, hblUpdatedSinceDownload, searchScope, searchSuggest,
 } from '@/store/documents'
 
@@ -367,7 +344,6 @@ export default {
 
       detail: { visible: false, doc: null },
       upload: { visible: false, poId: '', doc: null, docType: '', fileName: '', remark: '' },
-      reject: { visible: false, doc: null, reason: '' },
       pkg: { visible: false, scopeType: 'HBL', scopeId: '', onlyApproved: true, state: 'config', progress: 0 },
 
       docTypes: DOC_TYPES,
@@ -382,7 +358,6 @@ export default {
     isOps() { return this.role === 'MOOV Ops' },
     isPepco() { return ['Pepco PGS', 'Pepco Finance', 'Pepco Customs'].includes(this.role) },
     canUpload() { return this.isSupplier || this.isOps },
-    canReview() { return this.isPepco || this.isOps },
     canPackage() { return this.isBroker || this.isPepco || this.isOps },
 
     searchHit() { return searchScope(this.searchQ) },
@@ -508,18 +483,6 @@ export default {
         this.$message.success(`Document uploaded to ${u.poId} (v1, Pending Review)`)
       }
       this.upload.visible = false
-    },
-
-    // ── Review ──
-    doApprove(doc) {
-      approveDoc(doc.id, this.userName())
-      this.$message.success(`${doc.docType} approved${isShared(doc) ? ' — synced across all linked HBLs' : ''}`)
-    },
-    openReject(doc) { this.reject = { visible: true, doc, reason: '' } },
-    submitReject() {
-      rejectDoc(this.reject.doc.id, this.reject.reason.trim(), this.userName())
-      this.$message.warning(`${this.reject.doc.docType} rejected — supplier notified to re-upload`)
-      this.reject.visible = false
     },
 
     doDelete(doc) {
