@@ -367,9 +367,14 @@
 
       <div slot="footer">
         <el-button size="small" @click="uploadDialog.visible=false">Cancel</el-button>
-        <el-tooltip :disabled="canConfirm" content="Commercial Invoice and Packing List must both be uploaded and AI-verified" placement="top">
+        <el-tooltip :disabled="hasSessionUploads" content="Nothing to save yet — upload at least one document" placement="top">
           <span style="margin-left:10px">
-            <el-button size="small" type="primary" :disabled="!canConfirm" @click="confirmUpload">Confirm</el-button>
+            <el-button size="small" icon="el-icon-folder-checked" :disabled="!hasSessionUploads" @click="saveUpload">Save</el-button>
+          </span>
+        </el-tooltip>
+        <el-tooltip :disabled="canConfirm" content="Submit requires Commercial Invoice and Packing List — both uploaded and AI-verified" placement="top">
+          <span style="margin-left:10px">
+            <el-button size="small" type="primary" :disabled="!canConfirm" @click="submitUpload">Submit</el-button>
           </span>
         </el-tooltip>
       </div>
@@ -785,7 +790,7 @@ export default {
       const t = this.updateDialog.doc && this.updateDialog.doc.docTypeLabel
       return t === 'Commercial Invoice' || t === 'Packing List'
     },
-    // Confirm enabled only when each required doc type is covered:
+    // Submit enabled only when each required doc type is covered:
     // uploaded in this session (verified / force-saved) or already on the PO
     canConfirm() {
       if (!this.currentPo) return false
@@ -793,6 +798,12 @@ export default {
         slot.state === 'verified' || slot.state === 'force_saved'
         || this.currentPo.docs.some(d => d.docTypeLabel === slot.label)
       )
+    },
+    // Save enabled as soon as anything was uploaded in this session —
+    // other documents alone can be saved without meeting the CI+PL rule
+    hasSessionUploads() {
+      return this.mandatorySlots.some(s => s.state === 'verified' || s.state === 'force_saved')
+        || this.otherDocuments.length > 0
     },
     milestoneBarClass() {
       const states = this.mandatorySlots.map(s => s.state)
@@ -948,15 +959,11 @@ export default {
       return existing.length ? Math.max(...existing.map(d => d.version)) + 1 : 1
     },
 
-    confirmUpload() {
+    // Persist every file uploaded in this session to the PO history, then
+    // reset the session state so a second Save cannot duplicate them.
+    persistSessionUploads() {
       const today = new Date().toISOString().slice(0, 10)
       let saved = 0
-
-      // Backstop for the disabled button — same rule as canConfirm
-      if (!this.canConfirm) {
-        this.$message.error('Cannot confirm: Commercial Invoice and Packing List are both required')
-        return
-      }
 
       this.mandatorySlots.forEach(slot => {
         if (slot.state === 'verified' || slot.state === 'force_saved') {
@@ -989,12 +996,29 @@ export default {
         saved++
       })
 
-      if (saved === 0) {
-        this.$message.warning('No documents uploaded yet — upload at least one file before confirming')
+      this.mandatorySlots = [mkSlot('ci', 'Commercial Invoice'), mkSlot('pl', 'Packing List')]
+      this.otherDocuments = []
+      return saved
+    },
+
+    // Save: store whatever was uploaded (other documents alone are fine) —
+    // the milestone is NOT completed; files reappear in the PO history.
+    saveUpload() {
+      const saved = this.persistSessionUploads()
+      this.uploadDialog.visible = false
+      this.$message.success(`${saved} document(s) saved to ${this.currentPo.orderNo} — you can continue later. Submit still requires CI + PL.`)
+    },
+
+    // Submit: completes the milestone — hard-gated on CI + PL coverage.
+    submitUpload() {
+      // Backstop for the disabled button — same rule as canConfirm
+      if (!this.canConfirm) {
+        this.$message.error('Cannot submit: Commercial Invoice and Packing List are both required')
         return
       }
+      const saved = this.persistSessionUploads()
       this.uploadDialog.visible = false
-      this.$message.success(`${saved} document(s) saved to ${this.currentPo.orderNo}`)
+      this.$message.success(`Submitted — ${saved} new document(s) saved to ${this.currentPo.orderNo}, Upload Shipping Documents milestone completed`)
       // back on the PO docs dialog — list already shows the new files
     },
 
