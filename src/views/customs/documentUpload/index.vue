@@ -85,6 +85,7 @@
     >
       <div v-if="currentPo" style="margin-bottom:10px;display:flex;align-items:center;gap:12px">
         <el-button type="primary" size="mini" icon="el-icon-upload2" @click="openUploadDialog">Upload</el-button>
+        <el-tag size="mini" type="danger" style="margin-left:6px;vertical-align:middle">New</el-tag>
         <span style="font-size:12px;color:#666">
           PO <strong style="color:#004F7C">{{ currentPo.orderNo }}</strong> · {{ currentPo.supplier }} · SO Ref {{ currentPo.soRef }}
         </span>
