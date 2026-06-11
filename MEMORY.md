@@ -182,7 +182,7 @@ Phase 1 核心逻辑：
 | 页面 | 路由 | 当前状态 |
 |------|------|---------|
 | **Dashboard** | `/customs/dashboard` | ✅ 完成：KPI 卡片、HBL 列表、状态色标、搜索过滤 |
-| **Document Upload** | `/customs/document-upload` | ✅ 完成：双强制槽位（CI+PL）、异步 AI 校验三种结果、Milestone 门控、其他文件可选上传 |
+| **Document Upload** | `/customs/document-upload` | ✅ 完成（PR #4，2026-06-10 重构）：四层任务驱动流程 — Origin 任务看板（7 milestone 计数器）→ PO 列表弹窗（按状态过滤）→ PO 文档历史弹窗（含版本/下载/预览/删除）→ 上传弹窗（CI+PL 双强制槽位 + AI 校验，原页面功能整体内嵌）；Confirm 默认禁用，CI+PL 均覆盖（本次上传或 PO 历史已有）才启用；版本号按文档类型自动递增 |
 | **Pepco Review** | `/customs/pepco-review` | ✅ 完成（已 merge main，PR #2）：三阶段 Milestone、顺序锁定、拒绝→Pending Correction→OHA确认→全部重置回PGS、Re-check 标识（含历史记录条目）、Role 驱动视图、All Tasks 默认全局模式 |
 | **Broker Downloads** | `/customs/broker-download` | ✅ 完成：文件列表、全选/批量下载、通知时间展示 |
 | **Document Management** | 待建 | ❌ 未做：独立文档管理模块（Phase 1 新增需求） |
