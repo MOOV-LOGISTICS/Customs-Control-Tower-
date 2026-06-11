@@ -7,7 +7,7 @@
         <span>Origin</span>
         <span style="font-size:11px;color:#999;font-weight:400">Click any status number on "Upload Shipping Documents" to see the PO list</span>
       </div>
-      <el-table :data="taskRows" size="mini" border :header-cell-style="{background:'#fafafa'}" :row-class-name="taskRowClass">
+      <el-table :data="allTaskRows" size="mini" border :header-cell-style="{background:'#fafafa'}" :row-class-name="taskRowClass">
         <el-table-column label="Task Name" min-width="220">
           <template #default="{row}">
             <div style="display:flex;align-items:center;gap:6px">
@@ -16,6 +16,7 @@
                 <i class="el-icon-question" style="color:#3A71A8;font-size:13px;cursor:help"></i>
               </el-tooltip>
               <el-tag v-if="row.key==='UPLOAD_DOCS'" size="mini" type="success" style="font-size:10px">New flow</el-tag>
+              <el-tag v-if="row.key==='DOC_CORRECTION'" size="mini" type="warning" style="font-size:10px">New flow</el-tag>
             </div>
           </template>
         </el-table-column>
@@ -84,6 +85,7 @@
     >
       <div v-if="currentPo" style="margin-bottom:10px;display:flex;align-items:center;gap:12px">
         <el-button type="primary" size="mini" icon="el-icon-upload2" @click="openUploadDialog">Upload</el-button>
+        <el-tag size="mini" type="danger" style="margin-left:6px;vertical-align:middle">New</el-tag>
         <span style="font-size:12px;color:#666">
           PO <strong style="color:#004F7C">{{ currentPo.orderNo }}</strong> · {{ currentPo.supplier }} · SO Ref {{ currentPo.soRef }}
         </span>
@@ -100,8 +102,15 @@
         <el-table-column label="BL Type" width="80" align="center">
           <template #default="{row}">{{ row.blType || '/' }}</template>
         </el-table-column>
-        <el-table-column label="Version" width="70" align="center">
-          <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
+        <el-table-column label="Version" width="80" align="center">
+          <template #default="{row}">
+            <el-tooltip v-if="row.versionHistory && row.versionHistory.length" content="Click to view version history" placement="top">
+              <el-tag size="mini" type="primary" style="cursor:pointer" @click="versionHistoryDialog={visible:true,doc:row}">
+                v{{ row.version }} <i class="el-icon-time" style="font-size:10px;margin-left:2px"></i>
+              </el-tag>
+            </el-tooltip>
+            <el-tag v-else size="mini" type="info">v{{ row.version }}</el-tag>
+          </template>
         </el-table-column>
         <el-table-column label="File Name" min-width="160" prop="fileName" />
         <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" />
@@ -112,7 +121,11 @@
             </el-tooltip>
             <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
             <el-button type="primary" size="mini" icon="el-icon-view" @click="previewPoDoc(row)" />
-            <el-button type="danger" size="mini" icon="el-icon-delete" @click="deletePoDoc(row)" />
+            <el-tooltip :disabled="!currentPo.confirmed" content="Locked — documents cannot be deleted after Confirm" placement="top">
+              <span>
+                <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="currentPo.confirmed" @click="deletePoDoc(row)" />
+              </span>
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
@@ -121,7 +134,16 @@
       </div>
       <div slot="footer">
         <el-button size="small" @click="poDocsDialog.visible=false">Cancel</el-button>
-        <el-button size="small" type="primary" @click="confirmPoDocs">Confirm</el-button>
+        <el-tooltip :disabled="poHasAnyDocs" content="Nothing to save — no documents on this PO yet" placement="top">
+          <span style="margin-left:10px">
+            <el-button size="small" icon="el-icon-folder-checked" :disabled="!poHasAnyDocs" @click="savePoDocs">Save</el-button>
+          </span>
+        </el-tooltip>
+        <el-tooltip :disabled="poHasRequired" content="Confirm requires Commercial Invoice and Packing List on this PO — upload and submit them first" placement="top">
+          <span style="margin-left:10px">
+            <el-button size="small" type="primary" :disabled="!poHasRequired" @click="confirmPoDocs">Confirm</el-button>
+          </span>
+        </el-tooltip>
       </div>
     </el-dialog>
 
@@ -366,9 +388,14 @@
 
       <div slot="footer">
         <el-button size="small" @click="uploadDialog.visible=false">Cancel</el-button>
-        <el-tooltip :disabled="canConfirm" content="Commercial Invoice and Packing List must both be uploaded and AI-verified" placement="top">
+        <el-tooltip :disabled="hasSessionUploads" content="Nothing to save yet — upload at least one document" placement="top">
           <span style="margin-left:10px">
-            <el-button size="small" type="primary" :disabled="!canConfirm" @click="confirmUpload">Confirm</el-button>
+            <el-button size="small" icon="el-icon-folder-checked" :disabled="!hasSessionUploads" @click="saveUpload">Save</el-button>
+          </span>
+        </el-tooltip>
+        <el-tooltip :disabled="canConfirm" content="Submit requires Commercial Invoice and Packing List — both uploaded and AI-verified" placement="top">
+          <span style="margin-left:10px">
+            <el-button size="small" type="primary" :disabled="!canConfirm" @click="submitUpload">Submit</el-button>
           </span>
         </el-tooltip>
       </div>
@@ -440,6 +467,153 @@
       </div>
     </el-dialog>
 
+    <!-- ── Document Correction queue (rejected during Pepco review) ──────── -->
+    <el-dialog
+      :visible.sync="correctionDialog.visible"
+      title="Document Correction — Rejected by Pepco Review"
+      width="1080px" top="6vh" custom-class="brand-dialog"
+    >
+      <el-alert v-if="correctionQueue.length" type="warning" :closable="false" show-icon style="margin-bottom:10px"
+        title="These documents were rejected during Pepco review. Re-upload each one — once all rejected documents of a HBL are corrected, its review flow automatically restarts at PGS (re-check).">
+      </el-alert>
+      <el-table :data="correctionQueue" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
+        <el-table-column label="HBL" width="110">
+          <template #default="{row}"><span style="font-weight:600;color:#004F7C">{{ row.hbl.hblNo }}</span></template>
+        </el-table-column>
+        <el-table-column label="PO Number" width="120">
+          <template #default="{row}">{{ row.doc.poNo }}</template>
+        </el-table-column>
+        <el-table-column label="Document Type" width="150">
+          <template #default="{row}">{{ row.doc.docType }}</template>
+        </el-table-column>
+        <el-table-column label="File" min-width="160">
+          <template #default="{row}">
+            <el-tooltip content="Click to preview file" placement="top">
+              <span
+                style="color:#004F7C;cursor:pointer;text-decoration:underline;font-size:12px"
+                @click="previewRejectedDoc(row)"
+              >{{ row.doc.fileName }}</span>
+            </el-tooltip>
+            <el-tag size="mini" type="info" style="margin-left:4px">v{{ row.doc.version }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="Rejected By" width="160">
+          <template #default="{row}">
+            <div style="font-size:11px">{{ row.doc.reject.by }}</div>
+            <div style="font-size:10px;color:#999">{{ row.doc.reject.at }} · {{ row.doc.reject.milestone }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="Reject Reason" width="200">
+          <template #default="{row}">
+            <div style="color:#ff4949;font-size:12px">{{ row.doc.reject.reason }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="Reviewer Remark" min-width="200">
+          <template #default="{row}">
+            <span v-if="row.doc.reject.remark" style="font-size:12px;color:#303133">{{ row.doc.reject.remark }}</span>
+            <span v-else style="color:#c0c4cc">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Action" width="110" align="center">
+          <template #default="{row}">
+            <el-button type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-if="!correctionQueue.length" style="text-align:center;padding:28px;color:#13ce66;font-size:13px">
+        <i class="el-icon-circle-check" style="font-size:20px"></i><br>
+        No rejected documents — all corrections are done
+      </div>
+    </el-dialog>
+
+    <!-- ── Correction re-upload dialog (AI-checked for CI / PL) ──────────── -->
+    <el-dialog
+      :visible.sync="corrUpload.visible"
+      :title="corrUpload.item ? `Re-upload — ${corrUpload.item.doc.docType} (${corrUpload.item.hbl.hblNo})` : 'Re-upload'"
+      width="540px" custom-class="brand-dialog" append-to-body
+      :close-on-click-modal="false"
+    >
+      <template v-if="corrUpload.item">
+        <!-- Reject reason -->
+        <div class="corr-reject-banner">
+          <i class="el-icon-warning-outline"></i>
+          <div>
+            <div><strong>{{ corrUpload.item.doc.reject.reason }}</strong></div>
+            <div v-if="corrUpload.item.doc.reject.remark" style="font-size:11px;margin-top:2px">{{ corrUpload.item.doc.reject.remark }}</div>
+            <div style="font-size:10px;color:#999;margin-top:2px">
+              Rejected by {{ corrUpload.item.doc.reject.by }} · {{ corrUpload.item.doc.reject.at }} · {{ corrUpload.item.doc.reject.milestone }}
+            </div>
+          </div>
+        </div>
+
+        <!-- Current file -->
+        <div class="update-current" style="margin-top:10px">
+          <i class="el-icon-document" style="color:#004F7C;font-size:18px"></i>
+          <div style="flex:1">
+            <div style="font-size:12px;font-weight:600">{{ corrUpload.item.doc.fileName }}</div>
+            <div style="margin-top:3px">
+              <el-tag size="mini" type="danger">v{{ corrUpload.item.doc.version }} Rejected</el-tag>
+              <span style="margin-left:6px;color:#999;font-size:11px">{{ corrUpload.item.doc.poNo }}</span>
+            </div>
+          </div>
+          <el-tooltip content="Preview file" placement="top">
+            <el-button size="mini" circle icon="el-icon-view" @click="previewRejectedDoc(corrUpload.item)" />
+          </el-tooltip>
+        </div>
+
+        <!-- IDLE -->
+        <div v-if="corrUpload.state === 'idle'" style="margin-top:12px">
+          <div v-if="corrNeedsAi(corrUpload.item)" class="upload-hint" style="margin-bottom:10px">
+            <div class="hint-title">AI will verify the new version:</div>
+            <div class="hint-item"><i class="el-icon-check"></i> Document is a {{ corrUpload.item.doc.docType }}</div>
+            <div class="hint-item"><i class="el-icon-check"></i> PO Number matches <strong>{{ corrUpload.item.doc.poNo }}</strong></div>
+            <div class="hint-item"><i class="el-icon-check"></i> Supplier matches <strong>{{ corrUpload.item.hbl.supplier }}</strong></div>
+          </div>
+          <div v-else style="font-size:12px;color:#666;margin-bottom:10px">
+            This document type does not require AI verification — the new version is saved directly.
+          </div>
+          <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startCorrUpload(f)">
+            <el-button type="primary" size="small" icon="el-icon-upload2">
+              {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
+            </el-button>
+          </el-upload>
+        </div>
+
+        <!-- VERIFYING -->
+        <div v-if="corrUpload.state === 'verifying'" style="margin-top:12px">
+          <div class="verify-filename"><i class="el-icon-document"></i> {{ corrUpload.fileName }}</div>
+          <div class="verify-steps">
+            <div v-for="(step, i) in corrUpload.steps" :key="i" :class="['verify-step', stepClass(step.status)]">
+              <i :class="stepIcon(step.status)"></i>
+              <span>{{ step.label }}</span>
+              <span v-if="step.status === 'running'" class="step-spinner"></span>
+            </div>
+          </div>
+          <el-progress :percentage="corrUpload.progress" :stroke-width="4" :show-text="false" color="#004F7C" style="margin-top:8px" />
+        </div>
+
+        <!-- DONE -->
+        <div v-if="corrUpload.state === 'done'" style="margin-top:12px">
+          <el-alert type="success" :closable="false" show-icon
+            :title="`Re-uploaded as v${corrUpload.item.doc.version}`">
+            <div style="font-size:12px;margin-top:2px">
+              <template v-if="corrUpload.resetTriggered">
+                All rejected documents of {{ corrUpload.item.hbl.hblNo }} are corrected —
+                <strong>review flow restarted at PGS Check (re-check)</strong>, PGS team notified.
+              </template>
+              <template v-else>
+                Saved. Other rejected documents on {{ corrUpload.item.hbl.hblNo }} still need re-upload before the review flow restarts.
+              </template>
+            </div>
+          </el-alert>
+        </div>
+      </template>
+
+      <div slot="footer">
+        <el-button size="small" @click="corrUpload.visible=false">{{ corrUpload.state === 'done' ? 'Close' : 'Cancel' }}</el-button>
+      </div>
+    </el-dialog>
+
     <!-- ── Update document dialog (direct new-version upload) ───────────── -->
     <el-dialog
       :visible.sync="updateDialog.visible"
@@ -507,6 +681,43 @@
       </div>
     </el-dialog>
 
+    <!-- ── Version History dialog ──────────────────────────────────────── -->
+    <el-dialog
+      :visible.sync="versionHistoryDialog.visible"
+      :title="versionHistoryDialog.doc ? `Version History — ${versionHistoryDialog.doc.docTypeLabel}` : 'Version History'"
+      width="680px" append-to-body custom-class="brand-dialog"
+    >
+      <template v-if="versionHistoryDialog.doc">
+        <el-table :data="versionHistoryAllRows(versionHistoryDialog.doc)" size="mini" border :header-cell-style="{background:'#fafafa'}">
+          <el-table-column label="Version" width="110" align="center">
+            <template #default="{row}">
+              <el-tag v-if="row.isCurrent" size="mini" type="success">v{{ row.version }} · Current</el-tag>
+              <el-tag v-else size="mini" type="info">v{{ row.version }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="File Name" min-width="180" prop="fileName" />
+          <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" />
+          <el-table-column label="Status" width="100" align="center">
+            <template #default="{row}">
+              <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
+                <i :class="row.status==='VERIFIED'?'el-icon-check':'el-icon-warning-outline'"></i>
+                {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Actions" width="130" align="center">
+            <template #default="{row}">
+              <el-button type="text" size="mini" icon="el-icon-view" @click="previewVersionEntry(row)">Preview</el-button>
+              <el-button type="text" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)">DL</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+      <div slot="footer">
+        <el-button size="small" @click="versionHistoryDialog.visible=false">Close</el-button>
+      </div>
+    </el-dialog>
+
     <!-- Delete confirm dialog -->
     <el-dialog :visible.sync="deleteConfirm.visible" title="Delete Document" width="400px" append-to-body>
       <div style="font-size:13px;line-height:1.8">
@@ -524,6 +735,8 @@
 </template>
 
 <script>
+import { rejectedDocs, resubmittedCount, resubmitDocument } from '@/store/reviewFlow'
+
 const VERIFY_STEPS = [
   { label: 'Uploading file to server',      status: 'pending' },
   { label: 'Extracting content via OCR',    status: 'pending' },
@@ -538,8 +751,8 @@ const mkSlot = (key, label) => ({
 })
 
 // PO mock data — each PO carries its own uploaded-document history
-const mkPo = (orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs = []) => ({
-  orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs,
+const mkPo = (orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs = [], confirmed = false) => ({
+  orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs, confirmed,
 })
 
 let DOC_NO = 4567890
@@ -574,10 +787,11 @@ export default {
         mkPo('ORD01687130_01','DHAKA GARMENTS LTD',          'CGP26040899012','2026-05-20','2026-05-22','urgent'),
         mkPo('ORD01687127_01','HO CHI MINH APPAREL',         'SGN26040877001','2026-05-17','2026-05-19','urgent'),
         mkPo('ORD01671737_01','HO CHI MINH APPAREL',         'SGN26040877002','2026-05-02','2026-05-05','finished', [
-          { docNumber:4567801, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-1671737.pdf', uploadDate:'2026-05-04', version:2, status:'VERIFIED' },
+          { docNumber:4567801, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-1671737-v2.pdf', uploadDate:'2026-05-04', version:2, status:'VERIFIED',
+            versionHistory:[{ version:1, fileName:'INV-1671737.pdf', uploadDate:'2026-05-01', status:'VERIFIED' }] },
           { docNumber:4567802, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Packing List',       blType:'', fileName:'PL-1671737.pdf',  uploadDate:'2026-05-04', version:1, status:'VERIFIED' },
           { docNumber:4567803, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Bill of Lading',     blType:'HBL', fileName:'HBL-1671737.pdf', uploadDate:'2026-05-05', version:1, status:'VERIFIED' },
-        ]),
+        ], true),
       ],
 
       // Dialog state
@@ -606,10 +820,40 @@ export default {
         state: 'idle',          // idle | verifying | done
         fileName: '', steps: [], progress: 0, newVersion: 1,
       },
+
+      // Version history viewer
+      versionHistoryDialog: { visible: false, doc: null },
+
+      // Rejected-document correction queue (shared with Pepco Review)
+      correctionDialog: { visible: false },
+      corrUpload: {
+        visible: false, item: null,
+        state: 'idle',          // idle | verifying | done
+        fileName: '', steps: [], progress: 0, resetTriggered: false,
+      },
     }
   },
 
   computed: {
+    // Static task rows + the live Document Correction row (shared review store)
+    allTaskRows() {
+      const rejected = rejectedDocs().length
+      const corrRow = {
+        key: 'DOC_CORRECTION',
+        taskName: 'Document Correction (Re-upload)',
+        partyRole: 'Supplier',
+        possible: 0, urgent: rejected, overdue: 0, finished: resubmittedCount(),
+        hint: 'Documents rejected during Pepco review — re-upload to restart the review flow at PGS',
+      }
+      const idx = this.taskRows.findIndex(r => r.key === 'UPLOAD_DOCS')
+      return [...this.taskRows.slice(0, idx + 1), corrRow]
+    },
+
+    // Supplier correction work queue (rejected documents across all HBLs)
+    correctionQueue() {
+      return rejectedDocs()
+    },
+
     poListFiltered() {
       const k = this.poListDialog.statusKey
       if (!k) return this.poList
@@ -624,7 +868,7 @@ export default {
       const t = this.updateDialog.doc && this.updateDialog.doc.docTypeLabel
       return t === 'Commercial Invoice' || t === 'Packing List'
     },
-    // Confirm enabled only when each required doc type is covered:
+    // Submit enabled only when each required doc type is covered:
     // uploaded in this session (verified / force-saved) or already on the PO
     canConfirm() {
       if (!this.currentPo) return false
@@ -632,6 +876,21 @@ export default {
         slot.state === 'verified' || slot.state === 'force_saved'
         || this.currentPo.docs.some(d => d.docTypeLabel === slot.label)
       )
+    },
+    // Save enabled as soon as anything was uploaded in this session —
+    // other documents alone can be saved without meeting the CI+PL rule
+    hasSessionUploads() {
+      return this.mandatorySlots.some(s => s.state === 'verified' || s.state === 'force_saved')
+        || this.otherDocuments.length > 0
+    },
+    // PO-level gates for the document history dialog footer
+    poHasAnyDocs() {
+      return !!this.currentPo && this.currentPo.docs.length > 0
+    },
+    poHasRequired() {
+      if (!this.currentPo) return false
+      return ['Commercial Invoice', 'Packing List'].every(t =>
+        this.currentPo.docs.some(d => d.docTypeLabel === t))
     },
     milestoneBarClass() {
       const states = this.mandatorySlots.map(s => s.state)
@@ -669,6 +928,10 @@ export default {
 
     // ── Dialog 1: PO list ────────────────────────────────────────────────
     openPoList(taskRow, statusKey) {
+      if (taskRow.key === 'DOC_CORRECTION') {
+        this.correctionDialog.visible = true
+        return
+      }
       if (taskRow.key !== 'UPLOAD_DOCS') {
         this.$message.info(`"${taskRow.taskName}" is an existing milestone — demo focuses on Upload Shipping Documents`)
         return
@@ -677,14 +940,182 @@ export default {
       this.poListDialog = { visible: true, statusKey, statusLabel: labels[statusKey] || '' }
     },
 
+    // ── Document Correction (rejected docs re-upload) ────────────────────
+    previewRejectedDoc(row) {
+      const { hbl, doc } = row
+      const w = window.open('', '_blank')
+      if (!w) { this.$message.warning('Pop-up blocked — please allow pop-ups for this site and try again'); return }
+      const statusColor = '#ff4949'
+      w.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>${doc.docType} — ${hbl.hblNo} [REJECTED]</title>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; background:#EBF0F4; margin:0; padding:24px; }
+    .wrapper { max-width:760px; margin:0 auto; }
+    .topbar { background:#004F7C; color:#fff; padding:12px 20px; border-radius:8px 8px 0 0;
+              display:flex; justify-content:space-between; align-items:center; }
+    .topbar-title { font-size:15px; font-weight:700; }
+    .topbar-meta  { font-size:11px; opacity:0.8; }
+    .meta-card { background:#fff; border:1px solid #dce3ea; padding:14px 20px; margin-bottom:14px; }
+    .meta-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 20px; font-size:12px; }
+    .meta-label { color:#909399; margin-bottom:2px; font-size:11px; text-transform:uppercase; letter-spacing:0.4px; }
+    .meta-value { color:#303133; font-weight:600; }
+    .reject-banner { background:#fff0f0; border:1px solid #ffcdd2; border-radius:6px; padding:10px 14px;
+                     margin-bottom:14px; font-size:12px; }
+    .reject-code { color:#ff4949; font-weight:700; margin-bottom:4px; }
+    .reject-remark { color:#606266; }
+    .reject-by { color:#909399; font-size:11px; margin-top:4px; }
+    .pdf-page { background:#fff; border:1px solid #dce3ea; padding:28px 32px; border-radius:0 0 8px 8px; }
+    .pdf-header { display:flex; justify-content:space-between; margin-bottom:14px; }
+    .pdf-company { font-weight:700; font-size:15px; color:#004F7C; }
+    .pdf-doctype { font-weight:700; font-size:18px; color:#303133; }
+    .pdf-divider { height:2px; background:#ff4949; margin-bottom:16px; }
+    .pdf-fields { display:grid; grid-template-columns:1fr 1fr; gap:6px 24px; margin-bottom:18px; font-size:12px; }
+    .pdf-label { color:#909399; width:110px; display:inline-block; }
+    .pdf-value { color:#303133; font-weight:500; }
+    .pdf-value.hi { color:#004F7C; font-weight:700; }
+    table { width:100%; border-collapse:collapse; font-size:12px; margin-bottom:14px; }
+    thead tr { background:#f5f7fa; }
+    th, td { padding:6px 10px; border:1px solid #ebeef5; text-align:left; }
+    th { font-weight:600; color:#606266; font-size:11px; }
+    .footer { text-align:center; color:#bbb; font-size:11px; margin-top:14px; font-style:italic; }
+    .simulate-note { background:#fffbe6; border:1px solid #ffe58f; border-radius:4px; padding:6px 12px;
+                     font-size:11px; color:#876800; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="topbar">
+      <span class="topbar-title">${doc.docType} — REJECTED</span>
+      <span class="topbar-meta">${hbl.hblNo} · ${hbl.supplier} · v${doc.version}</span>
+    </div>
+    <div class="reject-banner">
+      <div class="reject-code">✕ ${doc.reject.reason}</div>
+      ${doc.reject.remark ? `<div class="reject-remark">${doc.reject.remark}</div>` : ''}
+      <div class="reject-by">Rejected by ${doc.reject.by} · ${doc.reject.at} · ${doc.reject.milestone}</div>
+    </div>
+    <div class="meta-card">
+      <div class="meta-grid">
+        <div><div class="meta-label">Document Number</div><div class="meta-value" style="color:#004F7C">${doc.docNumber || '—'}</div></div>
+        <div><div class="meta-label">Document Type</div><div class="meta-value">${doc.docType}</div></div>
+        <div><div class="meta-label">Version</div><div class="meta-value" style="color:#ff4949">v${doc.version} (Rejected)</div></div>
+        <div><div class="meta-label">PO Number</div><div class="meta-value">${doc.poNo}</div></div>
+        <div><div class="meta-label">HBL Number</div><div class="meta-value">${hbl.hblNo}</div></div>
+        <div><div class="meta-label">Uploaded</div><div class="meta-value">${doc.uploadedAt}</div></div>
+        <div><div class="meta-label">File Name</div><div class="meta-value">${doc.fileName}</div></div>
+        <div><div class="meta-label">Supplier</div><div class="meta-value">${hbl.supplier}</div></div>
+      </div>
+    </div>
+    <div class="pdf-page">
+      <div class="pdf-header">
+        <div class="pdf-company">${hbl.supplier}</div>
+        <div class="pdf-doctype">${doc.docType}</div>
+      </div>
+      <div class="pdf-divider"></div>
+      <div class="pdf-fields">
+        <div><span class="pdf-label">Document No.</span><span class="pdf-value hi">${doc.docNumber || doc.fileName.replace('.pdf','')}</span></div>
+        <div><span class="pdf-label">PO Number</span><span class="pdf-value hi">${doc.poNo}</span></div>
+        <div><span class="pdf-label">HBL</span><span class="pdf-value">${hbl.hblNo}</span></div>
+        <div><span class="pdf-label">Date</span><span class="pdf-value">${doc.uploadedAt}</span></div>
+        <div><span class="pdf-label">Supplier</span><span class="pdf-value">${hbl.supplier}</span></div>
+        <div><span class="pdf-label">Version</span><span class="pdf-value" style="color:#ff4949">v${doc.version} — Rejected</span></div>
+      </div>
+      <table>
+        <thead><tr><th>Item Description</th><th>Qty</th><th>Unit Price</th><th>Amount</th></tr></thead>
+        <tbody>
+          <tr><td>Product Item A</td><td>120</td><td>USD 3.50</td><td>USD 420.00</td></tr>
+          <tr><td>Product Item B</td><td>240</td><td>USD 7.00</td><td>USD 1,680.00</td></tr>
+          <tr><td>Product Item C</td><td>360</td><td>USD 10.50</td><td>USD 3,780.00</td></tr>
+          <tr><td>Product Item D</td><td>480</td><td>USD 14.00</td><td>USD 6,720.00</td></tr>
+        </tbody>
+        <tfoot><tr style="font-weight:700;background:#f0f7ff"><td>Total</td><td></td><td></td><td>USD 12,600.00</td></tr></tfoot>
+      </table>
+      <div class="footer">[ Simulated document preview — for demo purposes ]</div>
+      <div class="simulate-note">This is a prototype simulation. In production this tab would display the actual uploaded PDF file.</div>
+    </div>
+  </div>
+</body>
+</html>`)
+      w.document.close()
+    },
+
+    openCorrReupload(item) {
+      this.corrUpload = {
+        visible: true, item,
+        state: 'idle', fileName: '', steps: [], progress: 0, resetTriggered: false,
+      }
+    },
+    corrNeedsAi(item) {
+      return ['Commercial Invoice', 'Packing List'].includes(item.doc.docType)
+    },
+    startCorrUpload(file) {
+      const c = this.corrUpload
+      c.fileName = file ? file.name : `${c.item.doc.docType.replace(/\s+/g, '').toUpperCase()}-FIXED.pdf`
+
+      if (!this.corrNeedsAi(c.item)) {
+        this.finishCorrUpload()
+        return
+      }
+      c.state = 'verifying'; c.progress = 0
+      c.steps = VERIFY_STEPS.map(s => ({ ...s }))
+      c.steps[0].status = 'running'
+      const timings = [
+        { delay: 600,  step: 0, progress: 20,  nextStep: 1 },
+        { delay: 1400, step: 1, progress: 55,  nextStep: 2 },
+        { delay: 2400, step: 2, progress: 75,  nextStep: 3 },
+        { delay: 3400, step: 3, progress: 100 },
+      ]
+      timings.forEach(({ delay, step, progress, nextStep }) => {
+        setTimeout(() => {
+          c.steps[step].status = 'done'
+          c.progress = progress
+          if (nextStep !== undefined) c.steps[nextStep].status = 'running'
+          if (step === 3) setTimeout(() => this.finishCorrUpload(), 400)
+        }, delay)
+      })
+    },
+    finishCorrUpload() {
+      const c = this.corrUpload
+      const { hbl, doc } = c.item
+      const result = resubmitDocument(hbl, doc, c.fileName, `${hbl.supplier} (Supplier)`)
+      c.state = 'done'
+      c.resetTriggered = result.reset
+      if (result.reset) {
+        this.$notify({
+          title: 'Review flow restarted',
+          dangerouslyUseHTMLString: true,
+          message: `<div style="font-size:12px;line-height:1.7">
+            <div><b>${hbl.hblNo}</b> — all rejected documents corrected.</div>
+            <div style="color:#13ce66">✔ Milestones reset — flow restarts at <b>PGS Check (Re-check)</b></div>
+            <div style="color:#999">✉ PGS team notified for re-review</div>
+          </div>`,
+          type: 'success', duration: 6000,
+        })
+      } else {
+        this.$message.success(`${doc.docType} re-uploaded (v${doc.version}) — ${result.remaining} rejected document(s) still pending on ${hbl.hblNo}`)
+      }
+    },
+
     // ── Dialog 2: PO docs history ────────────────────────────────────────
     openPoDocs(po) {
       this.currentPo = po
       this.poDocsDialog.visible = true
     },
-    confirmPoDocs() {
+    savePoDocs() {
       this.poDocsDialog.visible = false
-      this.$message.success(`Document status saved for ${this.currentPo.orderNo}`)
+      this.$message.success(`${this.currentPo.docs.length} document(s) saved for ${this.currentPo.orderNo} — milestone not completed (CI + PL still required)`)
+    },
+    confirmPoDocs() {
+      // Backstop for the disabled button — same rule as poHasRequired
+      if (!this.poHasRequired) {
+        this.$message.error('Cannot confirm: Commercial Invoice and Packing List are required on this PO')
+        return
+      }
+      this.currentPo.confirmed = true
+      this.poDocsDialog.visible = false
+      this.$message.success(`${this.currentPo.orderNo} confirmed — Upload Shipping Documents milestone completed`)
     },
     previewPoDoc(doc) {
       this.preview = {
@@ -725,15 +1156,11 @@ export default {
       return existing.length ? Math.max(...existing.map(d => d.version)) + 1 : 1
     },
 
-    confirmUpload() {
+    // Persist every file uploaded in this session to the PO history, then
+    // reset the session state so a second Save cannot duplicate them.
+    persistSessionUploads() {
       const today = new Date().toISOString().slice(0, 10)
       let saved = 0
-
-      // Backstop for the disabled button — same rule as canConfirm
-      if (!this.canConfirm) {
-        this.$message.error('Cannot confirm: Commercial Invoice and Packing List are both required')
-        return
-      }
 
       this.mandatorySlots.forEach(slot => {
         if (slot.state === 'verified' || slot.state === 'force_saved') {
@@ -766,12 +1193,29 @@ export default {
         saved++
       })
 
-      if (saved === 0) {
-        this.$message.warning('No documents uploaded yet — upload at least one file before confirming')
+      this.mandatorySlots = [mkSlot('ci', 'Commercial Invoice'), mkSlot('pl', 'Packing List')]
+      this.otherDocuments = []
+      return saved
+    },
+
+    // Save: store whatever was uploaded (other documents alone are fine) —
+    // the milestone is NOT completed; files reappear in the PO history.
+    saveUpload() {
+      const saved = this.persistSessionUploads()
+      this.uploadDialog.visible = false
+      this.$message.success(`${saved} document(s) saved to ${this.currentPo.orderNo} — you can continue later. Submit still requires CI + PL.`)
+    },
+
+    // Submit: completes the milestone — hard-gated on CI + PL coverage.
+    submitUpload() {
+      // Backstop for the disabled button — same rule as canConfirm
+      if (!this.canConfirm) {
+        this.$message.error('Cannot submit: Commercial Invoice and Packing List are both required')
         return
       }
+      const saved = this.persistSessionUploads()
       this.uploadDialog.visible = false
-      this.$message.success(`${saved} document(s) saved to ${this.currentPo.orderNo}`)
+      this.$message.success(`Submitted — ${saved} new document(s) saved to ${this.currentPo.orderNo}, Upload Shipping Documents milestone completed`)
       // back on the PO docs dialog — list already shows the new files
     },
 
@@ -914,6 +1358,27 @@ export default {
 
     downloadFile(fileName) {
       this.$message.success(`Downloading ${fileName}…`)
+    },
+
+    // ── Version history helpers ──────────────────────────────────────────
+    // Returns current version + all historical entries, newest first
+    versionHistoryAllRows(doc) {
+      const current = { version: doc.version, fileName: doc.fileName, uploadDate: doc.uploadDate, status: doc.status, isCurrent: true }
+      const history = (doc.versionHistory || []).map(h => ({ ...h, uploadDate: h.uploadDate || h.uploadedAt, isCurrent: false }))
+        .sort((a, b) => b.version - a.version)
+      return [current, ...history]
+    },
+    previewVersionEntry(row) {
+      this.preview = {
+        visible: true,
+        title: `Preview — ${this.versionHistoryDialog.doc.docTypeLabel} (v${row.version})`,
+        docType: this.versionHistoryDialog.doc.docTypeLabel,
+        fileName: row.fileName,
+        version: row.version,
+        status: row.status || 'VERIFIED',
+        uploadedAt: row.uploadDate || row.uploadedAt || '',
+        poNumber: this.versionHistoryDialog.doc.poNumber || '',
+      }
     },
 
     // ── Other docs (within upload dialog session) ────────────────────────
@@ -1063,6 +1528,14 @@ export default {
 .update-current {
   display:flex; align-items:center; gap:10px;
   background:#f8fafc; border:1px solid $border; border-radius:6px; padding:10px 12px;
+}
+
+// Correction re-upload — reject reason banner
+.corr-reject-banner {
+  display:flex; gap:8px; align-items:flex-start;
+  background:#fff0f0; border:1px solid #ffa39e; border-radius:6px;
+  padding:9px 12px; font-size:12px; color:#8c2e2b;
+  i { color:#ff4949; font-size:15px; margin-top:1px; flex-shrink:0; }
 }
 
 // ── Preview Dialog ────────────────────────────────────────────────────────

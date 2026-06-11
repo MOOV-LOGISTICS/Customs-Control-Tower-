@@ -1,5 +1,82 @@
-<template>
+﻿<template>
   <div class="app-container">
+
+    <!-- ══ BOARD VIEW ════════════════════════════════════════════════════ -->
+    <template v-if="pageView==='board'">
+
+      <!-- Search bar -->
+      <el-card style="margin-bottom:12px">
+        <el-row :gutter="10" type="flex" align="middle">
+          <el-col :span="5"><el-input placeholder="Shipper Booking No" size="mini" clearable prefix-icon="el-icon-search" /></el-col>
+          <el-col :span="5"><el-input placeholder="Carrier Booking No" size="mini" clearable /></el-col>
+          <el-col :span="5"><el-input placeholder="Container No" size="mini" clearable /></el-col>
+          <el-col :span="4">
+            <el-select placeholder="DC" size="mini" style="width:100%">
+              <el-option label="DC-01" value="DC-01" />
+              <el-option label="DC-02" value="DC-02" />
+            </el-select>
+          </el-col>
+          <el-col :span="5">
+            <el-button type="primary" size="mini" icon="el-icon-search" @click="$message.info('Filter applied')">Search</el-button>
+          </el-col>
+        </el-row>
+      </el-card>
+
+      <!-- Destination task board -->
+      <el-card>
+        <div slot="header" class="card-hdr">
+          <span>Destination</span>
+          <span style="font-size:11px;color:#999;font-weight:400">Click any status number on the document check rows to open the review list</span>
+        </div>
+        <el-table :data="allBoardRows" size="mini" border :header-cell-style="{background:'#fafafa'}" :row-class-name="boardRowClass">
+          <el-table-column label="Task Name" min-width="240">
+            <template #default="{row}">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-weight:600">{{ row.taskName }}</span>
+                <el-tag v-if="row.isNew" size="mini" type="success" style="font-size:10px">New</el-tag>
+              </div>
+              <div v-if="row.legacy" style="font-size:11px;color:#999;margin-top:2px">({{ row.legacy }})</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="Party Role" width="160" prop="partyRole" />
+          <el-table-column label="Based On" width="150" prop="basedOn" />
+          <el-table-column label="Possible" width="100" align="center">
+            <template #default="{row}">
+              <span v-if="row.isMilestone" class="ms-num possible" @click="enterMilestone(row.key)">{{ row.possible }}</span>
+              <span v-else class="ms-num-plain possible">{{ row.possible }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Urgent" width="100" align="center">
+            <template #default="{row}">
+              <span v-if="row.isMilestone" class="ms-num urgent" @click="enterMilestone(row.key)">{{ row.urgent }}</span>
+              <span v-else class="ms-num-plain urgent">{{ row.urgent }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Overdue" width="100" align="center">
+            <template #default="{row}">
+              <span v-if="row.isMilestone" class="ms-num overdue" @click="enterMilestone(row.key)">{{ row.overdue }}</span>
+              <span v-else class="ms-num-plain overdue">{{ row.overdue }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Finished" width="100" align="center">
+            <template #default="{row}">
+              <span v-if="row.isMilestone" class="ms-num finished" @click="enterMilestone(row.key)">{{ row.finished }}</span>
+              <span v-else class="ms-num-plain finished">{{ row.finished }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+
+    </template><!-- end board view -->
+
+    <!-- ══ LIST VIEW ═════════════════════════════════════════════════════ -->
+    <template v-if="pageView==='list'">
+
+      <!-- Breadcrumb / back button -->
+      <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px">
+        <el-button size="mini" icon="el-icon-arrow-left" @click="pageView='board'">Overview</el-button>
+        <span style="font-size:12px;color:#666">Destination / <strong style="color:#004F7C">{{ currentMilestoneName }}</strong></span>
+      </div>
 
     <!-- ── Verify Documents Counter Board (follows selected Pending Task) ── -->
     <el-card class="counter-board">
@@ -54,6 +131,7 @@
       <el-table
         ref="hblTable"
         :data="filteredHbls" size="mini" stripe border
+        row-key="hblNo"
         @selection-change="selectedHbls = $event"
       >
         <el-table-column type="selection" width="40" :selectable="rowSelectable" />
@@ -90,156 +168,192 @@
           </template>
         </el-table-column>
 
-        <!-- Action -->
-        <!-- Expand toggle -->
-        <el-table-column width="40" align="center">
+        <!-- Inline expand: content inserts directly below the clicked row -->
+        <el-table-column type="expand">
           <template #default="{row}">
-            <i :class="row.expanded ? 'el-icon-arrow-up' : 'el-icon-arrow-down'"
-              style="cursor:pointer;color:#909399" @click="toggleExpand(row)" />
+            <div class="expanded-detail">
+              <div class="expanded-hbl-header">
+                <span class="exp-hbl-no">{{ row.hblNo }}</span>
+                <span class="exp-hbl-supplier">{{ row.supplier }}</span>
+                <el-descriptions :column="4" size="mini" border style="flex:1;margin-left:16px">
+                  <el-descriptions-item label="MBL">{{ row.mblNo }}</el-descriptions-item>
+                  <el-descriptions-item label="POL">{{ row.pol }}</el-descriptions-item>
+                  <el-descriptions-item label="POD">{{ row.pod }}</el-descriptions-item>
+                  <el-descriptions-item label="ETA">{{ row.eta }}</el-descriptions-item>
+                </el-descriptions>
+              </div>
+
+              <el-tabs v-model="row.activeTab" size="mini" type="card">
+                <!-- Documents tab -->
+                <el-tab-pane label="Documents" name="documents">
+                  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
+                    <el-tooltip content="Opens each document in a new browser tab — allow popups if prompted" placement="top">
+                      <el-button size="mini" icon="el-icon-view" @click="openAllDocs(row)">
+                        Open All in New Tab ({{ row.documents.length }})
+                      </el-button>
+                    </el-tooltip>
+                    <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadAllDocs(row)">
+                      Download All ({{ row.documents.length }})
+                    </el-button>
+                  </div>
+                  <el-table :data="sortedDocs(row.documents)" size="mini" stripe border style="margin-top:8px">
+                    <el-table-column label="Document Number" width="140" align="center">
+                      <template #default="{row}">
+                        <span v-if="row.docNumber" style="font-family:monospace;font-size:11px;color:#004F7C;font-weight:600">{{ row.docNumber }}</span>
+                        <span v-else style="color:#c0c4cc">—</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="PO Number" width="120" prop="poNo" />
+                    <el-table-column label="Document Type" min-width="150" prop="docType" />
+                    <el-table-column label="File Name" min-width="170" prop="fileName" />
+                    <el-table-column label="Version" width="80" align="center">
+                      <template #default="{row}">
+                        <el-tooltip v-if="row.versionHistory && row.versionHistory.length" content="Click to view version history" placement="top">
+                          <el-tag size="mini" type="primary" style="cursor:pointer"
+                            @click="versionHistoryDialog={visible:true,doc:row}">
+                            v{{ row.version }} <i class="el-icon-time" style="font-size:10px;margin-left:2px"></i>
+                          </el-tag>
+                        </el-tooltip>
+                        <el-tag v-else size="mini" type="info">v{{ row.version }}</el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="AI Check" width="95">
+                      <template #default="{row}">
+                        <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
+                          {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
+                        </span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="Review Status" width="150">
+                      <template #default="{row}">
+                        <el-tooltip v-if="row.reviewStatus==='REJECTED'" placement="top"
+                          :content="`${row.reject.reason} — ${row.reject.by}, ${row.reject.at}`">
+                          <span class="status-badge rejected">Rejected</span>
+                        </el-tooltip>
+                        <el-tooltip v-else-if="row.reviewStatus==='RESUBMITTED'" placement="top"
+                          :content="`Re-uploaded after rejection: ${row.reject.reason}`">
+                          <span class="status-badge resubmitted">Resubmitted v{{ row.version }}</span>
+                        </el-tooltip>
+                        <span v-else style="color:#c0c4cc">—</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="Uploaded" width="130" prop="uploadedAt" />
+                    <el-table-column label="" width="70" align="center">
+                      <template #default="scope">
+                        <el-button type="text" size="mini" icon="el-icon-view" @click="openDocPreview(row, scope.row)">Preview</el-button>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </el-tab-pane>
+
+                <!-- Documents Verified tab -->
+                <el-tab-pane name="verified">
+                  <span slot="label"><i class="el-icon-finished"></i> Documents Verified</span>
+                  <!-- Pending Correction banner — live progress of the supplier's re-uploads -->
+                  <div v-if="currentStage(row).cls==='stage-correction'" class="correction-banner">
+                    <i class="el-icon-warning-outline"></i>
+                    <div style="flex:1">
+                      <strong>PENDING CORRECTION</strong> —
+                      Waiting for supplier: <strong>{{ progress(row).done }} of {{ progress(row).total }}</strong> rejected document(s) re-uploaded.
+                      Flow resets to PGS re-check automatically when all are corrected.
+                      <div class="corr-doc-list">
+                        <div v-for="(d, i) in progress(row).docs" :key="i" class="corr-doc-row">
+                          <i :class="d.reviewStatus === 'RESUBMITTED' ? 'el-icon-circle-check ok' : 'el-icon-remove-outline waiting'"></i>
+                          <span class="cdr-po">{{ d.poNo }}</span>
+                          <span class="cdr-type">{{ d.docType }}</span>
+                          <span class="cdr-file">{{ d.fileName }} (v{{ d.version }})</span>
+                          <span :class="['cdr-state', d.reviewStatus === 'RESUBMITTED' ? 'ok' : 'waiting']">
+                            {{ d.reviewStatus === 'RESUBMITTED' ? 'Re-uploaded' : 'Waiting for re-upload' }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Re-check banner -->
+                  <div v-if="hasRecheck(row)" class="recheck-banner">
+                    <i class="el-icon-warning-outline"></i>
+                    <div>
+                      <strong>RE-CHECK REQUIRED</strong> — This HBL was previously rejected and corrected. Please review the history below before proceeding.
+                    </div>
+                  </div>
+
+                  <!-- 3-node milestone timeline -->
+                  <div class="ms-timeline">
+                    <div v-for="(m, i) in milestoneConfig" :key="m.key" class="tl-node">
+                      <div class="tl-top">
+                        <div :class="['tl-circle', tlCircleClass(row.milestones[m.key])]">
+                          <i :class="stepPipIcon(row.milestones[m.key].status)"></i>
+                        </div>
+                        <div v-if="i < milestoneConfig.length - 1"
+                          :class="['tl-connector', { done: row.milestones[m.key].status === 'COMPLETE' }]"></div>
+                      </div>
+                      <div class="tl-name">{{ m.short }} — {{ m.shortName }}</div>
+                      <div :class="['tl-status', tlCircleClass(row.milestones[m.key])]">
+                        {{ stepLabel(row.milestones[m.key].status) }}
+                        <span v-if="row.milestones[m.key].isRecheck" class="tl-recheck">RE-CHECK</span>
+                      </div>
+                      <div class="tl-meta">
+                        <template v-if="row.milestones[m.key].status === 'COMPLETE'">
+                          {{ row.milestones[m.key].completedBy }}<br>{{ row.milestones[m.key].completedAt }}
+                        </template>
+                        <template v-else-if="row.milestones[m.key].lockReason">
+                          {{ row.milestones[m.key].lockReason }}
+                        </template>
+                        <template v-else>—</template>
+                      </div>
+                    </div>
+                  </div>
+                  <el-table :data="row.verifyHistory" size="mini" stripe border style="margin-top:8px">
+                    <el-table-column label="Milestone" width="220">
+                      <template #default="{row}">
+                        <span :class="['ms-pill', `ms-pill-${row.milestone.toLowerCase()}`]">{{ row.milestone }}</span>
+                        <el-tag v-if="row.isRecheck" size="mini" type="warning" style="margin-left:4px;font-size:9px;vertical-align:middle">RE-CHECK</el-tag>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="Status" width="110">
+                      <template #default="{row}">
+                        <span :class="['status-badge', historyStatusClass(row.status)]">{{ row.status }}</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="Update User" width="160" prop="user" />
+                    <el-table-column label="Update Time" width="185" prop="time" />
+                    <el-table-column label="Incomplete Reason" min-width="200">
+                      <template #default="{row}">
+                        <span v-if="row.reason" style="color:#ff4949">{{ row.reason }}</span>
+                        <span v-else style="color:#c0c4cc">—</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="Remark" min-width="180">
+                      <template #default="{row}">
+                        <span v-if="row.remark" style="color:#666">{{ row.remark }}</span>
+                        <span v-else style="color:#c0c4cc">—</span>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                </el-tab-pane>
+
+                <!-- Containers/HBL placeholder -->
+                <el-tab-pane label="Containers/HBL" name="containers">
+                  <div style="padding:20px;text-align:center;color:#c0c4cc">Container data will display here</div>
+                </el-tab-pane>
+
+                <!-- POs/HBL placeholder -->
+                <el-tab-pane label="POs/HBL" name="pos">
+                  <div style="padding:20px;text-align:center;color:#c0c4cc">PO data will display here</div>
+                </el-tab-pane>
+              </el-tabs>
+            </div>
           </template>
         </el-table-column>
       </el-table>
-
-      <!-- Expanded row detail -->
-      <template v-for="row in filteredHbls">
-        <div v-if="row.expanded" :key="'exp-'+row.hblNo" class="expanded-detail">
-          <div class="expanded-hbl-header">
-            <span class="exp-hbl-no">{{ row.hblNo }}</span>
-            <span class="exp-hbl-supplier">{{ row.supplier }}</span>
-            <el-descriptions :column="4" size="mini" border style="flex:1;margin-left:16px">
-              <el-descriptions-item label="MBL">{{ row.mblNo }}</el-descriptions-item>
-              <el-descriptions-item label="POL">{{ row.pol }}</el-descriptions-item>
-              <el-descriptions-item label="POD">{{ row.pod }}</el-descriptions-item>
-              <el-descriptions-item label="ETA">{{ row.eta }}</el-descriptions-item>
-            </el-descriptions>
-          </div>
-
-          <el-tabs v-model="row.activeTab" size="mini" type="card">
-            <!-- Documents tab -->
-            <el-tab-pane label="Documents" name="documents">
-              <div style="display:flex;justify-content:flex-end;margin-top:8px">
-                <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadAllDocs(row)">
-                  Download All ({{ row.documents.length }})
-                </el-button>
-              </div>
-              <el-table :data="row.documents" size="mini" stripe border style="margin-top:8px">
-                <el-table-column label="Document Type" min-width="160" prop="docType" />
-                <el-table-column label="File Name" min-width="180" prop="fileName" />
-                <el-table-column label="Version" width="70" align="center">
-                  <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
-                </el-table-column>
-                <el-table-column label="Status" width="100">
-                  <template #default="{row}">
-                    <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
-                      {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
-                    </span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="Uploaded" width="130" prop="uploadedAt" />
-                <el-table-column label="" width="70" align="center">
-                  <template #default="scope">
-                    <el-button type="text" size="mini" icon="el-icon-view" @click="openDocPreview(row, scope.row)">Preview</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-tab-pane>
-
-            <!-- Documents Verified tab -->
-            <el-tab-pane name="verified">
-              <span slot="label"><i class="el-icon-finished"></i> Documents Verified</span>
-              <!-- Pending Correction banner + Supplier demo entry -->
-              <div v-if="currentStage(row).cls==='stage-correction'" class="correction-banner">
-                <i class="el-icon-warning-outline"></i>
-                <div style="flex:1">
-                  <strong>PENDING CORRECTION</strong> — Documents are being corrected by the Supplier. All milestones are locked until the Supplier confirms the fix.
-                </div>
-                <el-tooltip content="This entry point belongs to the Document Management page — shown here for demo." placement="top">
-                  <el-button size="mini" type="warning" plain icon="el-icon-check" @click="supplierConfirmCorrection(row)">
-                    Confirm Correction (Supplier)
-                  </el-button>
-                </el-tooltip>
-              </div>
-
-              <!-- Re-check banner -->
-              <div v-if="hasRecheck(row)" class="recheck-banner">
-                <i class="el-icon-warning-outline"></i>
-                <div>
-                  <strong>RE-CHECK REQUIRED</strong> — This HBL was previously rejected and corrected. Please review the history below before proceeding.
-                </div>
-              </div>
-
-              <!-- 3-node milestone timeline -->
-              <div class="ms-timeline">
-                <div v-for="(m, i) in milestoneConfig" :key="m.key" class="tl-node">
-                  <div class="tl-top">
-                    <div :class="['tl-circle', tlCircleClass(row.milestones[m.key])]">
-                      <i :class="stepPipIcon(row.milestones[m.key].status)"></i>
-                    </div>
-                    <div v-if="i < milestoneConfig.length - 1"
-                      :class="['tl-connector', { done: row.milestones[m.key].status === 'COMPLETE' }]"></div>
-                  </div>
-                  <div class="tl-name">{{ m.short }} — {{ m.shortName }}</div>
-                  <div :class="['tl-status', tlCircleClass(row.milestones[m.key])]">
-                    {{ stepLabel(row.milestones[m.key].status) }}
-                    <span v-if="row.milestones[m.key].isRecheck" class="tl-recheck">RE-CHECK</span>
-                  </div>
-                  <div class="tl-meta">
-                    <template v-if="row.milestones[m.key].status === 'COMPLETE'">
-                      {{ row.milestones[m.key].completedBy }}<br>{{ row.milestones[m.key].completedAt }}
-                    </template>
-                    <template v-else-if="row.milestones[m.key].lockReason">
-                      {{ row.milestones[m.key].lockReason }}
-                    </template>
-                    <template v-else>—</template>
-                  </div>
-                </div>
-              </div>
-              <el-table :data="row.verifyHistory" size="mini" stripe border style="margin-top:8px">
-                <el-table-column label="Milestone" width="220">
-                  <template #default="{row}">
-                    <span :class="['ms-pill', `ms-pill-${row.milestone.toLowerCase()}`]">{{ row.milestone }}</span>
-                    <el-tag v-if="row.isRecheck" size="mini" type="warning" style="margin-left:4px;font-size:9px;vertical-align:middle">RE-CHECK</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="Status" width="110">
-                  <template #default="{row}">
-                    <span :class="['status-badge', historyStatusClass(row.status)]">{{ row.status }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="Update User" width="160" prop="user" />
-                <el-table-column label="Update Time" width="185" prop="time" />
-                <el-table-column label="Incomplete Reason" min-width="200">
-                  <template #default="{row}">
-                    <span v-if="row.reason" style="color:#ff4949">{{ row.reason }}</span>
-                    <span v-else style="color:#c0c4cc">—</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="Remark" min-width="180">
-                  <template #default="{row}">
-                    <span v-if="row.remark" style="color:#666">{{ row.remark }}</span>
-                    <span v-else style="color:#c0c4cc">—</span>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-tab-pane>
-
-            <!-- Containers/HBL placeholder -->
-            <el-tab-pane label="Containers/HBL" name="containers">
-              <div style="padding:20px;text-align:center;color:#c0c4cc">Container data will display here</div>
-            </el-tab-pane>
-
-            <!-- POs/HBL placeholder -->
-            <el-tab-pane label="POs/HBL" name="pos">
-              <div style="padding:20px;text-align:center;color:#c0c4cc">PO data will display here</div>
-            </el-tab-pane>
-          </el-tabs>
-        </div>
-      </template>
 
       <div style="text-align:right;margin-top:10px">
         <el-pagination layout="total, sizes, prev, pager, next" :total="filteredHbls.length" :page-size="20" small />
       </div>
     </el-card>
+
+    </template><!-- end list view -->
 
     <!-- ── Verify Document Dialog ────────────────────────────────────── -->
     <el-dialog :visible.sync="verifyDialog.visible" :title="`Document Verification — ${verifyDialogTaskName}`" width="520px">
@@ -288,6 +402,20 @@
               <el-input v-model="verifyDialog.remark" type="textarea" :rows="2" placeholder="Additional notes (optional)..." />
             </el-form-item>
           </el-form>
+
+          <!-- Problem documents — required; these are returned to the supplier -->
+          <template v-if="verifyDialog.hbl">
+            <div class="doc-sel-label">Problem document(s) * <span>— will be returned to the supplier for re-upload</span></div>
+            <el-checkbox-group v-model="verifyDialog.docSel" class="doc-sel-list">
+              <el-checkbox v-for="(d, i) in verifyDialog.hbl.documents" :key="i" :label="i" class="doc-sel-row">
+                <span class="dsr-po">{{ d.poNo }}</span>
+                <span class="dsr-type">{{ d.docType }}</span>
+                <span class="dsr-file">{{ d.fileName }} (v{{ d.version }})</span>
+              </el-checkbox>
+            </el-checkbox-group>
+          </template>
+          <el-alert v-else type="warning" :closable="false" show-icon
+            title="Rejection requires selecting the problem documents — please verify HBLs one at a time when rejecting." />
         </div>
 
         <!-- Sanitary Certificate toggle (Customs milestone only) -->
@@ -300,9 +428,48 @@
       <div slot="footer">
         <el-button size="small" @click="verifyDialog.visible=false">Cancel</el-button>
         <el-button size="small" type="primary" @click="submitVerify"
-          :disabled="verifyDialog.result==='NOT_COMPLETE' && !verifyDialog.reason">
+          :disabled="verifyDialog.result==='NOT_COMPLETE' && (!verifyDialog.reason || !verifyDialog.hbl || verifyDialog.docSel.length === 0)">
           Submit
         </el-button>
+      </div>
+    </el-dialog>
+
+    <!-- ── Version History Dialog ────────────────────────────────────── -->
+    <el-dialog
+      :visible.sync="versionHistoryDialog.visible"
+      :title="versionHistoryDialog.doc ? `Version History — ${versionHistoryDialog.doc.docType}` : 'Version History'"
+      width="680px" top="5vh" custom-class="brand-dialog"
+    >
+      <template v-if="versionHistoryDialog.doc">
+        <div style="font-size:12px;color:#666;margin-bottom:10px">
+          PO <strong style="color:#004F7C">{{ versionHistoryDialog.doc.poNo }}</strong>
+        </div>
+        <el-table :data="versionHistoryAllRows(versionHistoryDialog.doc)" size="mini" border :header-cell-style="{background:'#fafafa'}">
+          <el-table-column label="Version" width="120" align="center">
+            <template #default="{row}">
+              <el-tag v-if="row.isCurrent" size="mini" type="success">v{{ row.version }} · Current</el-tag>
+              <el-tag v-else size="mini" type="info">v{{ row.version }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="File Name" min-width="190" prop="fileName" />
+          <el-table-column label="Uploaded" width="145" prop="uploadedAt" align="center" />
+          <el-table-column label="Status" width="100" align="center">
+            <template #default="{row}">
+              <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
+                {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Actions" width="120" align="center">
+            <template #default="{row}">
+              <el-button type="text" size="mini" icon="el-icon-view" @click="previewVersionEntry(row)">Preview</el-button>
+              <el-button type="text" size="mini" icon="el-icon-download" @click="$message.success(`Downloading ${row.fileName}…`)">DL</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+      <div slot="footer">
+        <el-button size="small" @click="versionHistoryDialog.visible=false">Close</el-button>
       </div>
     </el-dialog>
 
@@ -373,33 +540,30 @@
 
 <script>
 import { roleStore, ROLE_MILESTONE } from '@/store/role'
-
-const mkHbl = (hblNo, mblNo, supplier, pol, pod, eta, pgs, fin, cus, docs, history) => ({
-  hblNo, mblNo, supplier, pol, pod, eta,
-  milestones: { PGS: pgs, FINANCE: fin, CUSTOMS: cus },
-  documents: docs,
-  verifyHistory: history,
-  expanded: false,
-  activeTab: 'verified',
-})
-
-const DOCS_BASE = [
-  { docType:'Commercial Invoice', fileName:'INV-2024.pdf',  version:2, status:'VERIFIED', uploadedAt:'2024-11-11 09:23' },
-  { docType:'Packing List',       fileName:'PL-2024.pdf',   version:1, status:'VERIFIED', uploadedAt:'2024-11-11 09:25' },
-  { docType:'Bill of Lading',     fileName:'HBL.pdf',       version:1, status:'VERIFIED', uploadedAt:'2024-11-12 14:10' },
-]
-
-const s = (status, by=null, at=null, recheck=false, lock='') => ({
-  status, completedBy:by, completedAt:at, isRecheck:recheck, lockReason:lock
-})
+// Shared with the Document Upload tab: HBL/milestone/document state lives in
+// one store so PEPCO rejections and supplier re-uploads stay in sync.
+import { reviewStore, rejectDocuments, correctionProgress } from '@/store/reviewFlow'
 
 export default {
   name: 'PepcoReview',
   data() {
     return {
+      pageView: 'board',   // 'board' | 'list'
       currentMilestone: 'ALL',
       filterHbl: '', filterSupplier: '', filterStatus: '',
       selectedHbls: [],
+
+      boardDestRows: [
+        { key:'DELIVERY_PREPLAN',     taskName:'Delivery Pre-plan',          partyRole:'Pepco Transport',       basedOn:'Container Level', possible:3447, urgent:984, overdue:206, finished:34610 },
+        { key:'BROKER_ASSIGN',        taskName:'Customs Broker Assign',      partyRole:'Pepco Customs',         basedOn:'Container Level', possible:1063, urgent:20,  overdue:2,   finished:38162 },
+        { key:'DELIVERY_PLAN',        taskName:'Delivery Plan',              partyRole:'DHA',                   basedOn:'Container Level', possible:5925, urgent:269, overdue:147, finished:32906 },
+        { key:'INVOICES_CUSTOMS',     taskName:'Invoices to Customs',        partyRole:'Pepco Freight Invoice', basedOn:'Container Level', possible:4476, urgent:525, overdue:3,   finished:34243 },
+        { key:'VESSEL_ARRIVAL',       taskName:'Vessel Arrival',             partyRole:'DHA',                   basedOn:'Container Level', possible:5629, urgent:0,   overdue:0,   finished:33618 },
+        { key:'CUSTOMS_CLEARANCE',    taskName:'Customs Clearance Finished', partyRole:'Customs Broker',        basedOn:'Container Level', possible:5861, urgent:120, overdue:90,  finished:33176 },
+        { key:'CONTAINER_DISCHARGED', taskName:'Container Discharged',       partyRole:'DHA',                   basedOn:'Container Level', possible:5620, urgent:19,  overdue:31,  finished:33577 },
+        { key:'ARRIVAL_DC',           taskName:'Arrival DC',                 partyRole:'Yard Admin',            basedOn:'Container Level', possible:6933, urgent:6,   overdue:0,   finished:32308 },
+        { key:'EMPTY_CONTAINER',      taskName:'Empty Container Returned',   partyRole:'DHA',                   basedOn:'Container Level', possible:6981, urgent:88,  overdue:248, finished:31930 },
+      ],
 
       milestoneConfig: [
         { key:'PGS',     step:'①', name:'PGS Document Check',     shortName:'PGS Check',     role:'Pepco PGS',     short:'PGS', legacy:'' },
@@ -413,74 +577,6 @@ export default {
         CUSTOMS: { possible:45,  urgent:2, overdue:6,  finished:1150 },
       },
 
-      // 6 HBLs covering all state combinations
-      hbls: [
-        // 1. PGS pending → all downstream locked
-        mkHbl('MOOV240001','MAEU240001','Shanghai Textile Co.','CNSHA','PLGDN','2024-12-05',
-          s('IN_PROGRESS'), s('LOCKED',null,null,false,'Waiting for PGS Check'), s('LOCKED',null,null,false,'Waiting for Finance Check'),
-          DOCS_BASE,
-          []
-        ),
-        // 2. PGS complete, Finance in-progress, Customs locked
-        mkHbl('MOOV240002','MAEU240002','Dhaka Garments Ltd.','BGCGP','DEHAM','2024-12-15',
-          s('COMPLETE','Sarah J. (PGS)','2024-11-13 10:30 CET'),
-          s('IN_PROGRESS'),
-          s('LOCKED',null,null,false,'Waiting for Finance Check'),
-          DOCS_BASE,
-          [
-            { milestone:'PGS Check',  status:'Complete',   user:'Sarah J. (PGS)',  time:'2024-11-13 10:30 CET (UTC+1)', reason:'', remark:'' },
-          ]
-        ),
-        // 3. PGS rejected → reset → PGS re-checked OK → Finance now in re-check
-        mkHbl('MOOV240003','CMDU240003','Ho Chi Minh Apparel','VNSGN','CZPRE','2024-12-02',
-          s('COMPLETE','Sarah J. (PGS)','2024-11-14 09:40 CET',true),
-          s('IN_PROGRESS',null,null,true),
-          s('LOCKED',   null,null,true,'Waiting for Finance Check'),
-          DOCS_BASE,
-          [
-            { milestone:'PGS Check', status:'Complete',   user:'Sarah J. (PGS)',  time:'2024-11-14 09:40 CET (UTC+1)', reason:'', remark:'', isRecheck:true  },
-            { milestone:'Supplier Note', status:'Correction', user:'Ho Chi Minh Apparel (Supplier)', time:'2024-11-13 11:30 UTC+7', reason:'', remark:'Updated CI v2 uploaded with correct dates. Packing list also re-uploaded.', isRecheck:false },
-            { milestone:'PGS Check', status:'Revoke',     user:'PEPCO 4PL Admin', time:'2024-11-12 08:00 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
-            { milestone:'PGS Check', status:'Incomplete', user:'Sarah J. (PGS)',  time:'2024-11-11 14:20 CET (UTC+1)', reason:'V002 - Incorrect shipping docs', remark:'CI date mismatch vs PL', isRecheck:false },
-            { milestone:'PGS Check', status:'Complete',   user:'Sarah J. (PGS)',  time:'2024-11-10 09:15 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
-          ]
-        ),
-        // 4. PGS + Finance complete, Customs in-progress
-        mkHbl('MOOV240004','HLCU240004','Istanbul Fashion AS','TRIST','ROBUH','2024-12-10',
-          s('COMPLETE','Sarah J. (PGS)',   '2024-11-13 10:30 CET'),
-          s('COMPLETE','Tom K. (Finance)', '2024-11-14 14:15 CET'),
-          s('IN_PROGRESS'),
-          DOCS_BASE,
-          [
-            { milestone:'PGS Check',     status:'Complete', user:'Sarah J. (PGS)',  time:'2024-11-13 10:30 CET (UTC+1)', reason:'', remark:'' },
-            { milestone:'Finance Check', status:'Complete', user:'Tom K. (Finance)',time:'2024-11-14 14:15 CET (UTC+1)', reason:'', remark:'' },
-          ]
-        ),
-        // 5. All three complete
-        mkHbl('MOOV240005','MAEU240005','Mumbai Textiles Pvt','INNSA','HUBU','2024-11-28',
-          s('COMPLETE','Sarah J. (PGS)',    '2024-11-10 09:00 CET'),
-          s('COMPLETE','Tom K. (Finance)',  '2024-11-11 11:00 CET'),
-          s('COMPLETE','Anna W. (Customs)', '2024-11-12 15:30 CET'),
-          DOCS_BASE,
-          [
-            { milestone:'PGS Check',     status:'Complete', user:'Sarah J. (PGS)',   time:'2024-11-10 09:00 CET (UTC+1)', reason:'', remark:'' },
-            { milestone:'Finance Check', status:'Complete', user:'Tom K. (Finance)', time:'2024-11-11 11:00 CET (UTC+1)', reason:'', remark:'' },
-            { milestone:'Customs Check', status:'Complete', user:'Anna W. (Customs)',time:'2024-11-12 15:30 CET (UTC+1)', reason:'', remark:'' },
-          ]
-        ),
-        // 6. Customs Check rejected → ALL in Pending Correction (reset will go back to PGS step 1)
-        mkHbl('MOOV240006','EGLV240006','Guangzhou Clothing Co.','CNGZU','PLWAW','2024-12-18',
-          s('PENDING_CORRECTION',null,null,false,'Waiting for Supplier correction'),
-          s('PENDING_CORRECTION',null,null,false,'Waiting for Supplier correction'),
-          s('PENDING_CORRECTION',null,null,false,'Waiting for Supplier correction'),
-          DOCS_BASE,
-          [
-            { milestone:'PGS Check',     status:'Complete',   user:'Sarah J. (PGS)',    time:'2024-11-15 10:00 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
-            { milestone:'Finance Check', status:'Complete',   user:'Tom K. (Finance)',  time:'2024-11-16 09:30 CET (UTC+1)', reason:'', remark:'', isRecheck:false },
-            { milestone:'Customs Check', status:'Incomplete', user:'Anna W. (Customs)', time:'2024-11-17 11:45 CET (UTC+1)', reason:'V003 - Sanitary certificate invalid', remark:'Sanitary cert expiry date does not match shipment ETA. Email sent to supplier.', isRecheck:false },
-          ]
-        ),
-      ],
 
       verifyDialog: {
         visible: false,
@@ -490,6 +586,7 @@ export default {
         reason: '',
         remark: '',
         sanitaryCert: false,
+        docSel: [],   // indices of documents flagged as problematic (Not Complete)
       },
 
       docPreview: {
@@ -498,10 +595,25 @@ export default {
         status: 'VERIFIED', uploadedAt: '',
         hblNo: '', supplier: '',
       },
+
+      versionHistoryDialog: { visible: false, doc: null, hblRow: null },
     }
   },
 
   computed: {
+    // HBL/milestone/document state shared with the Document Upload tab
+    hbls() { return reviewStore.hbls },
+
+    allBoardRows() {
+      const milestoneRows = this.milestoneConfig.map(m => ({
+        key: m.key, taskName: m.name, legacy: m.legacy,
+        partyRole: m.role, basedOn: 'HBL Level',
+        isNew: true, isMilestone: true,
+        ...this.kpis[m.key],
+      }))
+      return [...milestoneRows, ...this.boardDestRows]
+    },
+
     // ── Role scoping (demo of RBAC: role ↔ milestone mapping) ────────────
     role() { return roleStore.currentRole },
     // milestone the current role operates on; null = not a reviewer
@@ -565,7 +677,12 @@ export default {
   methods: {
     switchMilestone(key) { this.currentMilestone = key; this.clearSelection() },
 
-    toggleExpand(row) { row.expanded = !row.expanded },
+    sortedDocs(docs) {
+      return [...docs].sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))
+    },
+    enterMilestone(key) { this.currentMilestone = key; this.pageView = 'list' },
+    boardRowClass({ row }) { return row.isMilestone ? 'board-milestone-row' : '' },
+    toggleExpand(row) { this.$refs.hblTable.toggleRowExpansion(row) },
 
     hasRecheck(row) {
       return Object.values(row.milestones).some(m => m.isRecheck)
@@ -645,34 +762,118 @@ export default {
       return { Complete:'completed', Incomplete:'rejected', Revoke:'pending', Correction:'recheck' }[status] || 'pending'
     },
 
-    // ── Supplier confirms correction → reset all 3 milestones to Re-check ──
-    // In production this entry point lives in the Document Management page;
-    // shown here for demo purposes.
-    supplierConfirmCorrection(h) {
-      const now = new Date().toLocaleString() + ' CET (UTC+1)'
-      const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
+    // Correction progress of the current rejection round (shared store)
+    progress(h) { return correctionProgress(h) },
 
-      h.verifyHistory.unshift({
-        milestone: 'Supplier Note', status: 'Correction',
-        user: `${h.supplier} (Supplier)`, time: now, reason: '',
-        remark: 'Correction confirmed by Supplier. Documents updated and re-uploaded. All milestones reset for re-check.'
+    openAllDocs(hblRow) {
+      const docs = this.sortedDocs(hblRow.documents)
+      let blocked = false
+      docs.forEach(doc => {
+        const w = window.open('', '_blank')
+        if (!w) { blocked = true; return }
+        w.document.write(this.buildDocHtml(hblRow, doc))
+        w.document.close()
       })
+      if (blocked) this.$message.warning('Pop-up blocked — please allow pop-ups for this site and try again')
+    },
 
-      ORDER.forEach((k, i) => {
-        this.$set(h.milestones[k], 'isRecheck', true)
-        this.$set(h.milestones[k], 'completedBy', null)
-        this.$set(h.milestones[k], 'completedAt', null)
-        if (i === 0) {
-          this.$set(h.milestones[k], 'status', 'IN_PROGRESS')
-          this.$set(h.milestones[k], 'lockReason', '')
-        } else {
-          this.$set(h.milestones[k], 'status', 'LOCKED')
-          this.$set(h.milestones[k], 'lockReason',
-            i === 1 ? 'Waiting for PGS Check' : 'Waiting for Finance Check')
-        }
-      })
-
-      this.$message.success(`Supplier correction confirmed for ${h.hblNo} — all milestones reset, flow restarts at PGS (Re-check)`)
+    buildDocHtml(hblRow, doc) {
+      const statusColor = doc.status === 'VERIFIED' ? '#13ce66' : '#E6A817'
+      const statusLabel = doc.status === 'VERIFIED' ? '✔ AI Verified' : '⚠ Unverified'
+      const reviewBadge = doc.reviewStatus === 'REJECTED'
+        ? `<span style="background:#fff0f0;color:#ff4949;padding:2px 8px;border-radius:4px;font-size:12px">Rejected</span>`
+        : doc.reviewStatus === 'RESUBMITTED'
+          ? `<span style="background:#e6f9ef;color:#13ce66;padding:2px 8px;border-radius:4px;font-size:12px">Resubmitted v${doc.version}</span>`
+          : `<span style="color:#c0c4cc">—</span>`
+      return `<!DOCTYPE html>
+<html>
+<head>
+  <title>${doc.docType} — ${hblRow.hblNo}</title>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: 'DM Sans', Arial, sans-serif; background:#EBF0F4; margin:0; padding:24px; }
+    .wrapper { max-width:760px; margin:0 auto; }
+    .topbar { background:#004F7C; color:#fff; padding:12px 20px; border-radius:8px 8px 0 0;
+              display:flex; justify-content:space-between; align-items:center; }
+    .topbar-title { font-size:15px; font-weight:700; }
+    .topbar-meta  { font-size:11px; opacity:0.8; }
+    .meta-card { background:#fff; border:1px solid #dce3ea; padding:14px 20px; margin-bottom:14px; }
+    .meta-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 20px; font-size:12px; }
+    .meta-label { color:#909399; margin-bottom:2px; font-size:11px; text-transform:uppercase; letter-spacing:0.4px; }
+    .meta-value { color:#303133; font-weight:600; }
+    .status-bar { display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:6px;
+                  margin-bottom:14px; font-size:12px; font-weight:500; }
+    .pdf-page { background:#fff; border:1px solid #dce3ea; padding:28px 32px; border-radius:0 0 8px 8px; }
+    .pdf-header { display:flex; justify-content:space-between; margin-bottom:14px; }
+    .pdf-company { font-weight:700; font-size:15px; color:#004F7C; }
+    .pdf-doctype { font-weight:700; font-size:18px; color:#303133; }
+    .pdf-divider { height:2px; background:#004F7C; margin-bottom:16px; }
+    .pdf-fields { display:grid; grid-template-columns:1fr 1fr; gap:6px 24px; margin-bottom:18px; font-size:12px; }
+    .pdf-label { color:#909399; width:100px; display:inline-block; }
+    .pdf-value { color:#303133; font-weight:500; }
+    .pdf-value.hi { color:#004F7C; font-weight:700; }
+    table { width:100%; border-collapse:collapse; font-size:12px; margin-bottom:14px; }
+    thead tr { background:#f5f7fa; }
+    th, td { padding:6px 10px; border:1px solid #ebeef5; text-align:left; }
+    th { font-weight:600; color:#606266; font-size:11px; }
+    tr:nth-child(even) td { background:#fafafa; }
+    .footer { text-align:center; color:#bbb; font-size:11px; margin-top:14px; font-style:italic; }
+    .simulate-note { background:#fffbe6; border:1px solid #ffe58f; border-radius:4px; padding:6px 12px;
+                     font-size:11px; color:#876800; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="topbar">
+      <span class="topbar-title">${doc.docType}</span>
+      <span class="topbar-meta">${hblRow.hblNo} · ${hblRow.supplier} · v${doc.version}</span>
+    </div>
+    <div class="meta-card">
+      <div class="meta-grid">
+        <div><div class="meta-label">Document Number</div><div class="meta-value" style="color:#004F7C">${doc.docNumber || '—'}</div></div>
+        <div><div class="meta-label">Document Type</div><div class="meta-value">${doc.docType}</div></div>
+        <div><div class="meta-label">Version</div><div class="meta-value">v${doc.version}</div></div>
+        <div><div class="meta-label">PO Number</div><div class="meta-value">${doc.poNo}</div></div>
+        <div><div class="meta-label">HBL Number</div><div class="meta-value">${hblRow.hblNo}</div></div>
+        <div><div class="meta-label">Uploaded</div><div class="meta-value">${doc.uploadedAt}</div></div>
+        <div><div class="meta-label">File Name</div><div class="meta-value">${doc.fileName}</div></div>
+        <div><div class="meta-label">AI Check</div><div class="meta-value" style="color:${statusColor}">${statusLabel}</div></div>
+        <div><div class="meta-label">Review Status</div><div class="meta-value">${reviewBadge}</div></div>
+      </div>
+    </div>
+    <div class="status-bar" style="background:${doc.status === 'VERIFIED' ? '#e6f9ef' : '#fffbe6'};color:${statusColor}">
+      ${statusLabel} — Document type, PO Number and Supplier all matched
+    </div>
+    <div class="pdf-page">
+      <div class="pdf-header">
+        <div class="pdf-company">${hblRow.supplier}</div>
+        <div class="pdf-doctype">${doc.docType}</div>
+      </div>
+      <div class="pdf-divider"></div>
+      <div class="pdf-fields">
+        <div><span class="pdf-label">Document No.</span><span class="pdf-value hi">${doc.docNumber || doc.fileName.replace('.pdf','')}</span></div>
+        <div><span class="pdf-label">PO Number</span><span class="pdf-value hi">${doc.poNo}</span></div>
+        <div><span class="pdf-label">HBL</span><span class="pdf-value">${hblRow.hblNo}</span></div>
+        <div><span class="pdf-label">Date</span><span class="pdf-value">${doc.uploadedAt}</span></div>
+        <div><span class="pdf-label">Supplier</span><span class="pdf-value">${hblRow.supplier}</span></div>
+        <div><span class="pdf-label">Version</span><span class="pdf-value">v${doc.version}</span></div>
+      </div>
+      <table>
+        <thead><tr><th>Item Description</th><th>Qty</th><th>Unit Price</th><th>Amount</th></tr></thead>
+        <tbody>
+          <tr><td>Product Item A</td><td>120</td><td>USD 3.50</td><td>USD 420.00</td></tr>
+          <tr><td>Product Item B</td><td>240</td><td>USD 7.00</td><td>USD 1,680.00</td></tr>
+          <tr><td>Product Item C</td><td>360</td><td>USD 10.50</td><td>USD 3,780.00</td></tr>
+          <tr><td>Product Item D</td><td>480</td><td>USD 14.00</td><td>USD 6,720.00</td></tr>
+        </tbody>
+        <tfoot><tr style="font-weight:700;background:#f0f7ff"><td>Total</td><td></td><td></td><td>USD 12,600.00</td></tr></tfoot>
+      </table>
+      <div class="footer">[ Simulated document preview — for demo purposes ]</div>
+      <div class="simulate-note">This is a prototype simulation. In production this tab would display the actual uploaded PDF file.</div>
+    </div>
+  </div>
+</body>
+</html>`
     },
 
     downloadAllDocs(h) {
@@ -685,6 +886,26 @@ export default {
         </div>`,
         type: 'success', duration: 4000,
       })
+    },
+
+    // ── Version history ──────────────────────────────────────────────────
+    versionHistoryAllRows(doc) {
+      const current = { version: doc.version, fileName: doc.fileName, uploadedAt: doc.uploadedAt, status: doc.status, isCurrent: true }
+      const history = (doc.versionHistory || []).slice().sort((a, b) => b.version - a.version)
+      return [current, ...history]
+    },
+    previewVersionEntry(row) {
+      const d = this.versionHistoryDialog.doc
+      this.docPreview = {
+        visible: true,
+        docType: d.docType,
+        fileName: row.fileName,
+        version: row.version,
+        status: row.status || 'VERIFIED',
+        uploadedAt: row.uploadedAt || '',
+        hblNo: d.poNo || '',
+        supplier: '',
+      }
     },
 
     openDocPreview(hblRow, doc) {
@@ -701,11 +922,16 @@ export default {
     },
 
     openVerifyDialog(hbl) {
-      this.verifyDialog = { visible:true, hbl, milestoneKey:this.effectiveKey(hbl), result:'COMPLETE', reason:'', remark:'', sanitaryCert:false }
+      this.verifyDialog = { visible:true, hbl, milestoneKey:this.effectiveKey(hbl), result:'COMPLETE', reason:'', remark:'', sanitaryCert:false, docSel:[] }
     },
     openBulkVerify() {
-      // Bulk: each HBL is processed against its own effective milestone (All mode)
-      this.verifyDialog = { visible:true, hbl:null, milestoneKey:null, result:'COMPLETE', reason:'', remark:'', sanitaryCert:false }
+      // Bulk with a single selection keeps the full dialog (incl. rejection);
+      // multi-selection can only approve — rejection needs per-document flags.
+      const single = this.selectedHbls.length === 1 ? this.selectedHbls[0] : null
+      this.verifyDialog = {
+        visible:true, hbl:single, milestoneKey:single ? this.effectiveKey(single) : null,
+        result:'COMPLETE', reason:'', remark:'', sanitaryCert:false, docSel:[],
+      }
     },
 
     submitVerify() {
@@ -764,23 +990,12 @@ export default {
           this.$message.success(`${milestoneName} approved for ${h.hblNo}`)
 
         } else {
-          // ── Not Complete → ALL 3 milestones enter Pending Correction ────
-          // Pepco is locked out. Reset to Re-check happens ONLY after the
-          // Supplier confirms the correction (in Document Management page).
-          h.verifyHistory.unshift({
-            milestone: milestoneName, status: 'Incomplete',
-            user: 'Demo User', time: now, reason,
-            remark: (remark ? remark + '. ' : '') + 'Email sent to supplier.',
-            isRecheck: !!h.milestones[milestone].isRecheck,
-          })
-
-          ORDER.forEach(k => {
-            this.$set(h.milestones[k], 'status', 'PENDING_CORRECTION')
-            this.$set(h.milestones[k], 'lockReason', 'Waiting for Supplier correction')
-            this.$set(h.milestones[k], 'completedBy', null)
-            this.$set(h.milestones[k], 'completedAt', null)
-            this.$set(h.milestones[k], 'isRecheck', false)
-          })
+          // ── Not Complete → reject the flagged documents ──────────────────
+          // Documents go REJECTED, all milestones go PENDING_CORRECTION.
+          // The reset to PGS re-check happens automatically once the supplier
+          // has re-uploaded every rejected document (Document Upload tab).
+          const docs = this.verifyDialog.docSel.map(i => h.documents[i])
+          rejectDocuments(h, docs, { reason, remark, milestoneName, user: 'Demo User' })
 
           // Email notification feedback
           this.$notify({
@@ -789,11 +1004,12 @@ export default {
             message: `<div style="font-size:12px;line-height:1.7">
               <div><b>${h.hblNo}</b> — ${milestoneName}</div>
               <div>Reason: ${reason}</div>
+              <div style="margin-top:4px">Returned documents:<br>${docs.map(d => `<span style="color:#c25e00">· ${d.poNo} — ${d.docType} (${d.fileName})</span>`).join('<br>')}</div>
               <div style="color:#13ce66;margin-top:4px">
                 ✉ Notification email sent to supplier<br>
                 <span style="color:#999">${h.supplier.toLowerCase().replace(/[^a-z]/g,'')}@supplier-mail.com</span>
               </div>
-              <div style="color:#999;margin-top:4px">All milestones locked until the Supplier confirms correction.</div>
+              <div style="color:#999;margin-top:4px">Flow resets to PGS re-check automatically after the supplier re-uploads all returned documents.</div>
             </div>`,
             type: 'warning', duration: 6000,
           })
@@ -813,6 +1029,25 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+// ── Board view ───────────────────────────────────────────────────────────────
+.card-hdr { display:flex; justify-content:space-between; align-items:center; font-weight:600; }
+.ms-num {
+  font-weight:700; cursor:pointer; padding:2px 8px; border-radius:4px; font-size:13px;
+  text-decoration:underline;
+  &.possible { color:#3A71A8; }
+  &.urgent   { color:#E6A817; }
+  &.overdue  { color:#ff4949; }
+  &.finished { color:#13ce66; }
+}
+.ms-num-plain {
+  font-weight:600; font-size:13px;
+  &.possible { color:#3A71A8; }
+  &.urgent   { color:#E6A817; }
+  &.overdue  { color:#ff4949; }
+  &.finished { color:#13ce66; }
+}
+::v-deep .board-milestone-row { background:#f0f7ff !important; }
+
 // ── Verify Documents Counter Board ──────────────────────────────────────────
 .counter-board {
   margin-bottom:12px;
@@ -940,7 +1175,39 @@ export default {
 
 // History status badges
 .status-badge {
-  &.recheck { background:#f0fdf4; color:#13ce66; }
+  &.recheck     { background:#f0fdf4; color:#13ce66; }
+  &.resubmitted { background:#fdf3e3; color:#c25e00; }
+}
+
+// Problem-document checklist (reject flow in verify dialog)
+.doc-sel-label {
+  font-size:12px; font-weight:600; color:$text-primary; margin:4px 0 6px;
+  span { font-weight:400; color:#999; font-size:11px; }
+}
+.doc-sel-list { display:flex; flex-direction:column; gap:4px; }
+.doc-sel-row {
+  margin:0 !important; padding:6px 10px; background:#fff; border:1px solid $border; border-radius:6px;
+  display:flex; align-items:center;
+  ::v-deep .el-checkbox__label { display:inline-flex; gap:8px; align-items:center; font-size:12px; }
+  .dsr-po   { color:#3A71A8; font-weight:600; }
+  .dsr-type { font-weight:600; }
+  .dsr-file { color:#999; font-size:11px; }
+}
+
+// Correction progress list inside the Pending Correction banner
+.corr-doc-list { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+.corr-doc-row {
+  display:flex; align-items:center; gap:8px; font-size:11px;
+  background:rgba(255,255,255,0.6); border-radius:4px; padding:4px 8px;
+  i.ok      { color:#13ce66; }
+  i.waiting { color:#e6a817; }
+  .cdr-po   { color:#3A71A8; font-weight:600; }
+  .cdr-type { font-weight:600; }
+  .cdr-file { color:#999; }
+  .cdr-state { margin-left:auto; font-weight:600;
+    &.ok      { color:#13ce66; }
+    &.waiting { color:#c25e00; }
+  }
 }
 
 // ── Document Preview Dialog ──────────────────────────────────────────────────

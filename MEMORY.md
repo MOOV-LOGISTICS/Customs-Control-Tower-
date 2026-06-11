@@ -18,10 +18,12 @@
 | **Dev Server 启动** | 运行 `C:\Customs Project\start-mock.cmd`，端口 3000 |
 | **Preview Server ID** | 每次启动会变，用 `preview_start` 获取新的 |
 
-### Git 工作流规则 ⚠️
-- **代码修改：必须先创建分支，等用户确认后才 push/merge**
-- **文档/memory 更新：可以直接 push 到 main**
-- 每次 commit 带 `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`
+### Git 工作流规则 ⚠️（2026-06-11 用户再次强调）
+- **代码修改：创建 feature 分支 → 本地 commit → 停！不要 push**
+- **用户要在本地 review 通过后，明确下达指令才能 push / 开 PR / merge**
+- commit ≠ 可以 push；每写完一段代码只 commit 到本地分支，然后等待
+- **文档/memory 更新：可以直接 push 到 main**（唯一例外）
+- 每次 commit 带 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
 
 ---
 
