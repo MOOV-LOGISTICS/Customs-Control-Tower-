@@ -54,12 +54,7 @@
           <span class="hbl-completeness" :class="{ full: grp.uploaded >= grp.required }">
             <i class="el-icon-folder-checked"></i> {{ grp.uploaded }}/{{ grp.required }} docs
           </span>
-          <span class="hbl-badges">
-            <span v-if="grp.counts.REJECTED" class="cnt-badge b-rejected">{{ grp.counts.REJECTED }} Rejected</span>
-            <span v-if="grp.counts.PENDING_REREVIEW" class="cnt-badge b-rereview">{{ grp.counts.PENDING_REREVIEW }} Re-review</span>
-            <span v-if="grp.counts.PENDING_REVIEW" class="cnt-badge b-pending">{{ grp.counts.PENDING_REVIEW }} Pending</span>
-            <span v-if="grp.counts.APPROVED" class="cnt-badge b-approved">{{ grp.counts.APPROVED }} Approved</span>
-          </span>
+
           <span class="hbl-updated">{{ grp.lastUpdated }}</span>
           <span class="hbl-actions" @click.stop>
             <el-tag v-if="isBroker && grp.updatedSince" size="mini" type="warning" class="updated-tag">
