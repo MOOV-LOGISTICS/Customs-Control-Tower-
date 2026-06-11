@@ -186,7 +186,12 @@
               <el-tabs v-model="row.activeTab" size="mini" type="card">
                 <!-- Documents tab -->
                 <el-tab-pane label="Documents" name="documents">
-                  <div style="display:flex;justify-content:flex-end;margin-top:8px">
+                  <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
+                    <el-tooltip content="Opens each document in a new browser tab — allow popups if prompted" placement="top">
+                      <el-button size="mini" icon="el-icon-view" @click="openAllDocs(row)">
+                        Open All in New Tab ({{ row.documents.length }})
+                      </el-button>
+                    </el-tooltip>
                     <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadAllDocs(row)">
                       Download All ({{ row.documents.length }})
                     </el-button>
@@ -759,6 +764,117 @@ export default {
 
     // Correction progress of the current rejection round (shared store)
     progress(h) { return correctionProgress(h) },
+
+    openAllDocs(hblRow) {
+      const docs = this.sortedDocs(hblRow.documents)
+      let blocked = false
+      docs.forEach(doc => {
+        const w = window.open('', '_blank')
+        if (!w) { blocked = true; return }
+        w.document.write(this.buildDocHtml(hblRow, doc))
+        w.document.close()
+      })
+      if (blocked) this.$message.warning('Pop-up blocked — please allow pop-ups for this site and try again')
+    },
+
+    buildDocHtml(hblRow, doc) {
+      const statusColor = doc.status === 'VERIFIED' ? '#13ce66' : '#E6A817'
+      const statusLabel = doc.status === 'VERIFIED' ? '✔ AI Verified' : '⚠ Unverified'
+      const reviewBadge = doc.reviewStatus === 'REJECTED'
+        ? `<span style="background:#fff0f0;color:#ff4949;padding:2px 8px;border-radius:4px;font-size:12px">Rejected</span>`
+        : doc.reviewStatus === 'RESUBMITTED'
+          ? `<span style="background:#e6f9ef;color:#13ce66;padding:2px 8px;border-radius:4px;font-size:12px">Resubmitted v${doc.version}</span>`
+          : `<span style="color:#c0c4cc">—</span>`
+      return `<!DOCTYPE html>
+<html>
+<head>
+  <title>${doc.docType} — ${hblRow.hblNo}</title>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: 'DM Sans', Arial, sans-serif; background:#EBF0F4; margin:0; padding:24px; }
+    .wrapper { max-width:760px; margin:0 auto; }
+    .topbar { background:#004F7C; color:#fff; padding:12px 20px; border-radius:8px 8px 0 0;
+              display:flex; justify-content:space-between; align-items:center; }
+    .topbar-title { font-size:15px; font-weight:700; }
+    .topbar-meta  { font-size:11px; opacity:0.8; }
+    .meta-card { background:#fff; border:1px solid #dce3ea; padding:14px 20px; margin-bottom:14px; }
+    .meta-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 20px; font-size:12px; }
+    .meta-label { color:#909399; margin-bottom:2px; font-size:11px; text-transform:uppercase; letter-spacing:0.4px; }
+    .meta-value { color:#303133; font-weight:600; }
+    .status-bar { display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:6px;
+                  margin-bottom:14px; font-size:12px; font-weight:500; }
+    .pdf-page { background:#fff; border:1px solid #dce3ea; padding:28px 32px; border-radius:0 0 8px 8px; }
+    .pdf-header { display:flex; justify-content:space-between; margin-bottom:14px; }
+    .pdf-company { font-weight:700; font-size:15px; color:#004F7C; }
+    .pdf-doctype { font-weight:700; font-size:18px; color:#303133; }
+    .pdf-divider { height:2px; background:#004F7C; margin-bottom:16px; }
+    .pdf-fields { display:grid; grid-template-columns:1fr 1fr; gap:6px 24px; margin-bottom:18px; font-size:12px; }
+    .pdf-label { color:#909399; width:100px; display:inline-block; }
+    .pdf-value { color:#303133; font-weight:500; }
+    .pdf-value.hi { color:#004F7C; font-weight:700; }
+    table { width:100%; border-collapse:collapse; font-size:12px; margin-bottom:14px; }
+    thead tr { background:#f5f7fa; }
+    th, td { padding:6px 10px; border:1px solid #ebeef5; text-align:left; }
+    th { font-weight:600; color:#606266; font-size:11px; }
+    tr:nth-child(even) td { background:#fafafa; }
+    .footer { text-align:center; color:#bbb; font-size:11px; margin-top:14px; font-style:italic; }
+    .simulate-note { background:#fffbe6; border:1px solid #ffe58f; border-radius:4px; padding:6px 12px;
+                     font-size:11px; color:#876800; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="topbar">
+      <span class="topbar-title">${doc.docType}</span>
+      <span class="topbar-meta">${hblRow.hblNo} · ${hblRow.supplier} · v${doc.version}</span>
+    </div>
+    <div class="meta-card">
+      <div class="meta-grid">
+        <div><div class="meta-label">Document Number</div><div class="meta-value" style="color:#004F7C">${doc.docNumber || '—'}</div></div>
+        <div><div class="meta-label">Document Type</div><div class="meta-value">${doc.docType}</div></div>
+        <div><div class="meta-label">Version</div><div class="meta-value">v${doc.version}</div></div>
+        <div><div class="meta-label">PO Number</div><div class="meta-value">${doc.poNo}</div></div>
+        <div><div class="meta-label">HBL Number</div><div class="meta-value">${hblRow.hblNo}</div></div>
+        <div><div class="meta-label">Uploaded</div><div class="meta-value">${doc.uploadedAt}</div></div>
+        <div><div class="meta-label">File Name</div><div class="meta-value">${doc.fileName}</div></div>
+        <div><div class="meta-label">AI Check</div><div class="meta-value" style="color:${statusColor}">${statusLabel}</div></div>
+        <div><div class="meta-label">Review Status</div><div class="meta-value">${reviewBadge}</div></div>
+      </div>
+    </div>
+    <div class="status-bar" style="background:${doc.status === 'VERIFIED' ? '#e6f9ef' : '#fffbe6'};color:${statusColor}">
+      ${statusLabel} — Document type, PO Number and Supplier all matched
+    </div>
+    <div class="pdf-page">
+      <div class="pdf-header">
+        <div class="pdf-company">${hblRow.supplier}</div>
+        <div class="pdf-doctype">${doc.docType}</div>
+      </div>
+      <div class="pdf-divider"></div>
+      <div class="pdf-fields">
+        <div><span class="pdf-label">Document No.</span><span class="pdf-value hi">${doc.docNumber || doc.fileName.replace('.pdf','')}</span></div>
+        <div><span class="pdf-label">PO Number</span><span class="pdf-value hi">${doc.poNo}</span></div>
+        <div><span class="pdf-label">HBL</span><span class="pdf-value">${hblRow.hblNo}</span></div>
+        <div><span class="pdf-label">Date</span><span class="pdf-value">${doc.uploadedAt}</span></div>
+        <div><span class="pdf-label">Supplier</span><span class="pdf-value">${hblRow.supplier}</span></div>
+        <div><span class="pdf-label">Version</span><span class="pdf-value">v${doc.version}</span></div>
+      </div>
+      <table>
+        <thead><tr><th>Item Description</th><th>Qty</th><th>Unit Price</th><th>Amount</th></tr></thead>
+        <tbody>
+          <tr><td>Product Item A</td><td>120</td><td>USD 3.50</td><td>USD 420.00</td></tr>
+          <tr><td>Product Item B</td><td>240</td><td>USD 7.00</td><td>USD 1,680.00</td></tr>
+          <tr><td>Product Item C</td><td>360</td><td>USD 10.50</td><td>USD 3,780.00</td></tr>
+          <tr><td>Product Item D</td><td>480</td><td>USD 14.00</td><td>USD 6,720.00</td></tr>
+        </tbody>
+        <tfoot><tr style="font-weight:700;background:#f0f7ff"><td>Total</td><td></td><td></td><td>USD 12,600.00</td></tr></tfoot>
+      </table>
+      <div class="footer">[ Simulated document preview — for demo purposes ]</div>
+      <div class="simulate-note">This is a prototype simulation. In production this tab would display the actual uploaded PDF file.</div>
+    </div>
+  </div>
+</body>
+</html>`
+    },
 
     downloadAllDocs(h) {
       this.$notify({
