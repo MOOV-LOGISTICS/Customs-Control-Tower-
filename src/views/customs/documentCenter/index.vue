@@ -88,7 +88,6 @@
                   <span class="doc-file">{{ cv(doc).fileName }}</span>
                 </span>
                 <el-tag size="mini" type="info" class="ver-tag">v{{ cv(doc).v }}</el-tag>
-                <span :class="['st-badge', statusMap[doc.status].cls]">{{ statusMap[doc.status].label }}</span>
                 <el-tooltip v-if="shared(doc)" placement="top"
                   :content="`Shared across ${entities(doc).hbls.join(', ')} — same document object, any action syncs everywhere`">
                   <span class="shared-tag">🔗 Shared</span>
@@ -128,11 +127,6 @@
             </el-tooltip>
           </template>
         </el-table-column>
-        <el-table-column label="Status" width="135">
-          <template #default="{row}">
-            <span :class="['st-badge', statusMap[row.status].cls]">{{ statusMap[row.status].label }}</span>
-          </template>
-        </el-table-column>
         <el-table-column label="Related Entities" min-width="260">
           <template #default="{row}">
             <el-tag size="mini" class="chip chip-po" style="cursor:pointer" @click="searchQ = row.poId">{{ row.poId }}</el-tag>
@@ -165,7 +159,6 @@
             <div class="detail-title"><i class="el-icon-document"></i> {{ detail.doc.docType }}</div>
             <div class="detail-sub">{{ cv(detail.doc).fileName }}</div>
           </div>
-          <span :class="['st-badge', statusMap[detail.doc.status].cls]">{{ statusMap[detail.doc.status].label }}</span>
         </div>
 
         <!-- Reject reason banner -->
@@ -278,9 +271,6 @@
             <template #default="{row}">
               <span style="font-family:monospace;font-size:11px">{{ row.poId }}/{{ row.docType.replace(/\s+/g,'') }}_{{ cv(row).fileName.replace(/\.[^.]+$/,'') }}_v{{ cv(row).v }}.pdf</span>
             </template>
-          </el-table-column>
-          <el-table-column label="Status" width="130">
-            <template #default="{row}"><span :class="['st-badge', statusMap[row.status].cls]">{{ statusMap[row.status].label }}</span></template>
           </el-table-column>
           <el-table-column label="Version" width="70" align="center">
             <template #default="{row}">v{{ cv(row).v }}</template>
