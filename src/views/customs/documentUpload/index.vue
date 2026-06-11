@@ -556,6 +556,9 @@
               <span style="margin-left:6px;color:#999;font-size:11px">{{ corrUpload.item.doc.poNo }}</span>
             </div>
           </div>
+          <el-tooltip content="Preview file" placement="top">
+            <el-button size="mini" circle icon="el-icon-view" @click="previewRejectedDoc(corrUpload.item)" />
+          </el-tooltip>
         </div>
 
         <!-- IDLE -->
