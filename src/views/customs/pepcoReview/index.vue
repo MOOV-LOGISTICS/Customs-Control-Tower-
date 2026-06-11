@@ -118,8 +118,16 @@
                     <el-table-column label="PO Number" width="120" prop="poNo" />
                     <el-table-column label="Document Type" min-width="150" prop="docType" />
                     <el-table-column label="File Name" min-width="170" prop="fileName" />
-                    <el-table-column label="Version" width="70" align="center">
-                      <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
+                    <el-table-column label="Version" width="80" align="center">
+                      <template #default="{row}">
+                        <el-tooltip v-if="row.versionHistory && row.versionHistory.length" content="Click to view version history" placement="top">
+                          <el-tag size="mini" type="primary" style="cursor:pointer"
+                            @click="versionHistoryDialog={visible:true,doc:row}">
+                            v{{ row.version }} <i class="el-icon-time" style="font-size:10px;margin-left:2px"></i>
+                          </el-tag>
+                        </el-tooltip>
+                        <el-tag v-else size="mini" type="info">v{{ row.version }}</el-tag>
+                      </template>
                     </el-table-column>
                     <el-table-column label="AI Check" width="95">
                       <template #default="{row}">
@@ -336,6 +344,45 @@
       </div>
     </el-dialog>
 
+    <!-- ── Version History Dialog ────────────────────────────────────── -->
+    <el-dialog
+      :visible.sync="versionHistoryDialog.visible"
+      :title="versionHistoryDialog.doc ? `Version History — ${versionHistoryDialog.doc.docType}` : 'Version History'"
+      width="680px" top="5vh" custom-class="brand-dialog"
+    >
+      <template v-if="versionHistoryDialog.doc">
+        <div style="font-size:12px;color:#666;margin-bottom:10px">
+          PO <strong style="color:#004F7C">{{ versionHistoryDialog.doc.poNo }}</strong>
+        </div>
+        <el-table :data="versionHistoryAllRows(versionHistoryDialog.doc)" size="mini" border :header-cell-style="{background:'#fafafa'}">
+          <el-table-column label="Version" width="120" align="center">
+            <template #default="{row}">
+              <el-tag v-if="row.isCurrent" size="mini" type="success">v{{ row.version }} · Current</el-tag>
+              <el-tag v-else size="mini" type="info">v{{ row.version }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="File Name" min-width="190" prop="fileName" />
+          <el-table-column label="Uploaded" width="145" prop="uploadedAt" align="center" />
+          <el-table-column label="Status" width="100" align="center">
+            <template #default="{row}">
+              <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
+                {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Actions" width="120" align="center">
+            <template #default="{row}">
+              <el-button type="text" size="mini" icon="el-icon-view" @click="previewVersionEntry(row)">Preview</el-button>
+              <el-button type="text" size="mini" icon="el-icon-download" @click="$message.success(`Downloading ${row.fileName}…`)">DL</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+      <div slot="footer">
+        <el-button size="small" @click="versionHistoryDialog.visible=false">Close</el-button>
+      </div>
+    </el-dialog>
+
     <!-- ── Document Preview Dialog ───────────────────────────────────── -->
     <el-dialog :visible.sync="docPreview.visible" :title="`Preview — ${docPreview.docType} (v${docPreview.version})`" width="760px" top="5vh">
       <div class="preview-dialog">
@@ -445,6 +492,8 @@ export default {
         status: 'VERIFIED', uploadedAt: '',
         hblNo: '', supplier: '',
       },
+
+      versionHistoryDialog: { visible: false, doc: null, hblRow: null },
     }
   },
 
@@ -608,6 +657,26 @@ export default {
         </div>`,
         type: 'success', duration: 4000,
       })
+    },
+
+    // ── Version history ──────────────────────────────────────────────────
+    versionHistoryAllRows(doc) {
+      const current = { version: doc.version, fileName: doc.fileName, uploadedAt: doc.uploadedAt, status: doc.status, isCurrent: true }
+      const history = (doc.versionHistory || []).slice().sort((a, b) => b.version - a.version)
+      return [current, ...history]
+    },
+    previewVersionEntry(row) {
+      const d = this.versionHistoryDialog.doc
+      this.docPreview = {
+        visible: true,
+        docType: d.docType,
+        fileName: row.fileName,
+        version: row.version,
+        status: row.status || 'VERIFIED',
+        uploadedAt: row.uploadedAt || '',
+        hblNo: d.poNo || '',
+        supplier: '',
+      }
     },
 
     openDocPreview(hblRow, doc) {

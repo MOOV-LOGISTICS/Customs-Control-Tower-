@@ -101,8 +101,15 @@
         <el-table-column label="BL Type" width="80" align="center">
           <template #default="{row}">{{ row.blType || '/' }}</template>
         </el-table-column>
-        <el-table-column label="Version" width="70" align="center">
-          <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
+        <el-table-column label="Version" width="80" align="center">
+          <template #default="{row}">
+            <el-tooltip v-if="row.versionHistory && row.versionHistory.length" content="Click to view version history" placement="top">
+              <el-tag size="mini" type="primary" style="cursor:pointer" @click="versionHistoryDialog={visible:true,doc:row}">
+                v{{ row.version }} <i class="el-icon-time" style="font-size:10px;margin-left:2px"></i>
+              </el-tag>
+            </el-tooltip>
+            <el-tag v-else size="mini" type="info">v{{ row.version }}</el-tag>
+          </template>
         </el-table-column>
         <el-table-column label="File Name" min-width="160" prop="fileName" />
         <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" />
@@ -657,6 +664,43 @@
       </div>
     </el-dialog>
 
+    <!-- ── Version History dialog ──────────────────────────────────────── -->
+    <el-dialog
+      :visible.sync="versionHistoryDialog.visible"
+      :title="versionHistoryDialog.doc ? `Version History — ${versionHistoryDialog.doc.docTypeLabel}` : 'Version History'"
+      width="680px" append-to-body custom-class="brand-dialog"
+    >
+      <template v-if="versionHistoryDialog.doc">
+        <el-table :data="versionHistoryAllRows(versionHistoryDialog.doc)" size="mini" border :header-cell-style="{background:'#fafafa'}">
+          <el-table-column label="Version" width="110" align="center">
+            <template #default="{row}">
+              <el-tag v-if="row.isCurrent" size="mini" type="success">v{{ row.version }} · Current</el-tag>
+              <el-tag v-else size="mini" type="info">v{{ row.version }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="File Name" min-width="180" prop="fileName" />
+          <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" />
+          <el-table-column label="Status" width="100" align="center">
+            <template #default="{row}">
+              <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
+                <i :class="row.status==='VERIFIED'?'el-icon-check':'el-icon-warning-outline'"></i>
+                {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Actions" width="130" align="center">
+            <template #default="{row}">
+              <el-button type="text" size="mini" icon="el-icon-view" @click="previewVersionEntry(row)">Preview</el-button>
+              <el-button type="text" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)">DL</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+      <div slot="footer">
+        <el-button size="small" @click="versionHistoryDialog.visible=false">Close</el-button>
+      </div>
+    </el-dialog>
+
     <!-- Delete confirm dialog -->
     <el-dialog :visible.sync="deleteConfirm.visible" title="Delete Document" width="400px" append-to-body>
       <div style="font-size:13px;line-height:1.8">
@@ -726,7 +770,8 @@ export default {
         mkPo('ORD01687130_01','DHAKA GARMENTS LTD',          'CGP26040899012','2026-05-20','2026-05-22','urgent'),
         mkPo('ORD01687127_01','HO CHI MINH APPAREL',         'SGN26040877001','2026-05-17','2026-05-19','urgent'),
         mkPo('ORD01671737_01','HO CHI MINH APPAREL',         'SGN26040877002','2026-05-02','2026-05-05','finished', [
-          { docNumber:4567801, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-1671737.pdf', uploadDate:'2026-05-04', version:2, status:'VERIFIED' },
+          { docNumber:4567801, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-1671737-v2.pdf', uploadDate:'2026-05-04', version:2, status:'VERIFIED',
+            versionHistory:[{ version:1, fileName:'INV-1671737.pdf', uploadDate:'2026-05-01', status:'VERIFIED' }] },
           { docNumber:4567802, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Packing List',       blType:'', fileName:'PL-1671737.pdf',  uploadDate:'2026-05-04', version:1, status:'VERIFIED' },
           { docNumber:4567803, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Bill of Lading',     blType:'HBL', fileName:'HBL-1671737.pdf', uploadDate:'2026-05-05', version:1, status:'VERIFIED' },
         ], true),
@@ -758,6 +803,9 @@ export default {
         state: 'idle',          // idle | verifying | done
         fileName: '', steps: [], progress: 0, newVersion: 1,
       },
+
+      // Version history viewer
+      versionHistoryDialog: { visible: false, doc: null },
 
       // Rejected-document correction queue (shared with Pepco Review)
       correctionDialog: { visible: false },
@@ -1193,6 +1241,27 @@ export default {
 
     downloadFile(fileName) {
       this.$message.success(`Downloading ${fileName}…`)
+    },
+
+    // ── Version history helpers ──────────────────────────────────────────
+    // Returns current version + all historical entries, newest first
+    versionHistoryAllRows(doc) {
+      const current = { version: doc.version, fileName: doc.fileName, uploadDate: doc.uploadDate, status: doc.status, isCurrent: true }
+      const history = (doc.versionHistory || []).map(h => ({ ...h, uploadDate: h.uploadDate || h.uploadedAt, isCurrent: false }))
+        .sort((a, b) => b.version - a.version)
+      return [current, ...history]
+    },
+    previewVersionEntry(row) {
+      this.preview = {
+        visible: true,
+        title: `Preview — ${this.versionHistoryDialog.doc.docTypeLabel} (v${row.version})`,
+        docType: this.versionHistoryDialog.doc.docTypeLabel,
+        fileName: row.fileName,
+        version: row.version,
+        status: row.status || 'VERIFIED',
+        uploadedAt: row.uploadDate || row.uploadedAt || '',
+        poNumber: this.versionHistoryDialog.doc.poNumber || '',
+      }
     },
 
     // ── Other docs (within upload dialog session) ────────────────────────

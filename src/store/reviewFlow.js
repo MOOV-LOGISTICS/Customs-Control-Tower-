@@ -13,10 +13,12 @@ const ms = (status, by = null, at = null, recheck = false, lock = '') => ({
 })
 
 // reviewStatus: OK | REJECTED | RESUBMITTED ; reject = {reason, remark, by, at, milestone, round}
-const doc = (docType, fileName, version, poNo, uploadedAt, reviewStatus = 'OK', reject = null) => ({
+// versionHistory: array of prior versions [{version, fileName, uploadedAt, status}], newest-first
+const doc = (docType, fileName, version, poNo, uploadedAt, reviewStatus = 'OK', reject = null, versionHistory = []) => ({
   docType, fileName, version, poNo, uploadedAt,
   status: 'VERIFIED',           // AI-verification status (Documents tab badge)
   reviewStatus, reject,
+  versionHistory,
 })
 
 const mkHbl = (hblNo, mblNo, supplier, pol, pod, eta, pgs, fin, cus, docs, history, correctionRound = 0) => ({
@@ -41,7 +43,9 @@ export const reviewStore = Vue.observable({
     mkHbl('MOOV240001', 'MAEU240001', 'Shanghai Textile Co.', 'CNSHA', 'PLGDN', '2024-12-05',
       ms('IN_PROGRESS'), ms('LOCKED', null, null, false, 'Waiting for PGS Check'), ms('LOCKED', null, null, false, 'Waiting for Finance Check'),
       [
-        doc('Commercial Invoice', 'INV-240001.pdf', 2, 'PO-2401-1001', '2024-11-11 09:23'),
+        doc('Commercial Invoice', 'INV-240001-v2.pdf', 2, 'PO-2401-1001', '2024-11-11 09:23', 'OK', null, [
+          { version: 1, fileName: 'INV-240001.pdf', uploadedAt: '2024-11-09 15:30', status: 'VERIFIED' },
+        ]),
         doc('Packing List',       'PL-240001.pdf',  1, 'PO-2401-1001', '2024-11-11 09:25'),
         doc('Bill of Lading',     'HBL-240001.pdf', 1, 'PO-2401-1002', '2024-11-12 14:10'),
       ],
@@ -68,9 +72,11 @@ export const reviewStore = Vue.observable({
       ms('LOCKED', null, null, true, 'Waiting for Finance Check'),
       [
         doc('Commercial Invoice', 'INV-240003-v2.pdf', 2, 'PO-2401-3001', '2024-11-13 11:30', 'RESUBMITTED',
-          { reason: 'V002 - Incorrect shipping docs', remark: 'CI date mismatch vs PL', by: 'Sarah J. (PGS)', at: '2024-11-11 14:20', milestone: 'PGS Document Check', round: 1 }),
+          { reason: 'V002 - Incorrect shipping docs', remark: 'CI date mismatch vs PL', by: 'Sarah J. (PGS)', at: '2024-11-11 14:20', milestone: 'PGS Document Check', round: 1 },
+          [{ version: 1, fileName: 'INV-240003.pdf', uploadedAt: '2024-11-09 14:00', status: 'VERIFIED' }]),
         doc('Packing List', 'PL-240003-v2.pdf', 2, 'PO-2401-3001', '2024-11-13 11:32', 'RESUBMITTED',
-          { reason: 'V002 - Incorrect shipping docs', remark: 'Re-uploaded together with CI', by: 'Sarah J. (PGS)', at: '2024-11-11 14:20', milestone: 'PGS Document Check', round: 1 }),
+          { reason: 'V002 - Incorrect shipping docs', remark: 'Re-uploaded together with CI', by: 'Sarah J. (PGS)', at: '2024-11-11 14:20', milestone: 'PGS Document Check', round: 1 },
+          [{ version: 1, fileName: 'PL-240003.pdf', uploadedAt: '2024-11-09 14:05', status: 'VERIFIED' }]),
         doc('Bill of Lading', 'HBL-240003.pdf', 1, 'PO-2401-3002', '2024-11-09 16:20'),
       ],
       [
