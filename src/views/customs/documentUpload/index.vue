@@ -113,7 +113,11 @@
             </el-tooltip>
             <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
             <el-button type="primary" size="mini" icon="el-icon-view" @click="previewPoDoc(row)" />
-            <el-button type="danger" size="mini" icon="el-icon-delete" @click="deletePoDoc(row)" />
+            <el-tooltip :disabled="!currentPo.confirmed" content="Locked — documents cannot be deleted after Confirm" placement="top">
+              <span>
+                <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="currentPo.confirmed" @click="deletePoDoc(row)" />
+              </span>
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
@@ -686,8 +690,8 @@ const mkSlot = (key, label) => ({
 })
 
 // PO mock data — each PO carries its own uploaded-document history
-const mkPo = (orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs = []) => ({
-  orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs,
+const mkPo = (orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs = [], confirmed = false) => ({
+  orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs, confirmed,
 })
 
 let DOC_NO = 4567890
@@ -725,7 +729,7 @@ export default {
           { docNumber:4567801, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-1671737.pdf', uploadDate:'2026-05-04', version:2, status:'VERIFIED' },
           { docNumber:4567802, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Packing List',       blType:'', fileName:'PL-1671737.pdf',  uploadDate:'2026-05-04', version:1, status:'VERIFIED' },
           { docNumber:4567803, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Bill of Lading',     blType:'HBL', fileName:'HBL-1671737.pdf', uploadDate:'2026-05-05', version:1, status:'VERIFIED' },
-        ]),
+        ], true),
       ],
 
       // Dialog state
@@ -944,6 +948,7 @@ export default {
         this.$message.error('Cannot confirm: Commercial Invoice and Packing List are required on this PO')
         return
       }
+      this.currentPo.confirmed = true
       this.poDocsDialog.visible = false
       this.$message.success(`${this.currentPo.orderNo} confirmed — Upload Shipping Documents milestone completed`)
     },
