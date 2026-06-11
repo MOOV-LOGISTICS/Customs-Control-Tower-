@@ -777,7 +777,7 @@ export default {
         key: 'DOC_CORRECTION',
         taskName: 'Document Correction (Re-upload)',
         partyRole: 'Supplier',
-        possible: rejected, urgent: rejected, overdue: 0, finished: resubmittedCount(),
+        possible: 0, urgent: rejected, overdue: 0, finished: resubmittedCount(),
         hint: 'Documents rejected during Pepco review — re-upload to restart the review flow at PGS',
       }
       const idx = this.taskRows.findIndex(r => r.key === 'UPLOAD_DOCS')
