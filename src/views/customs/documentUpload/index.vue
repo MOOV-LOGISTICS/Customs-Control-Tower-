@@ -1,314 +1,379 @@
 <template>
   <div class="app-container">
 
-    <!-- PO / HBL Selector -->
-    <el-card class="po-selector-card">
-      <el-row :gutter="16" align="middle" type="flex">
-        <el-col :span="6">
-          <div class="selector-label">Select PO / HBL</div>
-          <el-select v-model="selectedHbl" style="width:100%" @change="onHblChange">
-            <el-option v-for="h in hblList" :key="h.value" :label="h.label" :value="h.value" />
-          </el-select>
-        </el-col>
-        <el-col :span="18" v-if="hblInfo">
-          <el-descriptions :column="6" size="mini" border>
-            <el-descriptions-item label="Supplier">{{ hblInfo.supplier }}</el-descriptions-item>
-            <el-descriptions-item label="PO Number">
-              <strong style="color:#004F7C">{{ hblInfo.poNumber }}</strong>
-            </el-descriptions-item>
-            <el-descriptions-item label="POL">{{ hblInfo.pol }}</el-descriptions-item>
-            <el-descriptions-item label="POD">{{ hblInfo.pod }}</el-descriptions-item>
-            <el-descriptions-item label="ETD">{{ hblInfo.etd }}</el-descriptions-item>
-            <el-descriptions-item label="ETA">{{ hblInfo.eta }}</el-descriptions-item>
-          </el-descriptions>
-        </el-col>
-      </el-row>
+    <!-- ── Origin Task Board (Supplier landing view) ─────────────────────── -->
+    <el-card>
+      <div slot="header" class="card-hdr">
+        <span>Origin</span>
+        <span style="font-size:11px;color:#999;font-weight:400">Click any status number on "Upload Shipping Documents" to see the PO list</span>
+      </div>
+      <el-table :data="taskRows" size="mini" border :header-cell-style="{background:'#fafafa'}" :row-class-name="taskRowClass">
+        <el-table-column label="Task Name" min-width="220">
+          <template #default="{row}">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-weight:600">{{ row.taskName }}</span>
+              <el-tooltip :content="row.hint" placement="top">
+                <i class="el-icon-question" style="color:#3A71A8;font-size:13px;cursor:help"></i>
+              </el-tooltip>
+              <el-tag v-if="row.key==='UPLOAD_DOCS'" size="mini" type="success" style="font-size:10px">New flow</el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="Party Role" width="120" prop="partyRole" />
+        <el-table-column label="Possible" width="110" align="center">
+          <template #default="{row}">
+            <span class="ms-num possible" @click="openPoList(row, 'possible')">{{ row.possible }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Urgent" width="110" align="center">
+          <template #default="{row}">
+            <span class="ms-num urgent" @click="openPoList(row, 'urgent')">{{ row.urgent }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Overdue" width="110" align="center">
+          <template #default="{row}">
+            <span class="ms-num overdue" @click="openPoList(row, 'overdue')">{{ row.overdue }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Finished" width="110" align="center">
+          <template #default="{row}">
+            <span class="ms-num finished" @click="openPoList(row, 'finished')">{{ row.finished }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
     </el-card>
 
-    <template v-if="selectedHbl">
+    <!-- ── Dialog 1: PO list for selected status ─────────────────────────── -->
+    <el-dialog
+      :visible.sync="poListDialog.visible"
+      :title="`Upload Shipping Documents ${poListDialog.statusLabel}`"
+      width="1000px" top="6vh" custom-class="brand-dialog"
+    >
+      <div style="margin-bottom:10px">
+        <el-button type="primary" size="mini" icon="el-icon-download" @click="$message.success('Exporting PO list as Excel…')">Download</el-button>
+      </div>
+      <el-table :data="poListFiltered" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
+        <el-table-column label="Task Name" min-width="170">
+          <template>Upload Shipping Documents</template>
+        </el-table-column>
+        <el-table-column label="Order Number" width="150">
+          <template #default="{row}">
+            <span class="po-link">{{ row.orderNo }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="Supplier Name" min-width="200" prop="supplier" />
+        <el-table-column label="Urgent Date" width="110" prop="urgentDate" />
+        <el-table-column label="Due date" width="110" prop="dueDate" sortable />
+        <el-table-column label="Actions" width="80" align="center">
+          <template #default="{row}">
+            <el-button type="text" size="mini" icon="el-icon-edit" @click="openPoDocs(row)" />
+          </template>
+        </el-table-column>
+      </el-table>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+        <span style="font-size:12px;color:#666">Total {{ poListFiltered.length }}</span>
+        <el-pagination layout="prev, pager, next" :total="poListFiltered.length" :page-size="20" small />
+      </div>
+    </el-dialog>
 
-      <!-- Milestone Status Bar -->
-      <el-card class="milestone-bar" :class="milestoneBarClass">
-        <div class="milestone-bar-inner">
-          <div class="milestone-bar-left">
-            <i :class="milestoneIcon"></i>
-            <div>
-              <div class="milestone-bar-title">{{ milestoneTitle }}</div>
-              <div class="milestone-bar-sub">{{ milestoneSub }}</div>
+    <!-- ── Dialog 2: PO document history ─────────────────────────────────── -->
+    <el-dialog
+      :visible.sync="poDocsDialog.visible"
+      title="Upload Shipping Documents"
+      width="1100px" top="5vh" custom-class="brand-dialog"
+    >
+      <div v-if="currentPo" style="margin-bottom:10px;display:flex;align-items:center;gap:12px">
+        <el-button type="primary" size="mini" icon="el-icon-upload2" @click="openUploadDialog">Upload</el-button>
+        <span style="font-size:12px;color:#666">
+          PO <strong style="color:#004F7C">{{ currentPo.orderNo }}</strong> · {{ currentPo.supplier }} · SO Ref {{ currentPo.soRef }}
+        </span>
+      </div>
+      <el-table v-if="currentPo" :data="currentPo.docs" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
+        <el-table-column label="Document Number" width="130" prop="docNumber" align="center" />
+        <el-table-column label="PO Number" width="140" prop="poNumber" align="center" />
+        <el-table-column label="SO Ref" width="140" prop="soRef" align="center" />
+        <el-table-column label="Document Type" width="150" align="center">
+          <template #default="{row}">
+            <div>{{ row.docTypeLabel }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="BL Type" width="80" align="center">
+          <template #default="{row}">{{ row.blType || '/' }}</template>
+        </el-table-column>
+        <el-table-column label="Version" width="70" align="center">
+          <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
+        </el-table-column>
+        <el-table-column label="File Name" min-width="160" prop="fileName" />
+        <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" />
+        <el-table-column label="Action" width="175" align="center">
+          <template #default="{row}">
+            <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
+            <el-button type="primary" size="mini" icon="el-icon-view" @click="previewPoDoc(row)" />
+            <el-button type="danger" size="mini" icon="el-icon-delete" @click="deletePoDoc(row)" />
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-if="currentPo && !currentPo.docs.length" style="text-align:center;padding:28px;color:#c0c4cc;font-size:13px">
+        No documents uploaded for this PO yet — click <strong>Upload</strong> to start
+      </div>
+      <div slot="footer">
+        <el-button size="small" @click="poDocsDialog.visible=false">Cancel</el-button>
+        <el-button size="small" type="primary" @click="confirmPoDocs">Confirm</el-button>
+      </div>
+    </el-dialog>
+
+    <!-- ── Dialog 3: Upload (full AI-verify flow, embedded in dialog) ────── -->
+    <el-dialog
+      :visible.sync="uploadDialog.visible"
+      :title="currentPo ? `Upload Documents — ${currentPo.orderNo}` : 'Upload Documents'"
+      width="1080px" top="3vh" custom-class="brand-dialog"
+      :close-on-click-modal="false"
+    >
+      <template v-if="currentPo">
+
+        <!-- Milestone status bar -->
+        <el-card class="milestone-bar" :class="milestoneBarClass" shadow="never">
+          <div class="milestone-bar-inner">
+            <div class="milestone-bar-left">
+              <i :class="milestoneIcon"></i>
+              <div>
+                <div class="milestone-bar-title">{{ milestoneTitle }}</div>
+                <div class="milestone-bar-sub">{{ milestoneSub }}</div>
+              </div>
             </div>
           </div>
-          <el-button v-if="milestoneComplete" type="success" size="small" icon="el-icon-check"
-            @click="$message.success('Milestone marked complete! Pepco has been notified.')">
-            Mark Milestone Complete
-          </el-button>
-          <el-tooltip v-else content="Both Commercial Invoice and Packing List must be verified" placement="left">
-            <span><el-button type="success" size="small" icon="el-icon-check" disabled>Mark Milestone Complete</el-button></span>
-          </el-tooltip>
+        </el-card>
+
+        <!-- Mandatory label -->
+        <div class="mandatory-label">
+          <i class="el-icon-warning-outline" style="color:#E6A817;margin-right:4px"></i>
+          Required Documents — both must be AI-verified before completing this milestone
         </div>
-      </el-card>
 
-      <!-- Mandatory label -->
-      <div class="mandatory-label">
-        <i class="el-icon-warning-outline" style="color:#E6A817;margin-right:4px"></i>
-        Required Documents — both must be AI-verified before completing this milestone
-      </div>
+        <!-- Mandatory Slots -->
+        <el-row :gutter="14" style="margin-bottom:14px">
+          <el-col :span="12" v-for="slot in mandatorySlots" :key="slot.key">
+            <div :class="['doc-slot', `slot-${slot.state}`]">
 
-      <!-- Mandatory Slots -->
-      <el-row :gutter="14" style="margin-bottom:14px">
-        <el-col :span="12" v-for="slot in mandatorySlots" :key="slot.key">
-          <div :class="['doc-slot', `slot-${slot.state}`]">
-
-            <!-- Slot header -->
-            <div class="slot-header">
-              <div class="slot-title">
-                <i class="el-icon-document"></i>
-                {{ slot.label }}
-                <el-tag size="mini" type="danger" style="margin-left:6px">Required</el-tag>
-              </div>
-              <div :class="['slot-status-badge', `badge-${slot.state}`]">
-                <i :class="slotStateIcon(slot.state)"></i>
-                {{ slotStateLabel(slot.state) }}
-              </div>
-            </div>
-
-            <!-- IDLE -->
-            <div v-if="slot.state === 'idle'" class="slot-body slot-idle">
-              <div class="upload-hint">
-                <div class="hint-title">AI will verify:</div>
-                <div class="hint-item"><i class="el-icon-check"></i> Document is a {{ slot.label }}</div>
-                <div class="hint-item"><i class="el-icon-check"></i> PO Number matches <strong>{{ hblInfo.poNumber }}</strong></div>
-                <div class="hint-item"><i class="el-icon-check"></i> Supplier matches <strong>{{ hblInfo.supplier }}</strong></div>
-              </div>
-              <div class="upload-actions">
-                <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
-                  <el-button type="primary" size="small" icon="el-icon-upload2">Upload &amp; AI Verify</el-button>
-                </el-upload>
-                <div class="demo-btns">
-                  <span class="demo-label">Demo:</span>
-                  <el-button size="mini" type="text" @click="startUpload(slot, null, 'type_error')">Wrong doc type</el-button>
-                  <el-button size="mini" type="text" @click="startUpload(slot, null, 'po_mismatch')">PO mismatch</el-button>
+              <!-- Slot header -->
+              <div class="slot-header">
+                <div class="slot-title">
+                  <i class="el-icon-document"></i>
+                  {{ slot.label }}
+                  <el-tag size="mini" type="danger" style="margin-left:6px">Required</el-tag>
+                </div>
+                <div :class="['slot-status-badge', `badge-${slot.state}`]">
+                  <i :class="slotStateIcon(slot.state)"></i>
+                  {{ slotStateLabel(slot.state) }}
                 </div>
               </div>
-            </div>
 
-            <!-- UPLOADING / VERIFYING -->
-            <div v-if="slot.state === 'uploading' || slot.state === 'verifying'" class="slot-body slot-verifying">
-              <div class="verify-filename"><i class="el-icon-document"></i> {{ slot.fileName }}</div>
-              <div class="verify-steps">
-                <div v-for="(step, i) in slot.steps" :key="i" :class="['verify-step', stepClass(step.status)]">
-                  <i :class="stepIcon(step.status)"></i>
-                  <span>{{ step.label }}</span>
-                  <span v-if="step.status === 'running'" class="step-spinner"></span>
+              <!-- IDLE -->
+              <div v-if="slot.state === 'idle'" class="slot-body slot-idle">
+                <div class="upload-hint">
+                  <div class="hint-title">AI will verify:</div>
+                  <div class="hint-item"><i class="el-icon-check"></i> Document is a {{ slot.label }}</div>
+                  <div class="hint-item"><i class="el-icon-check"></i> PO Number matches <strong>{{ currentPo.orderNo }}</strong></div>
+                  <div class="hint-item"><i class="el-icon-check"></i> Supplier matches <strong>{{ currentPo.supplier }}</strong></div>
+                </div>
+                <div class="upload-actions">
+                  <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
+                    <el-button type="primary" size="small" icon="el-icon-upload2">Upload &amp; AI Verify</el-button>
+                  </el-upload>
+                  <div class="demo-btns">
+                    <span class="demo-label">Demo:</span>
+                    <el-button size="mini" type="text" @click="startUpload(slot, null, 'type_error')">Wrong doc type</el-button>
+                    <el-button size="mini" type="text" @click="startUpload(slot, null, 'po_mismatch')">PO mismatch</el-button>
+                  </div>
                 </div>
               </div>
-              <el-progress :percentage="slot.progress" :stroke-width="4" :show-text="false" color="#004F7C" style="margin-top:8px" />
-            </div>
 
-            <!-- VERIFIED -->
-            <div v-if="slot.state === 'verified'" class="slot-body">
-              <!-- Current version -->
-              <div class="current-version-block">
-                <div class="cv-file">
-                  <i class="el-icon-document" style="color:#004F7C;font-size:18px"></i>
-                  <div class="cv-info">
-                    <div class="cv-name">{{ slot.fileName }}</div>
-                    <div class="cv-meta">
-                      <el-tag size="mini" type="success">v{{ slot.version }} Current</el-tag>
-                      <span style="margin-left:6px;color:#999;font-size:11px">Uploaded {{ slot.uploadedAt }}</span>
+              <!-- UPLOADING / VERIFYING -->
+              <div v-if="slot.state === 'uploading' || slot.state === 'verifying'" class="slot-body slot-verifying">
+                <div class="verify-filename"><i class="el-icon-document"></i> {{ slot.fileName }}</div>
+                <div class="verify-steps">
+                  <div v-for="(step, i) in slot.steps" :key="i" :class="['verify-step', stepClass(step.status)]">
+                    <i :class="stepIcon(step.status)"></i>
+                    <span>{{ step.label }}</span>
+                    <span v-if="step.status === 'running'" class="step-spinner"></span>
+                  </div>
+                </div>
+                <el-progress :percentage="slot.progress" :stroke-width="4" :show-text="false" color="#004F7C" style="margin-top:8px" />
+              </div>
+
+              <!-- VERIFIED -->
+              <div v-if="slot.state === 'verified'" class="slot-body">
+                <div class="current-version-block">
+                  <div class="cv-file">
+                    <i class="el-icon-document" style="color:#004F7C;font-size:18px"></i>
+                    <div class="cv-info">
+                      <div class="cv-name">{{ slot.fileName }}</div>
+                      <div class="cv-meta">
+                        <el-tag size="mini" type="success">v{{ slot.version }} Current</el-tag>
+                        <span style="margin-left:6px;color:#999;font-size:11px">Uploaded {{ slot.uploadedAt }}</span>
+                      </div>
+                    </div>
+                    <div class="cv-actions">
+                      <el-button type="text" size="mini" icon="el-icon-view" @click="openPreview(slot, slot.version)">Preview</el-button>
+                      <el-button type="text" size="mini" icon="el-icon-download" @click="downloadFile(slot.fileName)">Download</el-button>
                     </div>
                   </div>
-                  <div class="cv-actions">
-                    <el-button type="text" size="mini" icon="el-icon-view" @click="openPreview(slot, slot.version)">Preview</el-button>
-                    <el-button type="text" size="mini" icon="el-icon-download" @click="downloadFile(slot.fileName)">Download</el-button>
+                  <div class="check-list">
+                    <div class="check-item pass"><i class="el-icon-circle-check"></i> Document type: {{ slot.label }} ✓</div>
+                    <div class="check-item pass"><i class="el-icon-circle-check"></i> PO Number: {{ currentPo.orderNo }} ✓</div>
+                    <div class="check-item pass"><i class="el-icon-circle-check"></i> Supplier: {{ currentPo.supplier }} ✓</div>
+                  </div>
+                </div>
+                <div class="new-version-row">
+                  <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
+                    <el-button type="text" size="mini" icon="el-icon-refresh-left">Upload new version</el-button>
+                  </el-upload>
+                </div>
+              </div>
+
+              <!-- TYPE ERROR -->
+              <div v-if="slot.state === 'type_error'" class="slot-body slot-error">
+                <div class="error-header">
+                  <i class="el-icon-circle-close"></i>
+                  <div>
+                    <div class="error-title">Wrong document type</div>
+                    <div class="error-file">{{ slot.fileName }}</div>
+                  </div>
+                </div>
+                <el-alert title="Document type mismatch" type="error" :closable="false" show-icon style="margin-bottom:10px">
+                  <div style="font-size:12px;margin-top:2px">
+                    AI detected this file is a <strong>{{ slot.detectedType }}</strong>, not a <strong>{{ slot.label }}</strong>.
+                  </div>
+                </el-alert>
+                <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
+                  <el-button type="danger" size="small" icon="el-icon-refresh" plain>Re-upload Correct File</el-button>
+                </el-upload>
+              </div>
+
+              <!-- PO MISMATCH -->
+              <div v-if="slot.state === 'po_mismatch'" class="slot-body slot-warning">
+                <div class="error-header warning">
+                  <i class="el-icon-warning"></i>
+                  <div>
+                    <div class="error-title">PO number mismatch</div>
+                    <div class="error-file">{{ slot.fileName }}</div>
                   </div>
                 </div>
                 <div class="check-list">
                   <div class="check-item pass"><i class="el-icon-circle-check"></i> Document type: {{ slot.label }} ✓</div>
-                  <div class="check-item pass"><i class="el-icon-circle-check"></i> PO Number: {{ hblInfo.poNumber }} ✓</div>
-                  <div class="check-item pass"><i class="el-icon-circle-check"></i> Supplier: {{ hblInfo.supplier }} ✓</div>
+                  <div class="check-item fail">
+                    <i class="el-icon-circle-close"></i>
+                    PO Number mismatch:
+                    <span class="mismatch-detail">Found <strong>{{ slot.foundPO }}</strong> — expected <strong>{{ currentPo.orderNo }}</strong></span>
+                  </div>
                 </div>
-              </div>
-
-              <!-- Upload new version -->
-              <div class="new-version-row">
+                <el-divider style="margin:10px 0" />
+                <div style="font-size:12px;color:#666;margin-bottom:8px">How would you like to proceed?</div>
                 <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
-                  <el-button type="text" size="mini" icon="el-icon-refresh-left">Upload new version</el-button>
+                  <el-button size="small" type="primary" plain icon="el-icon-refresh" style="width:100%;margin-bottom:6px">Re-upload Correct File</el-button>
+                </el-upload>
+                <el-button size="small" type="warning" plain icon="el-icon-warning-outline" style="width:100%" @click="forceSave(slot)">
+                  Save Anyway — Flag for OHA Review
+                </el-button>
+              </div>
+
+              <!-- FORCE SAVED -->
+              <div v-if="slot.state === 'force_saved'" class="slot-body slot-force">
+                <div class="current-version-block">
+                  <div class="cv-file">
+                    <i class="el-icon-document" style="color:#E6A817;font-size:18px"></i>
+                    <div class="cv-info">
+                      <div class="cv-name">{{ slot.fileName }}</div>
+                      <div class="cv-meta">
+                        <el-tag size="mini" type="warning">v{{ slot.version }} · Unverified</el-tag>
+                        <span style="margin-left:6px;color:#999;font-size:11px">{{ slot.uploadedAt }}</span>
+                      </div>
+                    </div>
+                    <div class="cv-actions">
+                      <el-button type="text" size="mini" icon="el-icon-view" @click="openPreview(slot, slot.version)">Preview</el-button>
+                      <el-button type="text" size="mini" icon="el-icon-download" @click="downloadFile(slot.fileName)">Download</el-button>
+                    </div>
+                  </div>
+                </div>
+                <el-alert title="Saved as Unverified — pending OHA review" type="warning" :closable="false" show-icon style="margin-top:8px" />
+                <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')" style="margin-top:8px">
+                  <el-button type="text" size="mini" icon="el-icon-refresh-left">Replace with correct file</el-button>
                 </el-upload>
               </div>
 
-              <!-- Version History -->
-              <div v-if="slot.versionHistory && slot.versionHistory.length" class="version-history">
-                <div class="vh-toggle" @click="slot.showHistory = !slot.showHistory">
-                  <i :class="slot.showHistory ? 'el-icon-arrow-down' : 'el-icon-arrow-right'"></i>
-                  Version History ({{ slot.versionHistory.length }} previous {{ slot.versionHistory.length === 1 ? 'version' : 'versions' }})
-                </div>
-                <el-collapse-transition>
-                  <div v-if="slot.showHistory" class="vh-list">
-                    <div v-for="v in slot.versionHistory" :key="v.version" class="vh-row">
-                      <div class="vh-row-left">
-                        <i class="el-icon-document" style="color:#909399"></i>
-                        <div class="vh-info">
-                          <div class="vh-name">{{ v.fileName }}</div>
-                          <div class="vh-meta">
-                            <el-tag size="mini" :type="v.status === 'VERIFIED' ? 'success' : 'warning'">
-                              v{{ v.version }} · {{ v.status === 'VERIFIED' ? 'Verified' : 'Unverified' }}
-                            </el-tag>
-                            <span style="margin-left:6px;color:#bbb;font-size:11px">{{ v.uploadedAt }}</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="vh-row-actions">
-                        <el-button type="text" size="mini" icon="el-icon-view" @click="openPreview(slot, v.version, v)">Preview</el-button>
-                        <el-button type="text" size="mini" icon="el-icon-download" @click="downloadFile(v.fileName)">Download</el-button>
-                        <el-button type="text" size="mini" icon="el-icon-delete" style="color:#ff4949"
-                          @click="deleteVersion(slot, v)">Delete</el-button>
-                      </div>
-                    </div>
-                  </div>
-                </el-collapse-transition>
-              </div>
             </div>
+          </el-col>
+        </el-row>
 
-            <!-- TYPE ERROR -->
-            <div v-if="slot.state === 'type_error'" class="slot-body slot-error">
-              <div class="error-header">
-                <i class="el-icon-circle-close"></i>
-                <div>
-                  <div class="error-title">Wrong document type</div>
-                  <div class="error-file">{{ slot.fileName }}</div>
-                </div>
-              </div>
-              <el-alert title="Document type mismatch" type="error" :closable="false" show-icon style="margin-bottom:10px">
-                <div style="font-size:12px;margin-top:2px">
-                  AI detected this file is a <strong>{{ slot.detectedType }}</strong>, not a <strong>{{ slot.label }}</strong>.
-                </div>
-              </el-alert>
-              <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
-                <el-button type="danger" size="small" icon="el-icon-refresh" plain>Re-upload Correct File</el-button>
-              </el-upload>
-            </div>
-
-            <!-- PO MISMATCH -->
-            <div v-if="slot.state === 'po_mismatch'" class="slot-body slot-warning">
-              <div class="error-header warning">
-                <i class="el-icon-warning"></i>
-                <div>
-                  <div class="error-title">PO number mismatch</div>
-                  <div class="error-file">{{ slot.fileName }}</div>
-                </div>
-              </div>
-              <div class="check-list">
-                <div class="check-item pass"><i class="el-icon-circle-check"></i> Document type: {{ slot.label }} ✓</div>
-                <div class="check-item fail">
-                  <i class="el-icon-circle-close"></i>
-                  PO Number mismatch:
-                  <span class="mismatch-detail">Found <strong>{{ slot.foundPO }}</strong> — expected <strong>{{ hblInfo.poNumber }}</strong></span>
-                </div>
-              </div>
-              <el-divider style="margin:10px 0" />
-              <div style="font-size:12px;color:#666;margin-bottom:8px">How would you like to proceed?</div>
-              <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
-                <el-button size="small" type="primary" plain icon="el-icon-refresh" style="width:100%;margin-bottom:6px">Re-upload Correct File</el-button>
-              </el-upload>
-              <el-button size="small" type="warning" plain icon="el-icon-warning-outline" style="width:100%" @click="forceSave(slot)">
-                Save Anyway — Flag for OHA Review
-              </el-button>
-            </div>
-
-            <!-- FORCE SAVED -->
-            <div v-if="slot.state === 'force_saved'" class="slot-body slot-force">
-              <div class="current-version-block">
-                <div class="cv-file">
-                  <i class="el-icon-document" style="color:#E6A817;font-size:18px"></i>
-                  <div class="cv-info">
-                    <div class="cv-name">{{ slot.fileName }}</div>
-                    <div class="cv-meta">
-                      <el-tag size="mini" type="warning">v{{ slot.version }} · Unverified</el-tag>
-                      <span style="margin-left:6px;color:#999;font-size:11px">{{ slot.uploadedAt }}</span>
-                    </div>
-                  </div>
-                  <div class="cv-actions">
-                    <el-button type="text" size="mini" icon="el-icon-view" @click="openPreview(slot, slot.version)">Preview</el-button>
-                    <el-button type="text" size="mini" icon="el-icon-download" @click="downloadFile(slot.fileName)">Download</el-button>
-                  </div>
-                </div>
-              </div>
-              <el-alert title="Saved as Unverified — pending OHA review" type="warning" :closable="false" show-icon style="margin-top:8px" />
-              <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')" style="margin-top:8px">
-                <el-button type="text" size="mini" icon="el-icon-refresh-left">Replace with correct file</el-button>
-              </el-upload>
-            </div>
-
+        <!-- Other Documents -->
+        <el-card shadow="never">
+          <div slot="header" class="card-hdr">
+            <span>Other Documents <span style="color:#999;font-weight:400;font-size:12px">(optional)</span></span>
+            <el-button size="mini" icon="el-icon-plus" @click="showOtherUpload=!showOtherUpload">Add Document</el-button>
           </div>
-        </el-col>
-      </el-row>
+          <el-collapse-transition>
+            <div v-if="showOtherUpload" class="other-upload-form">
+              <el-row :gutter="12" align="middle" type="flex">
+                <el-col :span="7">
+                  <el-select v-model="otherForm.docType" placeholder="Document type" size="mini" style="width:100%">
+                    <el-option label="Bill of Lading (HBL)" value="BILL_OF_LADING" />
+                    <el-option label="Certificate of Origin" value="CERTIFICATE_OF_ORIGIN" />
+                    <el-option label="Sanitary Certificate" value="SANITARY_CERT" />
+                    <el-option label="Other" value="OTHER" />
+                  </el-select>
+                </el-col>
+                <el-col :span="10">
+                  <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="onOtherFileChange" style="width:100%">
+                    <el-button size="mini" icon="el-icon-upload2" style="width:100%">{{ otherForm.fileName || 'Choose file...' }}</el-button>
+                  </el-upload>
+                </el-col>
+                <el-col :span="4">
+                  <el-button type="primary" size="mini" style="width:100%" :disabled="!otherForm.docType || !otherForm.fileName" @click="saveOtherDoc">Upload</el-button>
+                </el-col>
+                <el-col :span="3">
+                  <el-button size="mini" @click="showOtherUpload=false">Cancel</el-button>
+                </el-col>
+              </el-row>
+            </div>
+          </el-collapse-transition>
+          <el-table :data="otherDocuments" size="mini" stripe border style="margin-top:4px">
+            <el-table-column label="Document Type" min-width="160">
+              <template #default="{row}">
+                <i class="el-icon-document" style="color:#004F7C;margin-right:4px"></i>{{ row.docTypeLabel }}
+              </template>
+            </el-table-column>
+            <el-table-column label="File Name" min-width="180" prop="fileName" />
+            <el-table-column label="Ver" width="50" align="center">
+              <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
+            </el-table-column>
+            <el-table-column label="Status" width="115">
+              <template #default="{row}">
+                <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
+                  <i :class="row.status==='VERIFIED'?'el-icon-check':'el-icon-warning-outline'"></i>
+                  {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="Uploaded" width="120" prop="uploadedAt" />
+          </el-table>
+          <div v-if="!otherDocuments.length" style="text-align:center;padding:14px;color:#c0c4cc;font-size:13px">No other documents added in this session</div>
+        </el-card>
 
-      <!-- Other Documents -->
-      <el-card>
-        <div slot="header" class="card-hdr">
-          <span>Other Documents <span style="color:#999;font-weight:400;font-size:12px">(optional)</span></span>
-          <el-button size="mini" icon="el-icon-plus" @click="showOtherUpload=!showOtherUpload">Add Document</el-button>
-        </div>
-        <el-collapse-transition>
-          <div v-if="showOtherUpload" class="other-upload-form">
-            <el-row :gutter="12" align="middle" type="flex">
-              <el-col :span="7">
-                <el-select v-model="otherForm.docType" placeholder="Document type" size="mini" style="width:100%">
-                  <el-option label="Bill of Lading (HBL)" value="BILL_OF_LADING" />
-                  <el-option label="Certificate of Origin" value="CERTIFICATE_OF_ORIGIN" />
-                  <el-option label="Sanitary Certificate" value="SANITARY_CERT" />
-                  <el-option label="Other" value="OTHER" />
-                </el-select>
-              </el-col>
-              <el-col :span="10">
-                <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="onOtherFileChange" style="width:100%">
-                  <el-button size="mini" icon="el-icon-upload2" style="width:100%">{{ otherForm.fileName || 'Choose file...' }}</el-button>
-                </el-upload>
-              </el-col>
-              <el-col :span="4">
-                <el-button type="primary" size="mini" style="width:100%" :disabled="!otherForm.docType || !otherForm.fileName" @click="saveOtherDoc">Upload</el-button>
-              </el-col>
-              <el-col :span="3">
-                <el-button size="mini" @click="showOtherUpload=false">Cancel</el-button>
-              </el-col>
-            </el-row>
-          </div>
-        </el-collapse-transition>
-        <el-table :data="otherDocuments" size="mini" stripe border style="margin-top:4px">
-          <el-table-column label="Document Type" min-width="160">
-            <template #default="{row}">
-              <i class="el-icon-document" style="color:#004F7C;margin-right:4px"></i>{{ row.docTypeLabel }}
-            </template>
-          </el-table-column>
-          <el-table-column label="File Name" min-width="180" prop="fileName" />
-          <el-table-column label="Ver" width="50" align="center">
-            <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
-          </el-table-column>
-          <el-table-column label="Status" width="115">
-            <template #default="{row}">
-              <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
-                <i :class="row.status==='VERIFIED'?'el-icon-check':'el-icon-warning-outline'"></i>
-                {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column label="Uploaded" width="120" prop="uploadedAt" />
-          <el-table-column label="" width="120" align="center">
-            <template #default="{row}">
-              <el-button type="text" size="mini" icon="el-icon-view" @click="openPreview(null, 1, row)">Preview</el-button>
-              <el-button type="text" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)">Download</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <div v-if="!otherDocuments.length" style="text-align:center;padding:20px;color:#c0c4cc;font-size:13px">No other documents uploaded yet</div>
-      </el-card>
+      </template>
 
-    </template>
+      <div slot="footer">
+        <el-button size="small" @click="uploadDialog.visible=false">Cancel</el-button>
+        <el-tooltip :disabled="canConfirm" content="Commercial Invoice and Packing List must both be uploaded and AI-verified" placement="top">
+          <span style="margin-left:10px">
+            <el-button size="small" type="primary" :disabled="!canConfirm" @click="confirmUpload">Confirm</el-button>
+          </span>
+        </el-tooltip>
+      </div>
+    </el-dialog>
 
     <!-- ── Preview Dialog ──────────────────────────────────────────────── -->
-    <el-dialog :visible.sync="preview.visible" :title="preview.title" width="760px" top="5vh">
+    <el-dialog :visible.sync="preview.visible" :title="preview.title" width="760px" top="5vh" append-to-body>
       <div class="preview-dialog">
-        <!-- Meta bar -->
         <div class="preview-meta">
           <el-descriptions :column="3" size="mini" border>
             <el-descriptions-item label="Document Type">{{ preview.docType }}</el-descriptions-item>
@@ -325,7 +390,6 @@
           </el-descriptions>
         </div>
 
-        <!-- AI verification summary (for verified docs) -->
         <div v-if="preview.status === 'VERIFIED'" class="preview-verify-bar">
           <i class="el-icon-circle-check" style="color:#13ce66"></i>
           <span>AI Verified — Document type, PO Number and Supplier all matched</span>
@@ -335,11 +399,10 @@
           <span>Unverified — Pending OHA review</span>
         </div>
 
-        <!-- Simulated PDF viewer -->
         <div class="pdf-viewer">
           <div class="pdf-page">
             <div class="pdf-header-row">
-              <div class="pdf-company">{{ hblInfo ? hblInfo.supplier : 'Supplier Co.' }}</div>
+              <div class="pdf-company">{{ currentPo ? currentPo.supplier : 'Supplier Co.' }}</div>
               <div class="pdf-doc-title">{{ preview.docType }}</div>
             </div>
             <div class="pdf-divider"></div>
@@ -347,7 +410,7 @@
               <div class="pdf-field"><span class="pdf-label">PO Number</span><span class="pdf-value highlight">{{ preview.poNumber }}</span></div>
               <div class="pdf-field"><span class="pdf-label">Document No.</span><span class="pdf-value">{{ preview.fileName.replace('.pdf','') }}</span></div>
               <div class="pdf-field"><span class="pdf-label">Date</span><span class="pdf-value">{{ preview.uploadedAt }}</span></div>
-              <div class="pdf-field"><span class="pdf-label">Supplier</span><span class="pdf-value">{{ hblInfo ? hblInfo.supplier : '—' }}</span></div>
+              <div class="pdf-field"><span class="pdf-label">Supplier</span><span class="pdf-value">{{ currentPo ? currentPo.supplier : '—' }}</span></div>
             </div>
             <div class="pdf-table-mock">
               <div class="pdf-table-hdr">
@@ -375,9 +438,9 @@
     </el-dialog>
 
     <!-- Delete confirm dialog -->
-    <el-dialog :visible.sync="deleteConfirm.visible" title="Delete Version" width="400px">
+    <el-dialog :visible.sync="deleteConfirm.visible" title="Delete Document" width="400px" append-to-body>
       <div style="font-size:13px;line-height:1.8">
-        <p>Are you sure you want to delete this version?</p>
+        <p>Are you sure you want to delete this document?</p>
         <p><strong>{{ deleteConfirm.fileName }}</strong></p>
         <p style="color:#999;font-size:12px">This action cannot be undone.</p>
       </div>
@@ -398,77 +461,95 @@ const VERIFY_STEPS = [
   { label: 'Matching PO reference numbers', status: 'pending' },
 ]
 
+const mkSlot = (key, label) => ({
+  key, label, state: 'idle',
+  fileName: '', version: 1, uploadedAt: '',
+  progress: 0, steps: [], detectedType: '', foundPO: '',
+})
+
+// PO mock data — each PO carries its own uploaded-document history
+const mkPo = (orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs = []) => ({
+  orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs,
+})
+
+let DOC_NO = 4567890
+
 export default {
   name: 'DocumentUpload',
   data() {
     return {
-      selectedHbl: 'MOOV240001',
+      // Origin task board (only Upload Shipping Documents is interactive)
+      taskRows: [
+        { key:'CARGO_READY',   taskName:'Cargo Ready Date',         partyRole:'Supplier', possible:2456, urgent:282, overdue:124, finished:12664, hint:'Confirm the date cargo is ready for pickup' },
+        { key:'DIMENSIONS',    taskName:'Dimensions',               partyRole:'Supplier', possible:0,    urgent:0,   overdue:11,  finished:12653, hint:'Submit cargo dimensions' },
+        { key:'BOOKING',       taskName:'Shipper Booking',          partyRole:'Supplier', possible:18,   urgent:2,   overdue:12,  finished:12621, hint:'Place the shipper booking' },
+        { key:'SI_VGM',        taskName:'SI/VGM Submit',            partyRole:'Supplier', possible:38,   urgent:0,   overdue:285, finished:11470, hint:'Submit Shipping Instruction & VGM' },
+        { key:'CARGO_INBOUND', taskName:'Cargo Inbound',            partyRole:'OHA',      possible:127,  urgent:5,   overdue:62,  finished:2413,  hint:'Confirm cargo received at origin warehouse' },
+        { key:'LOADING',       taskName:'Container Loading Result', partyRole:'Supplier', possible:0,    urgent:0,   overdue:122, finished:11348, hint:'Report container loading result' },
+        { key:'UPLOAD_DOCS',   taskName:'Upload Shipping Documents',partyRole:'Supplier', possible:102,  urgent:0,   overdue:15,  finished:11286, hint:'Upload CI, PL and other shipping documents — AI verified' },
+      ],
+
+      poList: [
+        mkPo('ORD01715445_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836051','2026-05-20','2026-05-22','overdue', [
+          { docNumber:4567890, poNumber:'ORD01715445_01', soRef:'NGB26040836051', docTypeLabel:'Commercial Invoice', blType:'', fileName:'111.txt', uploadDate:'2026-06-10', version:1, status:'VERIFIED' },
+        ]),
+        mkPo('ORD01715442_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836052','2026-05-17','2026-05-19','overdue'),
+        mkPo('ORD01715441_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836053','2026-05-17','2026-05-19','overdue'),
+        mkPo('ORD01711696_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836054','2026-05-20','2026-05-22','overdue'),
+        mkPo('ORD01711684_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836055','2026-05-17','2026-05-19','overdue'),
+        mkPo('ORD01694507_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836056','2026-05-23','2026-05-26','overdue'),
+        mkPo('ORD01694382_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811021','2026-05-16','2026-05-19','possible'),
+        mkPo('ORD01694101_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811022','2026-05-20','2026-05-22','possible'),
+        mkPo('ORD01694098_01','DHAKA GARMENTS LTD',          'CGP26040899011','2026-05-17','2026-05-19','possible'),
+        mkPo('ORD01687130_01','DHAKA GARMENTS LTD',          'CGP26040899012','2026-05-20','2026-05-22','urgent'),
+        mkPo('ORD01687127_01','HO CHI MINH APPAREL',         'SGN26040877001','2026-05-17','2026-05-19','urgent'),
+        mkPo('ORD01671737_01','HO CHI MINH APPAREL',         'SGN26040877002','2026-05-02','2026-05-05','finished', [
+          { docNumber:4567801, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-1671737.pdf', uploadDate:'2026-05-04', version:2, status:'VERIFIED' },
+          { docNumber:4567802, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Packing List',       blType:'', fileName:'PL-1671737.pdf',  uploadDate:'2026-05-04', version:1, status:'VERIFIED' },
+          { docNumber:4567803, poNumber:'ORD01671737_01', soRef:'SGN26040877002', docTypeLabel:'Bill of Lading',     blType:'HBL', fileName:'HBL-1671737.pdf', uploadDate:'2026-05-05', version:1, status:'VERIFIED' },
+        ]),
+      ],
+
+      // Dialog state
+      poListDialog: { visible: false, statusKey: '', statusLabel: '' },
+      poDocsDialog: { visible: false },
+      uploadDialog: { visible: false },
+      currentPo: null,
+
+      // Upload dialog state (reset per PO)
+      mandatorySlots: [mkSlot('ci', 'Commercial Invoice'), mkSlot('pl', 'Packing List')],
       showOtherUpload: false,
       otherForm: { docType: '', fileName: '' },
+      otherDocuments: [],
 
-      hblList: [
-        { value:'MOOV240001', label:'MOOV240001 – Shanghai Textile Co.' },
-        { value:'MOOV240002', label:'MOOV240002 – Dhaka Garments Ltd.' },
-        { value:'MOOV240003', label:'MOOV240003 – Ho Chi Minh Apparel' },
-      ],
-      hblMap: {
-        MOOV240001: { supplier:'Shanghai Textile Co.', poNumber:'PO-2024-001234', pol:'CNSHA', pod:'PLGDN', etd:'2024-11-10', eta:'2024-12-05' },
-        MOOV240002: { supplier:'Dhaka Garments Ltd.',  poNumber:'PO-2024-005678', pol:'BGCGP', pod:'DEHAM', etd:'2024-11-12', eta:'2024-12-15' },
-        MOOV240003: { supplier:'Ho Chi Minh Apparel',  poNumber:'PO-2024-009012', pol:'VNSGN', pod:'CZPRE', etd:'2024-11-08', eta:'2024-12-02' },
-      },
-
-      mandatorySlots: [
-        {
-          key: 'ci', label: 'Commercial Invoice',
-          state: 'verified',
-          fileName: 'INV-2024-001234-v2.pdf', version: 2,
-          uploadedAt: '2024-11-13 10:15',
-          progress: 0, steps: [],
-          detectedType: '', foundPO: '',
-          showHistory: false,
-          versionHistory: [
-            { version: 1, fileName: 'INV-2024-001234.pdf', status: 'VERIFIED',   uploadedAt: '2024-11-11 09:23' },
-          ],
-        },
-        {
-          key: 'pl', label: 'Packing List',
-          state: 'verified',
-          fileName: 'PL-2024-001234.pdf', version: 1,
-          uploadedAt: '2024-11-11 09:25',
-          progress: 0, steps: [],
-          detectedType: '', foundPO: '',
-          showHistory: false,
-          versionHistory: [],
-        },
-      ],
-
-      otherDocuments: [
-        { id:3, docType:'BILL_OF_LADING', docTypeLabel:'Bill of Lading', fileName:'HBL-MOOV240001.pdf', version:2, status:'VERIFIED', uploadedAt:'2024-11-12 14:10' },
-      ],
-
-      // Preview dialog
       preview: {
-        visible: false,
-        title: '',
+        visible: false, title: '',
         docType: '', fileName: '', version: 1,
         status: 'VERIFIED', uploadedAt: '', poNumber: '',
       },
 
-      // Delete confirm
-      deleteConfirm: {
-        visible: false,
-        slot: null,
-        versionObj: null,
-        fileName: '',
-      },
+      deleteConfirm: { visible: false, doc: null, fileName: '' },
     }
   },
 
   computed: {
-    hblInfo() { return this.hblMap[this.selectedHbl] },
+    poListFiltered() {
+      const k = this.poListDialog.statusKey
+      if (!k) return this.poList
+      return this.poList.filter(p => p.bucket === k)
+    },
 
     milestoneComplete() {
       return this.mandatorySlots.every(s => s.state === 'verified')
+    },
+    // Confirm enabled only when each required doc type is covered:
+    // uploaded in this session (verified / force-saved) or already on the PO
+    canConfirm() {
+      if (!this.currentPo) return false
+      return this.mandatorySlots.every(slot =>
+        slot.state === 'verified' || slot.state === 'force_saved'
+        || this.currentPo.docs.some(d => d.docTypeLabel === slot.label)
+      )
     },
     milestoneBarClass() {
       const states = this.mandatorySlots.map(s => s.state)
@@ -483,7 +564,7 @@ export default {
       return 'el-icon-document'
     },
     milestoneTitle() {
-      if (this.milestoneComplete) return 'All required documents verified — milestone ready to complete'
+      if (this.milestoneComplete) return 'All required documents verified — confirm to save'
       const done = this.mandatorySlots.filter(s => s.state === 'verified').length
       return done === 0 ? 'Upload Shipping Documents Milestone' : `${done}/2 required documents verified`
     },
@@ -500,14 +581,119 @@ export default {
   },
 
   methods: {
-    onHblChange() { this.mandatorySlots.forEach(s => this.resetSlot(s)) },
-
-    resetSlot(slot) {
-      slot.state = 'idle'; slot.fileName = ''; slot.progress = 0
-      slot.steps = []; slot.detectedType = ''; slot.foundPO = ''
-      slot.versionHistory = []; slot.showHistory = false
+    taskRowClass({ row }) {
+      return row.key === 'UPLOAD_DOCS' ? 'upload-docs-row' : ''
     },
 
+    // ── Dialog 1: PO list ────────────────────────────────────────────────
+    openPoList(taskRow, statusKey) {
+      if (taskRow.key !== 'UPLOAD_DOCS') {
+        this.$message.info(`"${taskRow.taskName}" is an existing milestone — demo focuses on Upload Shipping Documents`)
+        return
+      }
+      const labels = { possible:'Possible', urgent:'Urgent', overdue:'Overdue', finished:'Finished' }
+      this.poListDialog = { visible: true, statusKey, statusLabel: labels[statusKey] || '' }
+    },
+
+    // ── Dialog 2: PO docs history ────────────────────────────────────────
+    openPoDocs(po) {
+      this.currentPo = po
+      this.poDocsDialog.visible = true
+    },
+    confirmPoDocs() {
+      this.poDocsDialog.visible = false
+      this.$message.success(`Document status saved for ${this.currentPo.orderNo}`)
+    },
+    previewPoDoc(doc) {
+      this.preview = {
+        visible: true,
+        title: `Preview — ${doc.docTypeLabel} (v${doc.version})`,
+        docType: doc.docTypeLabel,
+        fileName: doc.fileName,
+        version: doc.version,
+        status: doc.status || 'VERIFIED',
+        uploadedAt: doc.uploadDate,
+        poNumber: doc.poNumber,
+      }
+    },
+    deletePoDoc(doc) {
+      this.deleteConfirm = { visible: true, doc, fileName: doc.fileName }
+    },
+    confirmDelete() {
+      const { doc } = this.deleteConfirm
+      const idx = this.currentPo.docs.indexOf(doc)
+      if (idx > -1) this.currentPo.docs.splice(idx, 1)
+      this.$message.success(`Deleted: ${doc.fileName}`)
+      this.deleteConfirm.visible = false
+    },
+
+    // ── Dialog 3: Upload ─────────────────────────────────────────────────
+    openUploadDialog() {
+      // fresh slots per session; existing versions counted from PO history
+      this.mandatorySlots = [mkSlot('ci', 'Commercial Invoice'), mkSlot('pl', 'Packing List')]
+      this.otherDocuments = []
+      this.otherForm = { docType: '', fileName: '' }
+      this.showOtherUpload = false
+      this.uploadDialog.visible = true
+    },
+
+    // version = existing docs of same type on this PO + 1
+    nextVersion(docTypeLabel) {
+      const existing = this.currentPo.docs.filter(d => d.docTypeLabel === docTypeLabel)
+      return existing.length ? Math.max(...existing.map(d => d.version)) + 1 : 1
+    },
+
+    confirmUpload() {
+      const today = new Date().toISOString().slice(0, 10)
+      let saved = 0
+
+      // Backstop for the disabled button — same rule as canConfirm
+      if (!this.canConfirm) {
+        this.$message.error('Cannot confirm: Commercial Invoice and Packing List are both required')
+        return
+      }
+
+      this.mandatorySlots.forEach(slot => {
+        if (slot.state === 'verified' || slot.state === 'force_saved') {
+          this.currentPo.docs.push({
+            docNumber: ++DOC_NO,
+            poNumber: this.currentPo.orderNo,
+            soRef: this.currentPo.soRef,
+            docTypeLabel: slot.label,
+            blType: '',
+            fileName: slot.fileName,
+            uploadDate: today,
+            version: this.nextVersion(slot.label),
+            status: slot.state === 'verified' ? 'VERIFIED' : 'UNVERIFIED',
+          })
+          saved++
+        }
+      })
+      this.otherDocuments.forEach(d => {
+        this.currentPo.docs.push({
+          docNumber: ++DOC_NO,
+          poNumber: this.currentPo.orderNo,
+          soRef: this.currentPo.soRef,
+          docTypeLabel: d.docTypeLabel,
+          blType: d.docType === 'BILL_OF_LADING' ? 'HBL' : '',
+          fileName: d.fileName,
+          uploadDate: today,
+          version: this.nextVersion(d.docTypeLabel),
+          status: d.status,
+        })
+        saved++
+      })
+
+      if (saved === 0) {
+        this.$message.warning('No documents uploaded yet — upload at least one file before confirming')
+        return
+      }
+      this.uploadDialog.visible = false
+      this.$message.success(`${saved} document(s) saved to ${this.currentPo.orderNo}`)
+      // back on the PO docs dialog — list already shows the new files
+    },
+
+    // ── Slot upload flow (unchanged AI-verify simulation) ────────────────
     slotStateIcon(state) {
       return { idle:'el-icon-upload', uploading:'el-icon-loading', verifying:'el-icon-loading',
         verified:'el-icon-circle-check', type_error:'el-icon-circle-close',
@@ -526,17 +712,6 @@ export default {
     },
 
     startUpload(slot, file, scenario) {
-      // Push current verified file to history before replacing
-      if (slot.state === 'verified' || slot.state === 'force_saved') {
-        slot.versionHistory.unshift({
-          version: slot.version,
-          fileName: slot.fileName,
-          status: slot.state === 'verified' ? 'VERIFIED' : 'UNVERIFIED',
-          uploadedAt: slot.uploadedAt,
-        })
-        slot.version = (slot.version || 1) + 1
-      }
-
       slot.fileName = file ? file.name : `${slot.key === 'ci' ? 'INVOICE' : 'PACKLIST'}-DEMO.pdf`
       slot.state = 'uploading'; slot.progress = 0
       slot.steps = VERIFY_STEPS.map(s => ({ ...s }))
@@ -562,28 +737,27 @@ export default {
     applyResult(slot, scenario) {
       if (scenario === 'pass') {
         slot.state = 'verified'; slot.uploadedAt = new Date().toLocaleTimeString()
+        slot.version = this.nextVersion(slot.label)
         this.$message.success(`${slot.label} verified successfully!`)
       } else if (scenario === 'type_error') {
         slot.steps[2].status = 'error'; slot.steps[3].status = 'pending'
         slot.state = 'type_error'
         slot.detectedType = slot.key === 'ci' ? 'Bill of Lading' : 'Commercial Invoice'
-        // Undo the version bump we did in startUpload since it failed
-        if (slot.versionHistory.length) { slot.versionHistory.shift(); slot.version-- }
         this.$message.error(`${slot.label}: wrong document type detected`)
       } else if (scenario === 'po_mismatch') {
         slot.steps[3].status = 'error'; slot.state = 'po_mismatch'
-        slot.foundPO = 'PO-2024-999999'
-        if (slot.versionHistory.length) { slot.versionHistory.shift(); slot.version-- }
+        slot.foundPO = 'ORD09999999_01'
         this.$message.warning(`${slot.label}: PO number does not match`)
       }
     },
 
     forceSave(slot) {
       slot.state = 'force_saved'; slot.uploadedAt = new Date().toLocaleTimeString()
+      slot.version = this.nextVersion(slot.label)
       this.$message.warning('Saved as Unverified. OHA will review this document.')
     },
 
-    // ── Preview ──────────────────────────────────────────────────────────
+    // ── Preview / download ───────────────────────────────────────────────
     openPreview(slot, version, versionObj) {
       const file = versionObj || slot
       const isVerified = versionObj
@@ -598,28 +772,15 @@ export default {
         version,
         status: isVerified ? 'VERIFIED' : 'UNVERIFIED',
         uploadedAt: file.uploadedAt,
-        poNumber: this.hblInfo ? this.hblInfo.poNumber : '—',
+        poNumber: this.currentPo ? this.currentPo.orderNo : '—',
       }
     },
 
     downloadFile(fileName) {
       this.$message.success(`Downloading ${fileName}…`)
-      setTimeout(() => this.$message.info('In a real system, the file would download here.'), 800)
     },
 
-    // ── Delete version ───────────────────────────────────────────────────
-    deleteVersion(slot, versionObj) {
-      this.deleteConfirm = { visible: true, slot, versionObj, fileName: versionObj.fileName }
-    },
-    confirmDelete() {
-      const { slot, versionObj } = this.deleteConfirm
-      const idx = slot.versionHistory.indexOf(versionObj)
-      if (idx > -1) slot.versionHistory.splice(idx, 1)
-      this.$message.success(`Version deleted: ${versionObj.fileName}`)
-      this.deleteConfirm.visible = false
-    },
-
-    // ── Other docs ───────────────────────────────────────────────────────
+    // ── Other docs (within upload dialog session) ────────────────────────
     onOtherFileChange(file) { this.otherForm.fileName = file.name },
     saveOtherDoc() {
       const labelMap = { BILL_OF_LADING:'Bill of Lading', CERTIFICATE_OF_ORIGIN:'Certificate of Origin', SANITARY_CERT:'Sanitary Certificate', OTHER:'Other' }
@@ -631,7 +792,7 @@ export default {
       })
       this.otherForm = { docType: '', fileName: '' }
       this.showOtherUpload = false
-      this.$message.success('Document uploaded successfully')
+      this.$message.success('Document added — will be saved on Confirm')
     },
   },
 }
@@ -639,12 +800,30 @@ export default {
 
 <style lang="scss" scoped>
 .card-hdr { display:flex; justify-content:space-between; align-items:center; font-weight:600; }
-.po-selector-card { margin-bottom:12px; }
-.selector-label { font-size:11px; color:$text-secondary; margin-bottom:4px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; }
+
+// Origin task board
+.ms-num {
+  font-weight:700; cursor:pointer; padding:2px 8px; border-radius:4px; font-size:13px;
+  text-decoration:underline;
+  &.possible { color:#3A71A8; }
+  &.urgent   { color:#E6A817; }
+  &.overdue  { color:#ff4949; }
+  &.finished { color:#13ce66; }
+}
+::v-deep .upload-docs-row { background:#f0f7ff !important; }
+
+.po-link { color:$primary; font-weight:600; text-decoration:underline; }
+
+// Brand dialog header
+::v-deep .brand-dialog .el-dialog__header {
+  background:$primary; padding:12px 20px;
+  .el-dialog__title { color:#fff; font-size:14px; font-weight:600; }
+  .el-dialog__headerbtn .el-dialog__close { color:#fff; }
+}
 
 // Milestone bar
 .milestone-bar {
-  margin-bottom:12px;
+  margin-bottom:12px; border:1px solid $border;
   ::v-deep .el-card__body { padding:12px 16px; }
   &.bar-complete  { border-left:4px solid $status-verified; }
   &.bar-error     { border-left:4px solid $status-rejected; }
@@ -723,25 +902,6 @@ export default {
 .cv-actions { display:flex; gap:0; flex-shrink:0; }
 .new-version-row { margin-bottom:6px; }
 
-// Version history
-.version-history { border-top:1px dashed $border; padding-top:8px; margin-top:4px; }
-.vh-toggle {
-  font-size:12px; color:$primary; cursor:pointer; display:flex; align-items:center; gap:4px;
-  user-select:none; padding:2px 0;
-  &:hover { color:$primary-light; }
-  i { font-size:12px; }
-}
-.vh-list { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
-.vh-row {
-  display:flex; align-items:center; justify-content:space-between;
-  background:#fafafa; border-radius:6px; padding:6px 10px; border:1px solid $border;
-}
-.vh-row-left { display:flex; align-items:center; gap:8px; }
-.vh-info {}
-.vh-name { font-size:11px; color:$text-primary; font-weight:500; }
-.vh-meta { margin-top:2px; display:flex; align-items:center; }
-.vh-row-actions { display:flex; gap:0; flex-shrink:0; }
-
 // Check lists
 .check-list { display:flex; flex-direction:column; gap:3px; margin-bottom:8px; }
 .check-item { display:flex; align-items:flex-start; gap:6px; font-size:12px;
@@ -792,4 +952,11 @@ export default {
 }
 .pdf-table-total { display:grid; grid-template-columns:3fr 1fr 1fr 1fr; padding:6px 10px; border-top:2px solid $border; font-weight:700; gap:8px; background:#f0f7ff; }
 .pdf-footer { text-align:center; color:#bbb; font-size:11px; margin-top:8px; font-style:italic; }
+
+// status badge (other docs table)
+.status-badge {
+  font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; display:inline-flex; align-items:center; gap:3px;
+  &.verified   { background:#e6f9ef; color:darken($status-verified,10%); }
+  &.unverified { background:#fff8e0; color:#e6a817; }
+}
 </style>
