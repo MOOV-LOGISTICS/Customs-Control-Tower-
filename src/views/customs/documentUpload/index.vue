@@ -122,7 +122,16 @@
       </div>
       <div slot="footer">
         <el-button size="small" @click="poDocsDialog.visible=false">Cancel</el-button>
-        <el-button size="small" type="primary" @click="confirmPoDocs">Confirm</el-button>
+        <el-tooltip :disabled="poHasAnyDocs" content="Nothing to save — no documents on this PO yet" placement="top">
+          <span style="margin-left:10px">
+            <el-button size="small" icon="el-icon-folder-checked" :disabled="!poHasAnyDocs" @click="savePoDocs">Save</el-button>
+          </span>
+        </el-tooltip>
+        <el-tooltip :disabled="poHasRequired" content="Confirm requires Commercial Invoice and Packing List on this PO — upload and submit them first" placement="top">
+          <span style="margin-left:10px">
+            <el-button size="small" type="primary" :disabled="!poHasRequired" @click="confirmPoDocs">Confirm</el-button>
+          </span>
+        </el-tooltip>
       </div>
     </el-dialog>
 
@@ -805,6 +814,15 @@ export default {
       return this.mandatorySlots.some(s => s.state === 'verified' || s.state === 'force_saved')
         || this.otherDocuments.length > 0
     },
+    // PO-level gates for the document history dialog footer
+    poHasAnyDocs() {
+      return !!this.currentPo && this.currentPo.docs.length > 0
+    },
+    poHasRequired() {
+      if (!this.currentPo) return false
+      return ['Commercial Invoice', 'Packing List'].every(t =>
+        this.currentPo.docs.some(d => d.docTypeLabel === t))
+    },
     milestoneBarClass() {
       const states = this.mandatorySlots.map(s => s.state)
       if (states.every(s => s === 'verified')) return 'bar-complete'
@@ -916,9 +934,18 @@ export default {
       this.currentPo = po
       this.poDocsDialog.visible = true
     },
-    confirmPoDocs() {
+    savePoDocs() {
       this.poDocsDialog.visible = false
-      this.$message.success(`Document status saved for ${this.currentPo.orderNo}`)
+      this.$message.success(`${this.currentPo.docs.length} document(s) saved for ${this.currentPo.orderNo} — milestone not completed (CI + PL still required)`)
+    },
+    confirmPoDocs() {
+      // Backstop for the disabled button — same rule as poHasRequired
+      if (!this.poHasRequired) {
+        this.$message.error('Cannot confirm: Commercial Invoice and Packing List are required on this PO')
+        return
+      }
+      this.poDocsDialog.visible = false
+      this.$message.success(`${this.currentPo.orderNo} confirmed — Upload Shipping Documents milestone completed`)
     },
     previewPoDoc(doc) {
       this.preview = {
