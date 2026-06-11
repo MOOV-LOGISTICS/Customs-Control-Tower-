@@ -10,7 +10,7 @@ export default new VueRouter({
     {
       path: '/',
       component: Layout,
-      redirect: '/customs/dashboard',
+      redirect: '/customs/document-upload',
       children: [
         { path: '/customs/dashboard',       component: () => import('@/views/customs/dashboard/index.vue'),       meta: { title: 'Customs Dashboard' } },
         { path: '/customs/document-upload', component: () => import('@/views/customs/documentUpload/index.vue'),  meta: { title: 'Document Upload' } },
