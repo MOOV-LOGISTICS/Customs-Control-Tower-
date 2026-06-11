@@ -18,9 +18,7 @@
         router
         class="topnav-menu"
       >
-        <el-menu-item index="/customs/dashboard">
-          <i class="el-icon-s-home"></i> Dashboard
-        </el-menu-item>
+        <!-- Dashboard tab hidden — route still reachable via direct URL -->
         <el-menu-item index="/customs/document-upload">
           <i class="el-icon-upload2"></i> Document Upload
         </el-menu-item>
