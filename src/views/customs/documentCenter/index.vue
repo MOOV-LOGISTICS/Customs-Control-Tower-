@@ -7,7 +7,7 @@
         <el-autocomplete
           v-model="searchQ"
           :fetch-suggestions="fetchSuggest"
-          placeholder="Search by PO / HBL / MBL / Container No. or file name…"
+          placeholder="Search by Document No. / PO / HBL / MBL / Container or file name…"
           prefix-icon="el-icon-search"
           size="mini" clearable style="width:340px"
           @select="s => searchQ = s.value"
@@ -16,13 +16,25 @@
           <el-radio-button label="shipment">Shipment View</el-radio-button>
           <el-radio-button label="document">Document View</el-radio-button>
         </el-radio-group>
+        <template v-if="view === 'shipment'">
+          <span class="gb-label">Group by</span>
+          <el-radio-group v-model="groupBy" size="mini">
+            <el-radio-button label="MBL">MBL</el-radio-button>
+            <el-radio-button label="CONTAINER">Container</el-radio-button>
+            <el-radio-button label="HBL">HBL</el-radio-button>
+            <el-radio-button label="PO">PO</el-radio-button>
+          </el-radio-group>
+          <el-tooltip placement="top"
+            :content="userViewMode ? 'Display mode (your preference is remembered)' : 'Auto — small groups show as cards, large ones as a list'">
+            <el-radio-group :value="userViewMode" size="mini" @input="setViewMode">
+              <el-radio-button label="list"><i class="el-icon-s-fold"></i> List</el-radio-button>
+              <el-radio-button label="grid"><i class="el-icon-menu"></i> Grid</el-radio-button>
+            </el-radio-group>
+          </el-tooltip>
+        </template>
         <el-select v-model="filterTypes" size="mini" multiple collapse-tags placeholder="Doc Type" style="width:180px">
           <el-option v-for="t in docTypes" :key="t" :label="t" :value="t" />
         </el-select>
-        <el-select v-model="filterStatuses" size="mini" multiple collapse-tags placeholder="Status" style="width:190px">
-          <el-option v-for="(s, k) in statusMap" :key="k" :label="s.label" :value="k" />
-        </el-select>
-        <el-switch v-model="pendingMine" active-text="Pending my action" style="margin-left:auto" />
       </div>
       <div class="dc-rolehint">
         <i class="el-icon-user"></i>
@@ -42,12 +54,20 @@
           <span class="hbl-no">{{ grp.title }}</span>
           <span v-if="grp.unassigned" class="hbl-unassigned-tag">POs not yet linked to a HBL</span>
           <template v-else>
-            <span class="ent-chips">
-              <el-tag v-for="po in grp.poIds.slice(0,3)" :key="po" size="mini" class="chip chip-po">{{ po }}</el-tag>
-              <el-tag v-if="grp.poIds.length > 3" size="mini" class="chip">+{{ grp.poIds.length - 3 }}</el-tag>
+            <!-- PO chips double as document filters (hidden when grouping BY PO) -->
+            <span v-if="grp.kind !== 'PO'" class="ent-chips" @click.stop>
+              <el-tooltip v-for="po in headerPos(grp)" :key="po" :content="poFilters[grp.key] === po ? 'Clear filter' : `Show only documents of ${po}`" placement="top">
+                <el-tag size="mini" :class="['chip', 'chip-po', 'chip-filter', { active: poFilters[grp.key] === po }]"
+                  @click.native="togglePoFilter(grp, po)">{{ po }}</el-tag>
+              </el-tooltip>
+              <el-tag v-if="grp.poIds.length > 3 && !chipsOpen[grp.key]" size="mini" class="chip chip-filter"
+                @click.native="$set(chipsOpen, grp.key, true)">+{{ grp.poIds.length - 3 }}</el-tag>
             </span>
-            <span class="hbl-meta">MBL <strong>{{ grp.mblId }}</strong></span>
-            <span class="ent-chips">
+            <span v-if="grp.kind !== 'HBL' && grp.hblIds.length" class="ent-chips">
+              <el-tag v-for="h in grp.hblIds" :key="h" size="mini" class="chip chip-hbl">{{ h }}</el-tag>
+            </span>
+            <span v-if="grp.kind !== 'MBL' && grp.mblIds.length" class="hbl-meta">MBL <strong>{{ grp.mblIds.join(', ') }}</strong></span>
+            <span v-if="grp.kind !== 'CONTAINER'" class="ent-chips">
               <el-tag v-for="c in grp.containerIds" :key="c" size="mini" class="chip chip-cont">{{ c }}</el-tag>
             </span>
           </template>
@@ -61,50 +81,77 @@
               ⚠ Updated since your last download
             </el-tag>
             <el-button v-if="canPackage && !grp.unassigned" type="primary" size="mini" icon="el-icon-download"
-              @click="openPackage('HBL', grp.key)">Download All</el-button>
+              @click="openPackage(grp.kind, grp.key)">Download All</el-button>
           </span>
         </div>
 
-        <!-- Expanded: PO sub-groups -->
+        <!-- Expanded: flat deduplicated document ledger (keyed by Document Number) -->
         <div v-if="expandedHbls[grp.key]" class="hbl-body">
-          <div v-for="poId in grp.poIds" :key="poId" class="po-group">
-            <div class="po-row" @click="togglePo(grp.key + '|' + poId)">
-              <i :class="expandedPos[grp.key + '|' + poId] ? 'el-icon-arrow-down' : 'el-icon-arrow-right'" class="po-caret"></i>
-              <span class="po-title">{{ poId }}</span>
-              <span class="po-cartons">({{ poById(poId).cartons }} cartons)</span>
-              <span class="po-doccount">{{ docsOfPo(poId).length }} document(s)</span>
-              <span class="po-actions" @click.stop>
-                <el-button v-if="canUpload" type="text" size="mini" icon="el-icon-upload2" @click="openUpload(poId)">Upload</el-button>
-                <el-button v-if="canPackage" type="text" size="mini" icon="el-icon-download" @click="openPackage('PO', poId)">Download All</el-button>
-              </span>
-            </div>
+          <div v-if="poFilters[grp.key]" class="po-filter-bar">
+            <i class="el-icon-s-operation"></i>
+            Filtered by <strong>{{ poFilters[grp.key] }}</strong> — showing only documents related to this PO
+            <span class="pf-clear" @click="clearPoFilter(grp.key)"><i class="el-icon-close"></i> Clear</span>
+          </div>
 
-            <!-- Document rows -->
-            <div v-if="expandedPos[grp.key + '|' + poId]" class="doc-list">
-              <div v-for="doc in docsOfPoFiltered(poId)" :key="doc.id" class="doc-row">
-                <i class="el-icon-document doc-icon"></i>
-                <span class="doc-name" @click="openDetail(doc)">
-                  {{ doc.docType }}
-                  <span class="doc-file">{{ cv(doc).fileName }}</span>
-                </span>
-                <el-tag size="mini" type="info" class="ver-tag">v{{ cv(doc).v }}</el-tag>
-                <el-tooltip v-if="shared(doc)" placement="top"
-                  :content="`Shared across ${entities(doc).hbls.join(', ')} — same document object, any action syncs everywhere`">
-                  <span class="shared-tag">🔗 Shared</span>
-                </el-tooltip>
-                <span class="doc-by">{{ cv(doc).by }} · {{ cv(doc).at }}</span>
-                <span class="doc-actions">
-                  <el-button type="text" size="mini" icon="el-icon-view" @click="openDetail(doc)">Detail</el-button>
-                  <el-button type="text" size="mini" icon="el-icon-download" @click="downloadOne(doc)">Download</el-button>
-                  <el-button v-if="canUpload && doc.status === 'REJECTED'" type="text" size="mini"
-                    icon="el-icon-refresh-left" class="act-reupload" @click="openReupload(doc)">Re-upload</el-button>
-                  <el-button v-if="canUpload && doc.status !== 'APPROVED'" type="text" size="mini"
-                    icon="el-icon-delete" class="act-delete" @click="doDelete(doc)" />
+          <!-- GRID mode: tile cards, like a desktop folder -->
+          <div v-if="modeFor(grp) === 'grid'" class="ledger-grid">
+            <div v-for="doc in ledgerDocs(grp)" :key="doc.id" class="doc-card" @click="previewVersion(doc, cv(doc))">
+              <div class="card-top">
+                <span :class="['lt-badge', typeBadge(doc.docType).cls]">{{ typeBadge(doc.docType).abbr }}</span>
+                <span :class="['ver-chip', { multi: doc.versions.length > 1 }]" @click.stop="openVersions(doc)">
+                  v{{ cv(doc).v }}<i v-if="doc.versions.length > 1" class="el-icon-caret-bottom"></i>
                 </span>
               </div>
-              <div v-if="!docsOfPoFiltered(poId).length" class="doc-empty">No documents match the current filters</div>
+              <div class="card-dn">{{ doc.docNumber }}</div>
+              <div class="card-type">{{ doc.docType }}</div>
+              <div class="card-file">{{ cv(doc).fileName }}</div>
+              <div class="card-pos">
+                <span v-for="po in doc.poIds || [doc.poId]" :key="po" class="meta-po">{{ po }}</span>
+                <span v-if="shared(doc)" class="shared-tag">🔗</span>
+              </div>
+              <div class="card-actions" @click.stop>
+                <el-button type="text" size="mini" icon="el-icon-view" @click="previewVersion(doc, cv(doc))" />
+                <el-button type="text" size="mini" icon="el-icon-download" @click="downloadOne(doc)" />
+                <el-button type="text" size="mini" icon="el-icon-info" @click="openDetail(doc)" />
+              </div>
             </div>
           </div>
+
+          <!-- LIST mode: ledger rows -->
+          <div v-else v-for="doc in ledgerDocs(grp)" :key="doc.id" class="ledger-row">
+            <div class="ledger-main">
+              <div class="ledger-line-a">
+                <span class="ledger-dn" @click="openDetail(doc)">{{ doc.docNumber }}</span>
+                <span class="ledger-type">{{ doc.docType }}</span>
+                <el-tooltip :content="doc.versions.length > 1 ? `${doc.versions.length} versions — click for history` : 'Version 1'" placement="top">
+                  <span :class="['ver-chip', { multi: doc.versions.length > 1 }]" @click="openVersions(doc)">
+                    v{{ cv(doc).v }}<i v-if="doc.versions.length > 1" class="el-icon-caret-bottom"></i>
+                  </span>
+                </el-tooltip>
+                <el-tooltip v-if="shared(doc)" placement="top"
+                  :content="`Shared across ${entities(doc).hbls.join(', ')} — same document object, one version chain`">
+                  <span class="shared-tag">🔗 Shared</span>
+                </el-tooltip>
+                <span class="ledger-file">{{ cv(doc).fileName }}</span>
+                <span class="ledger-actions">
+                  <el-button type="text" size="mini" icon="el-icon-view" @click="previewVersion(doc, cv(doc))">Preview</el-button>
+                  <el-button type="text" size="mini" icon="el-icon-download" @click="downloadOne(doc)">Download</el-button>
+                  <el-button type="text" size="mini" icon="el-icon-info" @click="openDetail(doc)">Detail</el-button>
+                </span>
+              </div>
+              <div class="ledger-line-b">
+                <span class="meta-kv">
+                  <label>PO</label>
+                  <span v-if="(doc.poIds || [doc.poId]).length" class="meta-pos">
+                    <span v-for="po in doc.poIds || [doc.poId]" :key="po" class="meta-po">{{ po }}</span>
+                  </span>
+                  <span v-else class="meta-none">—</span>
+                </span>
+                <span class="ledger-by">{{ cv(doc).by }} · {{ cv(doc).at }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-if="!ledgerDocs(grp).length" class="doc-empty">No documents match the current filters</div>
         </div>
       </el-card>
       <el-card v-if="!shipmentGroups.length"><div class="doc-empty" style="padding:30px">No shipments match your search / filters</div></el-card>
@@ -157,6 +204,7 @@
         <div class="detail-hdr">
           <div>
             <div class="detail-title"><i class="el-icon-document"></i> {{ detail.doc.docType }}</div>
+            <div class="detail-dn">{{ detail.doc.docNumber }}</div>
             <div class="detail-sub">{{ cv(detail.doc).fileName }}</div>
           </div>
         </div>
@@ -177,17 +225,6 @@
           <span v-if="shared(detail.doc)" class="shared-tag" style="margin-left:6px">🔗 Shared across {{ entities(detail.doc).hbls.join(' & ') }}</span>
         </div>
 
-        <!-- Mock preview -->
-        <div class="detail-section">
-          <div class="sec-title">Preview</div>
-          <div class="mini-preview">
-            <div class="mp-doc-title">{{ detail.doc.docType }}</div>
-            <div class="mp-line"><span>PO Number</span><strong>{{ detail.doc.poId }}</strong></div>
-            <div class="mp-line"><span>File</span><strong>{{ cv(detail.doc).fileName }}</strong></div>
-            <div class="mp-line"><span>Version</span><strong>v{{ cv(detail.doc).v }}</strong></div>
-            <div class="mp-foot">[ Simulated preview — demo ]</div>
-          </div>
-        </div>
 
         <!-- Version chain -->
         <div class="detail-section">
@@ -197,7 +234,12 @@
             <span class="ver-file">{{ v.fileName }}</span>
             <span class="ver-meta">{{ v.by }} · {{ v.at }}</span>
             <span v-if="v.remark" class="ver-remark">“{{ v.remark }}”</span>
-            <el-button type="text" size="mini" icon="el-icon-download" @click="$message.success(`Downloading ${v.fileName}…`)" />
+            <span style="margin-left:auto;display:flex;flex-shrink:0">
+              <el-tooltip content="Preview this version" placement="top">
+                <el-button type="text" size="mini" icon="el-icon-view" @click="previewVersion(detail.doc, v)" />
+              </el-tooltip>
+              <el-button type="text" size="mini" icon="el-icon-download" @click="$message.success(`Downloading ${v.fileName}…`)" />
+            </span>
           </div>
         </div>
 
@@ -213,16 +255,35 @@
           </el-timeline>
         </div>
 
-        <!-- Phase 2 placeholder -->
-        <div class="detail-section phase2-slot">
-          <div class="sec-title">Extracted Fields <el-tag size="mini" type="info">Phase 2</el-tag></div>
-          <div class="phase2-hint">AI-extracted document fields (and manual correction) will appear here in Phase 2.</div>
+        <!-- AI-extracted fields (OCR at upload time) -->
+        <div class="detail-section">
+          <div class="sec-title">AI-Extracted Fields <span class="ocr-tag"><i class="el-icon-cpu"></i> OCR</span></div>
+          <div class="xf-grid">
+            <div class="xf-item">
+              <label>Document Number</label>
+              <span class="xf-mono xf-dn">{{ detail.doc.docNumber }}</span>
+            </div>
+            <div class="xf-item">
+              <label>PO Numbers</label>
+              <span>
+                <el-tag v-for="po in detail.doc.poIds || [detail.doc.poId]" :key="po" size="mini" class="chip chip-po" style="margin-right:4px">{{ po }}</el-tag>
+              </span>
+            </div>
+            <div class="xf-item">
+              <label>Product Numbers</label>
+              <span v-if="(detail.doc.ocr && detail.doc.ocr.products || []).length" class="xf-mono">{{ detail.doc.ocr.products.join(' · ') }}</span>
+              <span v-else class="meta-none">— none detected</span>
+            </div>
+            <div class="xf-item">
+              <label>Supplier</label>
+              <span>{{ (poById(detail.doc.poId) || {}).supplier || '—' }}</span>
+            </div>
+          </div>
         </div>
 
         <!-- Footer actions (review/approve lives in the Pepco Review page) -->
         <div class="detail-actions">
           <el-button v-if="canUpload && detail.doc.status === 'REJECTED'" type="warning" size="small" icon="el-icon-refresh-left" @click="openReupload(detail.doc)">Re-upload New Version</el-button>
-          <el-button type="primary" size="small" icon="el-icon-download" plain @click="downloadOne(detail.doc)">Download</el-button>
           <el-button size="small" @click="detail.visible = false">Close</el-button>
         </div>
       </div>
@@ -303,15 +364,95 @@
       </div>
     </el-dialog>
 
+    <!-- ════════════════ File preview dialog (in-page, same as Document Upload) ════ -->
+    <el-dialog :visible.sync="pv.visible"
+      :title="pv.doc ? `Preview — ${pv.doc.docType} (v${pv.v.v})` : 'Preview'"
+      width="760px" top="5vh" append-to-body>
+      <div v-if="pv.doc" class="preview-dialog">
+        <div v-if="!pvIsCurrent" class="preview-verify-bar superseded">
+          <i class="el-icon-warning-outline" style="color:#E6A817"></i>
+          <span>Superseded version — v{{ cv(pv.doc).v }} is the current valid version of this document</span>
+        </div>
+
+        <div class="pdf-viewer">
+          <div class="pdf-page">
+            <div class="pdf-header-row">
+              <div class="pdf-company">{{ (poById(pv.doc.poId) || {}).supplier || 'Supplier Co.' }}</div>
+              <div class="pdf-doc-title">{{ pv.doc.docType }}</div>
+            </div>
+            <div class="pdf-divider"></div>
+            <div class="pdf-fields">
+              <div class="pdf-field"><span class="pdf-label">Document No.</span><span class="pdf-value highlight xf-mono">{{ pv.doc.docNumber }}</span></div>
+              <div class="pdf-field"><span class="pdf-label">PO Number(s)</span><span class="pdf-value highlight">{{ (pv.doc.poIds || [pv.doc.poId]).join(', ') }}</span></div>
+              <div class="pdf-field"><span class="pdf-label">Date</span><span class="pdf-value">{{ pv.v.at }}</span></div>
+              <div class="pdf-field"><span class="pdf-label">Supplier</span><span class="pdf-value">{{ (poById(pv.doc.poId) || {}).supplier || '—' }}</span></div>
+              <div v-if="(pv.doc.ocr && pv.doc.ocr.products || []).length" class="pdf-field">
+                <span class="pdf-label">Products</span><span class="pdf-value xf-mono">{{ pv.doc.ocr.products.join(' · ') }}</span>
+              </div>
+              <div v-if="pv.v.remark" class="pdf-field">
+                <span class="pdf-label">Remark</span><span class="pdf-value" style="color:#c25e00">“{{ pv.v.remark }}”</span>
+              </div>
+            </div>
+            <div class="pdf-table-mock">
+              <div class="pdf-table-hdr">
+                <span>Item Description</span><span>Qty</span><span>Unit Price</span><span>Amount</span>
+              </div>
+              <div class="pdf-table-row" v-for="i in 4" :key="i">
+                <span>Product Item {{ String.fromCharCode(64+i) }}</span>
+                <span>{{ i * 120 }}</span>
+                <span>USD {{ (i * 3.5).toFixed(2) }}</span>
+                <span>USD {{ (i * 120 * 3.5).toFixed(2) }}</span>
+              </div>
+              <div class="pdf-table-total">
+                <span>Total</span><span></span><span></span>
+                <span>USD {{ (1*120*3.5 + 2*120*3.5 + 3*120*3.5 + 4*120*3.5).toFixed(2) }}</span>
+              </div>
+            </div>
+            <div class="pdf-footer">[ Simulated document preview — for demo purposes ]</div>
+          </div>
+        </div>
+      </div>
+      <div slot="footer">
+        <el-button size="small" @click="pv.visible = false">Close</el-button>
+      </div>
+    </el-dialog>
+
+    <!-- ════════════════ Version history dialog ════════════════ -->
+    <el-dialog :visible.sync="verDlg.visible"
+      :title="verDlg.doc ? `Version History — ${verDlg.doc.docNumber}` : 'Version History'"
+      width="560px" custom-class="brand-dialog">
+      <template v-if="verDlg.doc">
+        <div class="verdlg-sub">{{ verDlg.doc.docType }} · all versions share this Document Number</div>
+        <div v-for="v in [...verDlg.doc.versions].reverse()" :key="v.v" class="ver-row">
+          <el-tag size="mini" :type="v.v === cv(verDlg.doc).v ? 'success' : 'info'">
+            v{{ v.v }}{{ v.v === cv(verDlg.doc).v ? ' Current' : '' }}
+          </el-tag>
+          <span class="ver-file">{{ v.fileName }}</span>
+          <span class="ver-meta">{{ v.by }} · {{ v.at }}</span>
+          <span v-if="v.remark" class="ver-remark">“{{ v.remark }}”</span>
+          <span style="margin-left:auto;display:flex;flex-shrink:0">
+            <el-tooltip content="Preview this version" placement="top">
+              <el-button type="text" size="mini" icon="el-icon-view" @click="previewVersion(verDlg.doc, v)" />
+            </el-tooltip>
+            <el-button type="text" size="mini" icon="el-icon-download"
+              @click="$message.success(`Downloading ${v.fileName}…`)" />
+          </span>
+        </div>
+      </template>
+      <div slot="footer">
+        <el-button size="small" @click="verDlg.visible = false">Close</el-button>
+      </div>
+    </el-dialog>
+
   </div>
 </template>
 
 <script>
 import { roleStore } from '@/store/role'
 import {
-  docStore, DOC_TYPES, DOC_STATUS, REQUIRED_TYPES,
+  docStore, DOC_TYPES, REQUIRED_TYPES,
   poById, docsForPo, docsForHbl, unassignedPos, entitiesForDoc, isShared, currentVersion,
-  addDocument, addVersion, softDeleteDoc,
+  addDocument, addVersion,
   activityForDoc, recordPackageDownload, hblUpdatedSinceDownload, searchScope, searchSuggest,
 } from '@/store/documents'
 
@@ -322,17 +463,22 @@ export default {
       view: 'shipment',
       searchQ: '',
       filterTypes: [],
-      filterStatuses: [],
-      pendingMine: false,
+
       expandedHbls: { 'HBL-001': true },
-      expandedPos: { 'HBL-001|PO-001': true },
+      poFilters: {},    // { hblKey: poId } — header chip filter
+      chipsOpen: {},    // { hblKey: true } — header chips expanded past 3
+      verDlg: { visible: false, doc: null },
+      pv: { visible: false, doc: null, v: null },   // in-page file preview dialog
+      // '' = auto (≤6 docs → grid, otherwise list); 'list'/'grid' = user preference
+      userViewMode: localStorage.getItem('dcViewMode') || '',
+      groupBy: 'HBL',   // HBL | MBL | CONTAINER | PO
 
       detail: { visible: false, doc: null },
       upload: { visible: false, poId: '', doc: null, docType: '', fileName: '', remark: '' },
       pkg: { visible: false, scopeType: 'HBL', scopeId: '', onlyApproved: true, state: 'config', progress: 0 },
 
       docTypes: DOC_TYPES,
-      statusMap: DOC_STATUS,
+
     }
   },
 
@@ -343,26 +489,78 @@ export default {
     isOps() { return this.role === 'MOOV Ops' },
     isPepco() { return ['Pepco PGS', 'Pepco Finance', 'Pepco Customs'].includes(this.role) },
     canUpload() { return this.isSupplier || this.isOps },
+    pvIsCurrent() { return this.pv.doc && this.pv.v && this.pv.v.v === currentVersion(this.pv.doc).v },
     canPackage() { return this.isBroker || this.isPepco || this.isOps },
 
     searchHit() { return searchScope(this.searchQ) },
 
     // HBL groups + "Unassigned to HBL" pseudo group, role-trimmed and search-filtered
+    // Groups for the selected dimension — same descriptor shape for all four:
+    // { kind, key, title, poIds, hblIds, containerIds, mblIds }
     shipmentGroups() {
-      let hbls = docStore.hbls
-      if (this.isBroker) hbls = hbls.filter(h => docStore.brokerAssignedHbls.includes(h.id))
-      let groups = hbls.map(h => this.mkGroup(h))
+      const dim = this.groupBy
+      const visHbls = this.isBroker
+        ? docStore.hbls.filter(h => docStore.brokerAssignedHbls.includes(h.id))
+        : docStore.hbls
+      let groups
 
+      if (dim === 'HBL') {
+        groups = visHbls.map(h => this.mkGroup({
+          kind: 'HBL', key: h.id, title: h.id,
+          poIds: h.poIds, hblIds: [h.id], containerIds: h.containerIds, mblIds: [h.mblId],
+        }))
+      } else if (dim === 'MBL') {
+        const mbls = [...new Set(visHbls.map(h => h.mblId))]
+        groups = mbls.map(m => {
+          const hbls = visHbls.filter(h => h.mblId === m)
+          return this.mkGroup({
+            kind: 'MBL', key: m, title: m,
+            poIds: [...new Set(hbls.flatMap(h => h.poIds))],
+            hblIds: hbls.map(h => h.id),
+            containerIds: [...new Set(hbls.flatMap(h => h.containerIds))],
+            mblIds: [m],
+          })
+        })
+      } else if (dim === 'CONTAINER') {
+        const conts = [...new Set(visHbls.flatMap(h => h.containerIds))]
+        groups = conts.map(c => {
+          const hbls = visHbls.filter(h => h.containerIds.includes(c))
+          return this.mkGroup({
+            kind: 'CONTAINER', key: c, title: c,
+            poIds: [...new Set(hbls.flatMap(h => h.poIds))],
+            hblIds: hbls.map(h => h.id),
+            containerIds: [c],
+            mblIds: [...new Set(hbls.map(h => h.mblId))],
+          })
+        })
+      } else { // PO
+        const poIds = this.isBroker
+          ? [...new Set(visHbls.flatMap(h => h.poIds))]
+          : docStore.pos.map(p => p.id)
+        groups = poIds.map(poId => {
+          const hbls = visHbls.filter(h => h.poIds.includes(poId))
+          return this.mkGroup({
+            kind: 'PO', key: poId, title: poId,
+            poIds: [poId],
+            hblIds: hbls.map(h => h.id),
+            containerIds: [...new Set(hbls.flatMap(h => h.containerIds))],
+            mblIds: [...new Set(hbls.map(h => h.mblId))],
+          })
+        })
+      }
+
+      // POs not yet linked to a HBL: pseudo group in entity dims; in the PO
+      // dimension they are already first-class groups
       const un = unassignedPos()
-      if (un.length && !this.isBroker) {
+      if (dim !== 'PO' && un.length && !this.isBroker) {
         groups.push(this.mkGroup({
-          id: 'UNASSIGNED', poIds: un.map(p => p.id), containerIds: [], mblId: '',
+          kind: dim, key: 'UNASSIGNED', title: 'Unassigned to HBL',
+          poIds: un.map(p => p.id), hblIds: [], containerIds: [], mblIds: [],
         }, true))
       }
 
-      if (this.searchHit) groups = groups.filter(g => g.unassigned
-        ? g.poIds.some(po => docsForPo(po).some(d => this.searchHit.docIds.has(d.id)))
-        : this.searchHit.hblIds.has(g.key))
+      if (this.searchHit) groups = groups.filter(g =>
+        g.poIds.some(po => docsForPo(po).some(d => this.searchHit.docIds.has(d.id))))
 
       // groups with documents needing action first
       return groups.sort((a, b) => this.actionWeight(b) - this.actionWeight(a))
@@ -381,37 +579,44 @@ export default {
 
     pkgDocs() {
       if (!this.pkg.scopeId) return []
-      let docs = this.pkg.scopeType === 'HBL' ? docsForHbl(this.pkg.scopeId) : docsForPo(this.pkg.scopeId)
+      let docs = this.docsForScope(this.pkg.scopeType, this.pkg.scopeId)
       if (this.pkg.onlyApproved) docs = docs.filter(d => d.status === 'APPROVED')
       return docs
     },
   },
 
   watch: {
-    // expand matched HBLs automatically when searching
+    // expand matched groups automatically when searching
     searchQ() {
       if (!this.searchHit) return
-      this.searchHit.hblIds.forEach(h => this.$set(this.expandedHbls, h, true))
-      this.shipmentGroups.forEach(g => g.poIds.forEach(po => this.$set(this.expandedPos, g.key + '|' + po, true)))
+      this.shipmentGroups.forEach(g => this.$set(this.expandedHbls, g.key, true))
+    },
+    // dimension switch: reset filters, expand the first group
+    groupBy() {
+      this.poFilters = {}
+      this.chipsOpen = {}
+      const first = this.shipmentGroups[0]
+      this.expandedHbls = first ? { [first.key]: true } : {}
     },
   },
 
   methods: {
     poById, cv: currentVersion, shared: isShared, entities: entitiesForDoc, activityOf: activityForDoc,
 
-    mkGroup(hbl, unassigned = false) {
-      const docs = hbl.poIds.flatMap(po => docsForPo(po))
+    // Enrich a dimension descriptor with doc stats (docs deduped across POs)
+    mkGroup(g, unassigned = false) {
+      const seen = new Set()
+      const docs = g.poIds.flatMap(po => docsForPo(po)).filter(d => !seen.has(d.id) && seen.add(d.id))
       const counts = { PENDING_REVIEW: 0, PENDING_REREVIEW: 0, APPROVED: 0, REJECTED: 0 }
       docs.forEach(d => counts[d.status]++)
-      const required = hbl.poIds.length * REQUIRED_TYPES.length
-      const uploaded = hbl.poIds.reduce((n, po) =>
+      const required = g.poIds.length * REQUIRED_TYPES.length
+      const uploaded = g.poIds.reduce((n, po) =>
         n + REQUIRED_TYPES.filter(t => docsForPo(po).some(d => d.docType === t)).length, 0)
       const lastUpdated = docs.map(d => currentVersion(d).at).sort().pop() || '—'
       return {
-        key: hbl.id, title: unassigned ? 'Unassigned to HBL' : hbl.id, unassigned,
-        poIds: hbl.poIds, containerIds: hbl.containerIds, mblId: hbl.mblId,
+        ...g, unassigned,
         counts, required, uploaded, lastUpdated,
-        updatedSince: unassigned ? false : hblUpdatedSinceDownload(hbl.id),
+        updatedSince: g.kind === 'HBL' && !unassigned ? hblUpdatedSinceDownload(g.key) : false,
       }
     },
 
@@ -426,24 +631,78 @@ export default {
     },
 
     passFilters(d) {
-      if (this.filterTypes.length && !this.filterTypes.includes(d.docType)) return false
-      if (this.filterStatuses.length && !this.filterStatuses.includes(d.status)) return false
-      if (this.pendingMine) {
-        if (this.isSupplier && d.status !== 'REJECTED') return false
-        if ((this.isPepco || this.isOps) && !['PENDING_REVIEW', 'PENDING_REREVIEW'].includes(d.status)) return false
-      }
-      return true
+      return !this.filterTypes.length || this.filterTypes.includes(d.docType)
     },
 
     docsOfPo(poId) { return docsForPo(poId) },
-    docsOfPoFiltered(poId) {
-      let docs = docsForPo(poId)
-      if (this.searchHit) docs = docs.filter(d => this.searchHit.docIds.has(d.id))
-      return docs.filter(d => this.passFilters(d))
+
+    // Deduplicated documents of any scope type (used by Download All packaging)
+    docsForScope(type, id) {
+      if (type === 'PO') return docsForPo(id)
+      if (type === 'HBL') return docsForHbl(id)
+      const hbls = type === 'MBL'
+        ? docStore.hbls.filter(h => h.mblId === id)
+        : docStore.hbls.filter(h => h.containerIds.includes(id))
+      const seen = new Set()
+      return hbls.flatMap(h => docsForHbl(h.id)).filter(d => !seen.has(d.id) && seen.add(d.id))
     },
 
+    // Flat deduplicated ledger of an HBL group, sorted type-first then newest
+    ledgerDocs(grp) {
+      const seen = new Set()
+      let docs = grp.poIds.flatMap(po => docsForPo(po)).filter(d => !seen.has(d.id) && seen.add(d.id))
+      const pf = this.poFilters[grp.key]
+      if (pf) docs = docs.filter(d => (d.poIds || [d.poId]).includes(pf))
+      if (this.searchHit) docs = docs.filter(d => this.searchHit.docIds.has(d.id))
+      docs = docs.filter(d => this.passFilters(d))
+      const order = ['Commercial Invoice', 'Packing List', 'Bill of Lading', 'ISF', 'Certificate of Origin', 'Other']
+      return docs.sort((a, b) => {
+        const t = order.indexOf(a.docType) - order.indexOf(b.docType)
+        return t !== 0 ? t : currentVersion(b).at.localeCompare(currentVersion(a).at)
+      })
+    },
+
+    headerPos(grp) {
+      return this.chipsOpen[grp.key] ? grp.poIds : grp.poIds.slice(0, 3)
+    },
+    togglePoFilter(grp, po) {
+      if (this.poFilters[grp.key] === po) {
+        this.clearPoFilter(grp.key)
+      } else {
+        this.$set(this.poFilters, grp.key, po)
+        this.$set(this.expandedHbls, grp.key, true)
+      }
+    },
+    clearPoFilter(key) { this.$set(this.poFilters, key, '') },
+
+    typeBadge(t) {
+      return {
+        'Commercial Invoice':    { abbr: 'CI',  cls: 'lt-ci' },
+        'Packing List':          { abbr: 'PL',  cls: 'lt-pl' },
+        'Bill of Lading':        { abbr: 'BL',  cls: 'lt-bl' },
+        'ISF':                   { abbr: 'ISF', cls: 'lt-isf' },
+        'Certificate of Origin': { abbr: 'CO',  cls: 'lt-coo' },
+      }[t] || { abbr: 'DOC', cls: 'lt-other' }
+    },
+
+    openVersions(doc) { this.verDlg = { visible: true, doc } },
+
+    // Display mode: explicit user choice wins; otherwise auto by group size
+    modeFor(grp) {
+      return this.userViewMode || (this.ledgerDocs(grp).length <= 6 ? 'grid' : 'list')
+    },
+    setViewMode(mode) {
+      // clicking the active button again returns to auto
+      this.userViewMode = this.userViewMode === mode ? '' : mode
+      if (this.userViewMode) localStorage.setItem('dcViewMode', this.userViewMode)
+      else localStorage.removeItem('dcViewMode')
+    },
+
+
+    // Open the in-page preview dialog for one specific version (same UX as Document Upload)
+    previewVersion(doc, v) { this.pv = { visible: true, doc, v } },
+
     toggleHbl(k) { this.$set(this.expandedHbls, k, !this.expandedHbls[k]) },
-    togglePo(k) { this.$set(this.expandedPos, k, !this.expandedPos[k]) },
 
     fetchSuggest(q, cb) { cb(searchSuggest(q).map(v => ({ value: v }))) },
 
@@ -455,8 +714,7 @@ export default {
     // ── Detail ──
     openDetail(doc) { this.detail = { visible: true, doc } },
 
-    // ── Upload / Re-upload ──
-    openUpload(poId) { this.upload = { visible: true, poId, doc: null, docType: '', fileName: '', remark: '' } },
+    // ── Re-upload (Document View only — Shipment View is read-only) ──
     openReupload(doc) { this.upload = { visible: true, poId: doc.poId, doc, docType: doc.docType, fileName: '', remark: '' } },
     submitUpload() {
       const u = this.upload
@@ -468,15 +726,6 @@ export default {
         this.$message.success(`Document uploaded to ${u.poId} (v1, Pending Review)`)
       }
       this.upload.visible = false
-    },
-
-    doDelete(doc) {
-      this.$confirm(`Void ${doc.docType} (${currentVersion(doc).fileName})? This soft-deletes the document; the action is logged.`, 'Delete Document', {
-        type: 'warning', confirmButtonText: 'Delete', cancelButtonText: 'Cancel',
-      }).then(() => {
-        softDeleteDoc(doc.id, this.userName())
-        this.$message.success('Document voided')
-      }).catch(() => {})
     },
 
     downloadOne(doc) { this.$message.success(`Downloading ${currentVersion(doc).fileName}…`) },
@@ -511,6 +760,7 @@ export default {
 // ── Top bar ──────────────────────────────────────────────────────────────────
 .dc-topbar { margin-bottom: 12px; ::v-deep .el-card__body { padding: 12px 16px; } }
 .dc-topbar-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gb-label { font-size: 11px; color: #909399; margin-left: 4px; white-space: nowrap; }
 .dc-rolehint {
   margin-top: 8px; font-size: 11px; color: #888;
   i { color: $primary; margin-right: 2px; }
@@ -550,28 +800,118 @@ export default {
 .hbl-actions { display: flex; align-items: center; gap: 6px; }
 .updated-tag { font-size: 10px; }
 
-// ── PO sub-group ─────────────────────────────────────────────────────────────
-.hbl-body { border-top: 1px solid $border; padding: 6px 16px 12px 34px; }
-.po-group { margin-top: 6px; }
-.po-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 10px; background: #f8fafc; border-radius: 6px; cursor: pointer;
-  &:hover { background: #f0f4f8; }
-}
-.po-caret { color: #909399; font-size: 12px; }
-.po-title { font-weight: 600; font-size: 12px; color: #333; }
-.po-cartons { font-size: 11px; color: #999; }
-.po-doccount { font-size: 10px; color: #bbb; }
-.po-actions { margin-left: auto; display: flex; gap: 0; }
+// ── Flat document ledger ─────────────────────────────────────────────────────
+.hbl-body { border-top: 1px solid $border; padding: 8px 16px 12px 38px; }
 
-// ── Document rows ────────────────────────────────────────────────────────────
-.doc-list { padding: 4px 0 4px 26px; }
-.doc-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px; border-bottom: 1px dashed #eef1f5; font-size: 12px;
+.po-filter-bar {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: #3A71A8; background: #ecf5ff;
+  border: 1px solid #c8e0f5; border-radius: 6px;
+  padding: 6px 12px; margin-bottom: 8px;
+  strong { color: $primary; }
+  .pf-clear {
+    margin-left: auto; cursor: pointer; font-weight: 600; color: #3A71A8;
+    &:hover { color: $primary; }
+  }
+}
+
+.ledger-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 10px; border-bottom: 1px dashed #eef1f5;
   &:last-child { border-bottom: none; }
   &:hover { background: #fcfdfe; }
 }
+.lt-badge {
+  flex-shrink: 0; width: 34px; height: 34px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.3px; margin-top: 2px;
+  &.lt-ci    { background: #e8f0f6; color: $primary; }
+  &.lt-pl    { background: #e6f9ef; color: #0d9b50; }
+  &.lt-bl    { background: #fdf3e3; color: #c25e00; }
+  &.lt-isf   { background: #f3e5f5; color: #7b1fa2; }
+  &.lt-coo   { background: #fce8f0; color: #c2185b; }
+  &.lt-other { background: #f0f2f5; color: #909399; }
+}
+.ledger-main { flex: 1; min-width: 0; }
+.ledger-line-a { display: flex; align-items: center; gap: 8px; }
+.ledger-dn {
+  font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  font-size: 13px; font-weight: 700; color: $primary; letter-spacing: 0.3px;
+  cursor: pointer; white-space: nowrap;
+  &:hover { text-decoration: underline; }
+}
+.ledger-type { font-size: 11px; color: #666; white-space: nowrap; }
+.ver-chip {
+  font-size: 10px; font-weight: 700; color: #909399;
+  background: #f0f2f5; border-radius: 9px; padding: 2px 8px;
+  cursor: pointer; white-space: nowrap; flex-shrink: 0;
+  i { margin-left: 1px; font-size: 9px; }
+  &.multi { background: #e8f0f6; color: $primary; }
+  &:hover { background: #d8e6f0; color: $primary; }
+}
+.ledger-file { font-size: 11px; color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledger-actions { margin-left: auto; display: flex; gap: 0; flex-shrink: 0; }
+.ledger-line-b {
+  display: flex; align-items: center; gap: 12px; margin-top: 4px;
+  font-size: 11px;
+}
+.ocr-tag {
+  font-size: 9px; font-weight: 800; letter-spacing: 0.5px;
+  color: #7b1fa2; background: #f3e5f5; border-radius: 4px;
+  padding: 1px 6px; white-space: nowrap;
+  i { margin-right: 1px; }
+}
+.meta-kv {
+  display: flex; align-items: center; gap: 5px;
+  label { color: #bbb; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
+}
+.meta-pos { display: flex; gap: 3px; }
+.meta-po {
+  font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  font-size: 10px; font-weight: 600; color: #3A71A8;
+  background: #ecf5ff; border-radius: 4px; padding: 1px 6px;
+}
+.meta-mono {
+  font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  font-size: 10px; color: #666;
+}
+.meta-none { color: #d0d4da; }
+.ledger-by { margin-left: auto; font-size: 10px; color: #bbb; white-space: nowrap; }
+
+.chip-filter {
+  cursor: pointer;
+  &:hover { box-shadow: 0 0 0 1px #3A71A8 inset; }
+  &.active { background: $primary; color: #fff; }
+}
+
+// ── Grid (tile card) mode ────────────────────────────────────────────────────
+.ledger-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px; padding: 4px 0;
+}
+.doc-card {
+  position: relative; background: #fff; border: 1px solid $border; border-radius: 8px;
+  padding: 12px 14px; cursor: pointer; transition: box-shadow .15s, transform .15s;
+  &:hover {
+    box-shadow: 0 3px 10px rgba(0, 79, 124, 0.12); transform: translateY(-1px);
+    .card-actions { opacity: 1; }
+  }
+}
+.card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.card-dn {
+  font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  font-size: 13px; font-weight: 700; color: $primary; letter-spacing: 0.3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card-type { font-size: 11px; color: #666; margin-top: 1px; }
+.card-file { font-size: 10px; color: #aaa; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-pos { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 7px; align-items: center; }
+.card-actions {
+  position: absolute; right: 8px; bottom: 6px; opacity: 0; transition: opacity .15s;
+  background: rgba(255,255,255,0.95); border-radius: 6px; padding: 0 2px;
+  display: flex; gap: 0;
+}
+
 .doc-icon { color: $primary; }
 .doc-name { font-weight: 600; cursor: pointer; color: #333; &:hover { color: $primary; } }
 .doc-file { font-size: 11px; color: #999; font-weight: 400; margin-left: 4px; }
@@ -605,12 +945,6 @@ export default {
   padding: 9px 12px; font-size: 12px; color: #8c2e2b; margin-bottom: 14px;
   i { color: #ff4949; font-size: 15px; margin-top: 1px; }
 }
-.mini-preview {
-  border: 1px solid $border; border-radius: 6px; padding: 16px; background: #fff;
-}
-.mp-doc-title { font-weight: 700; font-size: 14px; border-bottom: 2px solid $primary; padding-bottom: 6px; margin-bottom: 10px; }
-.mp-line { display: flex; gap: 10px; font-size: 12px; padding: 2px 0; span { color: #999; width: 90px; } }
-.mp-foot { text-align: center; color: #ccc; font-size: 10px; font-style: italic; margin-top: 10px; }
 .ver-row {
   display: flex; align-items: center; gap: 8px; font-size: 12px;
   padding: 6px 10px; background: #f8fafc; border-radius: 6px; margin-bottom: 4px;
@@ -619,8 +953,50 @@ export default {
 .ver-meta { font-size: 10px; color: #999; }
 .ver-remark { font-size: 11px; color: #c25e00; font-style: italic; }
 .dc-timeline { padding-left: 2px; ::v-deep .el-timeline-item__content { font-size: 12px; } ::v-deep .el-timeline-item__timestamp { font-size: 10px; } }
-.phase2-slot { border: 1px dashed #d3dce6; border-radius: 6px; padding: 12px; background: #fafbfc; }
-.phase2-hint { font-size: 11px; color: #aab; }
+
+// ── Detail: OCR extracted fields ─────────────────────────────────────────────
+.detail-dn {
+  font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  font-size: 13px; font-weight: 700; color: $primary; margin-top: 3px;
+}
+.xf-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px;
+  border: 1px solid $border; border-radius: 6px; padding: 12px 14px; background: #fafbfd;
+}
+.xf-item {
+  display: flex; flex-direction: column; gap: 3px; font-size: 12px;
+  label { font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.4px; }
+}
+.xf-mono { font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace; font-size: 11px; color: #333; }
+.xf-dn { font-size: 13px; font-weight: 700; color: $primary; }
+.verdlg-sub { font-size: 11px; color: #999; margin-bottom: 10px; }
+
+// ── In-page file preview dialog (mirrors Document Upload) ───────────────────
+.preview-dialog { display:flex; flex-direction:column; gap:12px; }
+.preview-verify-bar {
+  display:flex; align-items:center; gap:8px; padding:8px 12px;
+  border-radius:6px; font-size:12px; font-weight:500;
+  background:#e6f9ef; color:#0d9b50;
+  &.superseded { background:#fff8e0; color:#e6a817; }
+  i { font-size:16px; }
+}
+.pdf-viewer { border:1px solid $border; border-radius:6px; overflow:hidden; max-height:380px; overflow-y:auto; }
+.pdf-page { background:#fff; padding:24px 28px; font-size:12px; min-height:300px; }
+.pdf-header-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; }
+.pdf-company   { font-weight:700; font-size:14px; color:$primary; }
+.pdf-doc-title { font-weight:700; font-size:16px; color:#303133; }
+.pdf-divider   { height:2px; background:$primary; margin-bottom:14px; }
+.pdf-fields    { display:grid; grid-template-columns:1fr 1fr; gap:6px 20px; margin-bottom:16px; }
+.pdf-field     { display:flex; gap:8px; }
+.pdf-label     { color:#909399; width:100px; flex-shrink:0; }
+.pdf-value     { color:#303133; font-weight:500; &.highlight { color:$primary; font-weight:700; } }
+.pdf-table-mock { border:1px solid $border; border-radius:4px; overflow:hidden; margin-bottom:12px; }
+.pdf-table-hdr { display:grid; grid-template-columns:3fr 1fr 1fr 1fr; background:#f5f7fa; padding:6px 10px; font-weight:600; font-size:11px; color:#909399; gap:8px; }
+.pdf-table-row { display:grid; grid-template-columns:3fr 1fr 1fr 1fr; padding:5px 10px; border-top:1px solid $border; gap:8px;
+  &:nth-child(even) { background:#fafafa; }
+}
+.pdf-table-total { display:grid; grid-template-columns:3fr 1fr 1fr 1fr; padding:6px 10px; border-top:2px solid $border; font-weight:700; gap:8px; background:#f0f7ff; }
+.pdf-footer { text-align:center; color:#bbb; font-size:11px; margin-top:8px; font-style:italic; }
 .detail-actions { display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid $border; padding-top: 14px; }
 
 // ── Brand dialog header ──────────────────────────────────────────────────────

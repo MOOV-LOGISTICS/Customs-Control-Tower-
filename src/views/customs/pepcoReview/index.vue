@@ -530,7 +530,6 @@
         </div>
       </div>
       <div slot="footer">
-        <el-button size="small" icon="el-icon-download" type="primary" @click="$message.success(`Downloading ${docPreview.fileName}…`)">Download</el-button>
         <el-button size="small" @click="docPreview.visible=false">Close</el-button>
       </div>
     </el-dialog>

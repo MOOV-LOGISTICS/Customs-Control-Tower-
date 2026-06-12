@@ -56,10 +56,14 @@ export const docStore = Vue.observable({
   // Broker (demo) is assigned to both HBLs; PO-005 (unassigned) stays invisible to broker
   brokerAssignedHbls: ['HBL-001', 'HBL-002'],
 
+  // docNumber: OCR-extracted unique identifier (invoice no / PL ref / BL no…)
+  // poIds:     ALL POs the document covers (OCR-extracted; one file may span many)
+  // ocr:       other AI-extracted fields surfaced in the UI (product numbers…)
   documents: [
     // PO-001 — CI was rejected then re-uploaded (v2, auto-flipped to Pending Re-review)
     {
-      id: 'DOC-1', poId: 'PO-001', docType: 'Commercial Invoice',
+      id: 'DOC-1', poId: 'PO-001', poIds: ['PO-001'], docType: 'Commercial Invoice',
+      docNumber: 'INV-880214', ocr: { products: ['ITM-5501', 'ITM-5502'] },
       status: 'PENDING_REREVIEW', rejectReason: 'Carton count does not match Packing List',
       deleted: false,
       versions: [
@@ -67,33 +71,58 @@ export const docStore = Vue.observable({
         { v: 2, fileName: 'INV-PO001-fixed.pdf', by: 'Zhang (Supplier)', at: '2026-06-09 14:30', remark: 'Corrected carton count' },
       ],
     },
-    { id: 'DOC-2', poId: 'PO-001', docType: 'Packing List', status: 'APPROVED', rejectReason: '', deleted: false,
+    { id: 'DOC-2', poId: 'PO-001', poIds: ['PO-001'], docType: 'Packing List',
+      docNumber: 'PL-880214', ocr: { products: ['ITM-5501', 'ITM-5502'] },
+      status: 'APPROVED', rejectReason: '', deleted: false,
       versions: [{ v: 1, fileName: 'PL-PO001.pdf', by: 'Zhang (Supplier)', at: '2026-06-05 09:15', remark: '' }] },
-    { id: 'DOC-3', poId: 'PO-001', docType: 'ISF', status: 'PENDING_REVIEW', rejectReason: '', deleted: false,
+    { id: 'DOC-3', poId: 'PO-001', poIds: ['PO-001'], docType: 'ISF',
+      docNumber: 'ISF-26-0153', ocr: { products: [] },
+      status: 'PENDING_REVIEW', rejectReason: '', deleted: false,
       versions: [{ v: 1, fileName: 'ISF-PO001.pdf', by: 'Zhang (Supplier)', at: '2026-06-06 11:02', remark: '' }] },
 
     // PO-002 — PL currently rejected (supplier needs to act)
-    { id: 'DOC-4', poId: 'PO-002', docType: 'Commercial Invoice', status: 'APPROVED', rejectReason: '', deleted: false,
+    { id: 'DOC-4', poId: 'PO-002', poIds: ['PO-002'], docType: 'Commercial Invoice',
+      docNumber: 'INV-880377', ocr: { products: ['ITM-6104'] },
+      status: 'APPROVED', rejectReason: '', deleted: false,
       versions: [{ v: 1, fileName: 'INV-PO002.pdf', by: 'Zhang (Supplier)', at: '2026-06-04 16:40', remark: '' }] },
-    { id: 'DOC-5', poId: 'PO-002', docType: 'Packing List', status: 'REJECTED',
+    { id: 'DOC-5', poId: 'PO-002', poIds: ['PO-002'], docType: 'Packing List',
+      docNumber: 'PL-880377', ocr: { products: ['ITM-6104'] },
+      status: 'REJECTED',
       rejectReason: 'Gross weight missing on page 2', deleted: false,
       versions: [{ v: 1, fileName: 'PL-PO002.pdf', by: 'Zhang (Supplier)', at: '2026-06-04 16:42', remark: '' }] },
 
     // PO-003 — only CI uploaded (completeness gap: PL missing)
-    { id: 'DOC-6', poId: 'PO-003', docType: 'Commercial Invoice', status: 'PENDING_REVIEW', rejectReason: '', deleted: false,
+    { id: 'DOC-6', poId: 'PO-003', poIds: ['PO-003'], docType: 'Commercial Invoice',
+      docNumber: 'INV-880421', ocr: { products: ['ITM-7230', 'ITM-7231'] },
+      status: 'PENDING_REVIEW', rejectReason: '', deleted: false,
       versions: [{ v: 1, fileName: 'INV-PO003.pdf', by: 'Zhang (Supplier)', at: '2026-06-07 10:21', remark: '' }] },
 
     // PO-004 — split across HBL-001 and HBL-002: these documents are SHARED entries
-    { id: 'DOC-7', poId: 'PO-004', docType: 'Commercial Invoice', status: 'APPROVED', rejectReason: '', deleted: false,
+    { id: 'DOC-7', poId: 'PO-004', poIds: ['PO-004'], docType: 'Commercial Invoice',
+      docNumber: 'INV-880556', ocr: { products: ['ITM-8870'] },
+      status: 'APPROVED', rejectReason: '', deleted: false,
       versions: [{ v: 1, fileName: 'INV-PO004.pdf', by: 'Zhang (Supplier)', at: '2026-06-03 08:55', remark: '' }] },
-    { id: 'DOC-8', poId: 'PO-004', docType: 'Packing List', status: 'PENDING_REVIEW', rejectReason: '', deleted: false,
+    { id: 'DOC-8', poId: 'PO-004', poIds: ['PO-004'], docType: 'Packing List',
+      docNumber: 'PL-880556', ocr: { products: ['ITM-8870'] },
+      status: 'PENDING_REVIEW', rejectReason: '', deleted: false,
       versions: [{ v: 1, fileName: 'PL-PO004.pdf', by: 'Zhang (Supplier)', at: '2026-06-03 08:57', remark: '' }] },
-    { id: 'DOC-9', poId: 'PO-004', docType: 'Certificate of Origin', status: 'APPROVED', rejectReason: '', deleted: false,
+    { id: 'DOC-9', poId: 'PO-004', poIds: ['PO-004'], docType: 'Certificate of Origin',
+      docNumber: 'COO-26-1190', ocr: { products: ['ITM-8870'] },
+      status: 'APPROVED', rejectReason: '', deleted: false,
       versions: [{ v: 1, fileName: 'COO-PO004.pdf', by: 'Zhang (Supplier)', at: '2026-06-03 09:10', remark: '' }] },
 
     // PO-005 — not assigned to a HBL yet, documents still fully manageable
-    { id: 'DOC-10', poId: 'PO-005', docType: 'Commercial Invoice', status: 'PENDING_REVIEW', rejectReason: '', deleted: false,
+    { id: 'DOC-10', poId: 'PO-005', poIds: ['PO-005'], docType: 'Commercial Invoice',
+      docNumber: 'INV-880603', ocr: { products: ['ITM-9012'] },
+      status: 'PENDING_REVIEW', rejectReason: '', deleted: false,
       versions: [{ v: 1, fileName: 'INV-PO005.pdf', by: 'Zhang (Supplier)', at: '2026-06-08 15:33', remark: '' }] },
+
+    // HBL-level Bill of Lading — ONE file covering all POs of HBL-001
+    // (demonstrates the dedup rule: shows once in the HBL ledger, never per-PO)
+    { id: 'DOC-11', poId: 'PO-001', poIds: ['PO-001', 'PO-002', 'PO-003', 'PO-004'], docType: 'Bill of Lading',
+      docNumber: 'HBL-001', ocr: { products: [] },
+      status: 'APPROVED', rejectReason: '', deleted: false,
+      versions: [{ v: 1, fileName: 'HBL-001-copy.pdf', by: 'MOOV Ops', at: '2026-06-06 17:45', remark: '' }] },
   ],
 
   activity: [
@@ -120,13 +149,15 @@ export function hblsForPo(poId) {
 }
 
 export function docsForPo(poId) {
-  return docStore.documents.filter(d => !d.deleted && d.poId === poId)
+  return docStore.documents.filter(d => !d.deleted && (d.poIds || [d.poId]).includes(poId))
 }
 
+// Deduplicated: a document covering several POs of the HBL appears once
 export function docsForHbl(hblId) {
   const hbl = docStore.hbls.find(h => h.id === hblId)
   if (!hbl) return []
-  return hbl.poIds.flatMap(poId => docsForPo(poId))
+  const seen = new Set()
+  return hbl.poIds.flatMap(poId => docsForPo(poId)).filter(d => !seen.has(d.id) && seen.add(d.id))
 }
 
 export function unassignedPos() {
@@ -134,15 +165,17 @@ export function unassignedPos() {
   return docStore.pos.filter(p => !linked.has(p.id))
 }
 
-// All entities a document is linked to (PO direct, the rest resolved)
+// All entities a document is linked to (POs direct, the rest resolved)
 export function entitiesForDoc(doc) {
-  const hbls = hblsForPo(doc.poId)
-  const containers = [...new Set(hbls.flatMap(h => h.containerIds))]
-  const mbls = [...new Set(hbls.map(h => h.mblId))]
-  return { po: doc.poId, hbls: hbls.map(h => h.id), containers, mbls }
+  const poIds = doc.poIds || [doc.poId]
+  const hblIds = [...new Set(poIds.flatMap(p => hblsForPo(p).map(h => h.id)))]
+  const hblObjs = docStore.hbls.filter(h => hblIds.includes(h.id))
+  const containers = [...new Set(hblObjs.flatMap(h => h.containerIds))]
+  const mbls = [...new Set(hblObjs.map(h => h.mblId))]
+  return { po: doc.poId, pos: poIds, hbls: hblIds, containers, mbls }
 }
 
-export function isShared(doc) { return hblsForPo(doc.poId).length > 1 }
+export function isShared(doc) { return entitiesForDoc(doc).hbls.length > 1 }
 
 export function currentVersion(doc) { return doc.versions[doc.versions.length - 1] }
 
@@ -150,7 +183,9 @@ export function currentVersion(doc) { return doc.versions[doc.versions.length - 
 
 export function addDocument({ poId, docType, fileName, remark, user }) {
   const doc = {
-    id: `DOC-${++DOC_SEQ}`, poId, docType,
+    id: `DOC-${++DOC_SEQ}`, poId, poIds: [poId], docType,
+    // OCR runs at upload time — demo derives the doc number from the file name
+    docNumber: fileName.replace(/\.[^.]+$/, '').toUpperCase(), ocr: { products: [] },
     status: 'PENDING_REVIEW', rejectReason: '', deleted: false,
     versions: [{ v: 1, fileName, by: user, at: nowStr(), remark: remark || '' }],
   }
@@ -195,8 +230,10 @@ export function log(docId, action, user, detail) {
   docStore.activity.unshift({ id: ++LOG_SEQ, docId, action, user, at: nowStr(), detail })
 }
 
+// Newest first — the most recent action sits at the top of the timeline
 export function activityForDoc(docId) {
   return docStore.activity.filter(a => a.docId === docId)
+    .sort((a, b) => b.at.localeCompare(a.at))
 }
 
 // ── Broker package download + "updated since last download" ────────────────
@@ -204,7 +241,16 @@ export function activityForDoc(docId) {
 export function recordPackageDownload(scopeType, scopeId, packagedDocs, user) {
   // Snapshot covers ALL documents in scope at download time (not only the
   // packaged subset), so the "updated since" badge fires only on real changes.
-  const scopeDocs = scopeType === 'HBL' ? docsForHbl(scopeId) : docsForPo(scopeId)
+  let scopeDocs
+  if (scopeType === 'HBL') scopeDocs = docsForHbl(scopeId)
+  else if (scopeType === 'PO') scopeDocs = docsForPo(scopeId)
+  else {
+    const hbls = scopeType === 'MBL'
+      ? docStore.hbls.filter(h => h.mblId === scopeId)
+      : docStore.hbls.filter(h => h.containerIds.includes(scopeId))
+    const seen = new Set()
+    scopeDocs = hbls.flatMap(h => docsForHbl(h.id)).filter(d => !seen.has(d.id) && seen.add(d.id))
+  }
   const snapshot = {}
   scopeDocs.forEach(d => { snapshot[d.id] = currentVersion(d).v })
   docStore.brokerDownloads.unshift({ scopeType, scopeId, by: user, at: nowStr(), snapshot })
@@ -250,9 +296,12 @@ export function searchScope(qRaw) {
     }
   })
   docStore.documents.forEach(d => {
-    if (!d.deleted && d.versions.some(v => v.fileName.toUpperCase().includes(q))) {
+    if (d.deleted) return
+    const hit = d.versions.some(v => v.fileName.toUpperCase().includes(q))
+      || (d.docNumber || '').toUpperCase().includes(q)
+    if (hit) {
       docIds.add(d.id)
-      hblsForPo(d.poId).forEach(h => hblIds.add(h.id))
+      entitiesForDoc(d).hbls.forEach(h => hblIds.add(h))
     }
   })
   return { docIds, hblIds }
@@ -267,6 +316,7 @@ export function searchSuggest(qRaw) {
     ...docStore.hbls.map(h => h.id),
     ...[...new Set(docStore.hbls.map(h => h.mblId))],
     ...[...new Set(docStore.hbls.flatMap(h => h.containerIds))],
+    ...docStore.documents.filter(d => !d.deleted && d.docNumber).map(d => d.docNumber),
   ]
   return pool.filter(x => x.toUpperCase().includes(q)).slice(0, 8)
 }
