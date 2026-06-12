@@ -462,7 +462,6 @@
         </div>
       </div>
       <div slot="footer">
-        <el-button size="small" icon="el-icon-download" type="primary" @click="downloadFile(preview.fileName)">Download</el-button>
         <el-button size="small" @click="preview.visible=false">Close</el-button>
       </div>
     </el-dialog>
