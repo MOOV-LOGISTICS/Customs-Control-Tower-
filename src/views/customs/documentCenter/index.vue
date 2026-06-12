@@ -257,7 +257,6 @@
         <!-- Footer actions (review/approve lives in the Pepco Review page) -->
         <div class="detail-actions">
           <el-button v-if="canUpload && detail.doc.status === 'REJECTED'" type="warning" size="small" icon="el-icon-refresh-left" @click="openReupload(detail.doc)">Re-upload New Version</el-button>
-          <el-button type="primary" size="small" icon="el-icon-download" plain @click="downloadOne(detail.doc)">Download</el-button>
           <el-button size="small" @click="detail.visible = false">Close</el-button>
         </div>
       </div>
