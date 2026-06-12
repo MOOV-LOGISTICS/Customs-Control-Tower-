@@ -232,17 +232,6 @@
           <span v-if="shared(detail.doc)" class="shared-tag" style="margin-left:6px">🔗 Shared across {{ entities(detail.doc).hbls.join(' & ') }}</span>
         </div>
 
-        <!-- Mock preview -->
-        <div class="detail-section">
-          <div class="sec-title">Preview</div>
-          <div class="mini-preview">
-            <div class="mp-doc-title">{{ detail.doc.docType }}</div>
-            <div class="mp-line"><span>PO Number</span><strong>{{ detail.doc.poId }}</strong></div>
-            <div class="mp-line"><span>File</span><strong>{{ cv(detail.doc).fileName }}</strong></div>
-            <div class="mp-line"><span>Version</span><strong>v{{ cv(detail.doc).v }}</strong></div>
-            <div class="mp-foot">[ Simulated preview — demo ]</div>
-          </div>
-        </div>
 
         <!-- Version chain -->
         <div class="detail-section">
@@ -967,12 +956,6 @@ export default {
   padding: 9px 12px; font-size: 12px; color: #8c2e2b; margin-bottom: 14px;
   i { color: #ff4949; font-size: 15px; margin-top: 1px; }
 }
-.mini-preview {
-  border: 1px solid $border; border-radius: 6px; padding: 16px; background: #fff;
-}
-.mp-doc-title { font-weight: 700; font-size: 14px; border-bottom: 2px solid $primary; padding-bottom: 6px; margin-bottom: 10px; }
-.mp-line { display: flex; gap: 10px; font-size: 12px; padding: 2px 0; span { color: #999; width: 90px; } }
-.mp-foot { text-align: center; color: #ccc; font-size: 10px; font-style: italic; margin-top: 10px; }
 .ver-row {
   display: flex; align-items: center; gap: 8px; font-size: 12px;
   padding: 6px 10px; background: #f8fafc; border-radius: 6px; margin-bottom: 4px;
