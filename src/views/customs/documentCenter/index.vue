@@ -7,7 +7,7 @@
         <el-autocomplete
           v-model="searchQ"
           :fetch-suggestions="fetchSuggest"
-          placeholder="Search by PO / HBL / MBL / Container No. or file name…"
+          placeholder="Search by Document No. / PO / HBL / MBL / Container or file name…"
           prefix-icon="el-icon-search"
           size="mini" clearable style="width:340px"
           @select="s => searchQ = s.value"
@@ -42,9 +42,13 @@
           <span class="hbl-no">{{ grp.title }}</span>
           <span v-if="grp.unassigned" class="hbl-unassigned-tag">POs not yet linked to a HBL</span>
           <template v-else>
-            <span class="ent-chips">
-              <el-tag v-for="po in grp.poIds.slice(0,3)" :key="po" size="mini" class="chip chip-po">{{ po }}</el-tag>
-              <el-tag v-if="grp.poIds.length > 3" size="mini" class="chip">+{{ grp.poIds.length - 3 }}</el-tag>
+            <span class="ent-chips" @click.stop>
+              <el-tooltip v-for="po in headerPos(grp)" :key="po" :content="poFilters[grp.key] === po ? 'Clear filter' : `Show only documents of ${po}`" placement="top">
+                <el-tag size="mini" :class="['chip', 'chip-po', 'chip-filter', { active: poFilters[grp.key] === po }]"
+                  @click.native="togglePoFilter(grp, po)">{{ po }}</el-tag>
+              </el-tooltip>
+              <el-tag v-if="grp.poIds.length > 3 && !chipsOpen[grp.key]" size="mini" class="chip chip-filter"
+                @click.native="$set(chipsOpen, grp.key, true)">+{{ grp.poIds.length - 3 }}</el-tag>
             </span>
             <span class="hbl-meta">MBL <strong>{{ grp.mblId }}</strong></span>
             <span class="ent-chips">
@@ -65,46 +69,54 @@
           </span>
         </div>
 
-        <!-- Expanded: PO sub-groups -->
+        <!-- Expanded: flat deduplicated document ledger (keyed by Document Number) -->
         <div v-if="expandedHbls[grp.key]" class="hbl-body">
-          <div v-for="poId in grp.poIds" :key="poId" class="po-group">
-            <div class="po-row" @click="togglePo(grp.key + '|' + poId)">
-              <i :class="expandedPos[grp.key + '|' + poId] ? 'el-icon-arrow-down' : 'el-icon-arrow-right'" class="po-caret"></i>
-              <span class="po-title">{{ poId }}</span>
-              <span class="po-cartons">({{ poById(poId).cartons }} cartons)</span>
-              <span class="po-doccount">{{ docsOfPo(poId).length }} document(s)</span>
-              <span class="po-actions" @click.stop>
-                <el-button v-if="canUpload" type="text" size="mini" icon="el-icon-upload2" @click="openUpload(poId)">Upload</el-button>
-                <el-button v-if="canPackage" type="text" size="mini" icon="el-icon-download" @click="openPackage('PO', poId)">Download All</el-button>
-              </span>
-            </div>
+          <div v-if="poFilters[grp.key]" class="po-filter-bar">
+            <i class="el-icon-s-operation"></i>
+            Filtered by <strong>{{ poFilters[grp.key] }}</strong> — showing only documents related to this PO
+            <span class="pf-clear" @click="clearPoFilter(grp.key)"><i class="el-icon-close"></i> Clear</span>
+          </div>
 
-            <!-- Document rows -->
-            <div v-if="expandedPos[grp.key + '|' + poId]" class="doc-list">
-              <div v-for="doc in docsOfPoFiltered(poId)" :key="doc.id" class="doc-row">
-                <i class="el-icon-document doc-icon"></i>
-                <span class="doc-name" @click="openDetail(doc)">
-                  {{ doc.docType }}
-                  <span class="doc-file">{{ cv(doc).fileName }}</span>
-                </span>
-                <el-tag size="mini" type="info" class="ver-tag">v{{ cv(doc).v }}</el-tag>
+          <div v-for="doc in ledgerDocs(grp)" :key="doc.id" class="ledger-row">
+            <span :class="['lt-badge', typeBadge(doc.docType).cls]">{{ typeBadge(doc.docType).abbr }}</span>
+            <div class="ledger-main">
+              <div class="ledger-line-a">
+                <span class="ledger-dn" @click="openDetail(doc)">{{ doc.docNumber }}</span>
+                <span class="ledger-type">{{ doc.docType }}</span>
+                <el-tooltip :content="doc.versions.length > 1 ? `${doc.versions.length} versions — click for history` : 'Version 1'" placement="top">
+                  <span :class="['ver-chip', { multi: doc.versions.length > 1 }]" @click="openVersions(doc)">
+                    v{{ cv(doc).v }}<i v-if="doc.versions.length > 1" class="el-icon-caret-bottom"></i>
+                  </span>
+                </el-tooltip>
                 <el-tooltip v-if="shared(doc)" placement="top"
-                  :content="`Shared across ${entities(doc).hbls.join(', ')} — same document object, any action syncs everywhere`">
+                  :content="`Shared across ${entities(doc).hbls.join(', ')} — same document object, one version chain`">
                   <span class="shared-tag">🔗 Shared</span>
                 </el-tooltip>
-                <span class="doc-by">{{ cv(doc).by }} · {{ cv(doc).at }}</span>
-                <span class="doc-actions">
-                  <el-button type="text" size="mini" icon="el-icon-view" @click="openDetail(doc)">Detail</el-button>
+                <span class="ledger-file">{{ cv(doc).fileName }}</span>
+                <span class="ledger-actions">
+                  <el-button type="text" size="mini" icon="el-icon-view" @click="openDetail(doc)">Preview</el-button>
                   <el-button type="text" size="mini" icon="el-icon-download" @click="downloadOne(doc)">Download</el-button>
-                  <el-button v-if="canUpload && doc.status === 'REJECTED'" type="text" size="mini"
-                    icon="el-icon-refresh-left" class="act-reupload" @click="openReupload(doc)">Re-upload</el-button>
-                  <el-button v-if="canUpload && doc.status !== 'APPROVED'" type="text" size="mini"
-                    icon="el-icon-delete" class="act-delete" @click="doDelete(doc)" />
                 </span>
               </div>
-              <div v-if="!docsOfPoFiltered(poId).length" class="doc-empty">No documents match the current filters</div>
+              <div class="ledger-line-b">
+                <span class="ocr-tag"><i class="el-icon-cpu"></i> OCR</span>
+                <span class="meta-kv">
+                  <label>PO</label>
+                  <span v-if="(doc.poIds || [doc.poId]).length" class="meta-pos">
+                    <span v-for="po in doc.poIds || [doc.poId]" :key="po" class="meta-po">{{ po }}</span>
+                  </span>
+                  <span v-else class="meta-none">—</span>
+                </span>
+                <span class="meta-kv">
+                  <label>Products</label>
+                  <span v-if="(doc.ocr && doc.ocr.products || []).length" class="meta-mono">{{ doc.ocr.products.join(' · ') }}</span>
+                  <span v-else class="meta-none">—</span>
+                </span>
+                <span class="ledger-by">{{ cv(doc).by }} · {{ cv(doc).at }}</span>
+              </div>
             </div>
           </div>
+          <div v-if="!ledgerDocs(grp).length" class="doc-empty">No documents match the current filters</div>
         </div>
       </el-card>
       <el-card v-if="!shipmentGroups.length"><div class="doc-empty" style="padding:30px">No shipments match your search / filters</div></el-card>
@@ -157,6 +169,7 @@
         <div class="detail-hdr">
           <div>
             <div class="detail-title"><i class="el-icon-document"></i> {{ detail.doc.docType }}</div>
+            <div class="detail-dn">{{ detail.doc.docNumber }}</div>
             <div class="detail-sub">{{ cv(detail.doc).fileName }}</div>
           </div>
         </div>
@@ -213,10 +226,30 @@
           </el-timeline>
         </div>
 
-        <!-- Phase 2 placeholder -->
-        <div class="detail-section phase2-slot">
-          <div class="sec-title">Extracted Fields <el-tag size="mini" type="info">Phase 2</el-tag></div>
-          <div class="phase2-hint">AI-extracted document fields (and manual correction) will appear here in Phase 2.</div>
+        <!-- AI-extracted fields (OCR at upload time) -->
+        <div class="detail-section">
+          <div class="sec-title">AI-Extracted Fields <span class="ocr-tag"><i class="el-icon-cpu"></i> OCR</span></div>
+          <div class="xf-grid">
+            <div class="xf-item">
+              <label>Document Number</label>
+              <span class="xf-mono xf-dn">{{ detail.doc.docNumber }}</span>
+            </div>
+            <div class="xf-item">
+              <label>PO Numbers</label>
+              <span>
+                <el-tag v-for="po in detail.doc.poIds || [detail.doc.poId]" :key="po" size="mini" class="chip chip-po" style="margin-right:4px">{{ po }}</el-tag>
+              </span>
+            </div>
+            <div class="xf-item">
+              <label>Product Numbers</label>
+              <span v-if="(detail.doc.ocr && detail.doc.ocr.products || []).length" class="xf-mono">{{ detail.doc.ocr.products.join(' · ') }}</span>
+              <span v-else class="meta-none">— none detected</span>
+            </div>
+            <div class="xf-item">
+              <label>Supplier</label>
+              <span>{{ (poById(detail.doc.poId) || {}).supplier || '—' }}</span>
+            </div>
+          </div>
         </div>
 
         <!-- Footer actions (review/approve lives in the Pepco Review page) -->
@@ -303,6 +336,28 @@
       </div>
     </el-dialog>
 
+    <!-- ════════════════ Version history dialog ════════════════ -->
+    <el-dialog :visible.sync="verDlg.visible"
+      :title="verDlg.doc ? `Version History — ${verDlg.doc.docNumber}` : 'Version History'"
+      width="560px" custom-class="brand-dialog">
+      <template v-if="verDlg.doc">
+        <div class="verdlg-sub">{{ verDlg.doc.docType }} · all versions share this Document Number</div>
+        <div v-for="v in [...verDlg.doc.versions].reverse()" :key="v.v" class="ver-row">
+          <el-tag size="mini" :type="v.v === cv(verDlg.doc).v ? 'success' : 'info'">
+            v{{ v.v }}{{ v.v === cv(verDlg.doc).v ? ' Current' : '' }}
+          </el-tag>
+          <span class="ver-file">{{ v.fileName }}</span>
+          <span class="ver-meta">{{ v.by }} · {{ v.at }}</span>
+          <span v-if="v.remark" class="ver-remark">“{{ v.remark }}”</span>
+          <el-button type="text" size="mini" icon="el-icon-download" style="margin-left:auto"
+            @click="$message.success(`Downloading ${v.fileName}…`)" />
+        </div>
+      </template>
+      <div slot="footer">
+        <el-button size="small" @click="verDlg.visible = false">Close</el-button>
+      </div>
+    </el-dialog>
+
   </div>
 </template>
 
@@ -311,7 +366,7 @@ import { roleStore } from '@/store/role'
 import {
   docStore, DOC_TYPES, DOC_STATUS, REQUIRED_TYPES,
   poById, docsForPo, docsForHbl, unassignedPos, entitiesForDoc, isShared, currentVersion,
-  addDocument, addVersion, softDeleteDoc,
+  addDocument, addVersion,
   activityForDoc, recordPackageDownload, hblUpdatedSinceDownload, searchScope, searchSuggest,
 } from '@/store/documents'
 
@@ -325,7 +380,9 @@ export default {
       filterStatuses: [],
       pendingMine: false,
       expandedHbls: { 'HBL-001': true },
-      expandedPos: { 'HBL-001|PO-001': true },
+      poFilters: {},    // { hblKey: poId } — header chip filter
+      chipsOpen: {},    // { hblKey: true } — header chips expanded past 3
+      verDlg: { visible: false, doc: null },
 
       detail: { visible: false, doc: null },
       upload: { visible: false, poId: '', doc: null, docType: '', fileName: '', remark: '' },
@@ -392,7 +449,6 @@ export default {
     searchQ() {
       if (!this.searchHit) return
       this.searchHit.hblIds.forEach(h => this.$set(this.expandedHbls, h, true))
-      this.shipmentGroups.forEach(g => g.poIds.forEach(po => this.$set(this.expandedPos, g.key + '|' + po, true)))
     },
   },
 
@@ -436,14 +492,48 @@ export default {
     },
 
     docsOfPo(poId) { return docsForPo(poId) },
-    docsOfPoFiltered(poId) {
-      let docs = docsForPo(poId)
+
+    // Flat deduplicated ledger of an HBL group, sorted type-first then newest
+    ledgerDocs(grp) {
+      const seen = new Set()
+      let docs = grp.poIds.flatMap(po => docsForPo(po)).filter(d => !seen.has(d.id) && seen.add(d.id))
+      const pf = this.poFilters[grp.key]
+      if (pf) docs = docs.filter(d => (d.poIds || [d.poId]).includes(pf))
       if (this.searchHit) docs = docs.filter(d => this.searchHit.docIds.has(d.id))
-      return docs.filter(d => this.passFilters(d))
+      docs = docs.filter(d => this.passFilters(d))
+      const order = ['Commercial Invoice', 'Packing List', 'Bill of Lading', 'ISF', 'Certificate of Origin', 'Other']
+      return docs.sort((a, b) => {
+        const t = order.indexOf(a.docType) - order.indexOf(b.docType)
+        return t !== 0 ? t : currentVersion(b).at.localeCompare(currentVersion(a).at)
+      })
     },
 
+    headerPos(grp) {
+      return this.chipsOpen[grp.key] ? grp.poIds : grp.poIds.slice(0, 3)
+    },
+    togglePoFilter(grp, po) {
+      if (this.poFilters[grp.key] === po) {
+        this.clearPoFilter(grp.key)
+      } else {
+        this.$set(this.poFilters, grp.key, po)
+        this.$set(this.expandedHbls, grp.key, true)
+      }
+    },
+    clearPoFilter(key) { this.$set(this.poFilters, key, '') },
+
+    typeBadge(t) {
+      return {
+        'Commercial Invoice':    { abbr: 'CI',  cls: 'lt-ci' },
+        'Packing List':          { abbr: 'PL',  cls: 'lt-pl' },
+        'Bill of Lading':        { abbr: 'BL',  cls: 'lt-bl' },
+        'ISF':                   { abbr: 'ISF', cls: 'lt-isf' },
+        'Certificate of Origin': { abbr: 'CO',  cls: 'lt-coo' },
+      }[t] || { abbr: 'DOC', cls: 'lt-other' }
+    },
+
+    openVersions(doc) { this.verDlg = { visible: true, doc } },
+
     toggleHbl(k) { this.$set(this.expandedHbls, k, !this.expandedHbls[k]) },
-    togglePo(k) { this.$set(this.expandedPos, k, !this.expandedPos[k]) },
 
     fetchSuggest(q, cb) { cb(searchSuggest(q).map(v => ({ value: v }))) },
 
@@ -455,8 +545,7 @@ export default {
     // ── Detail ──
     openDetail(doc) { this.detail = { visible: true, doc } },
 
-    // ── Upload / Re-upload ──
-    openUpload(poId) { this.upload = { visible: true, poId, doc: null, docType: '', fileName: '', remark: '' } },
+    // ── Re-upload (Document View only — Shipment View is read-only) ──
     openReupload(doc) { this.upload = { visible: true, poId: doc.poId, doc, docType: doc.docType, fileName: '', remark: '' } },
     submitUpload() {
       const u = this.upload
@@ -468,15 +557,6 @@ export default {
         this.$message.success(`Document uploaded to ${u.poId} (v1, Pending Review)`)
       }
       this.upload.visible = false
-    },
-
-    doDelete(doc) {
-      this.$confirm(`Void ${doc.docType} (${currentVersion(doc).fileName})? This soft-deletes the document; the action is logged.`, 'Delete Document', {
-        type: 'warning', confirmButtonText: 'Delete', cancelButtonText: 'Cancel',
-      }).then(() => {
-        softDeleteDoc(doc.id, this.userName())
-        this.$message.success('Document voided')
-      }).catch(() => {})
     },
 
     downloadOne(doc) { this.$message.success(`Downloading ${currentVersion(doc).fileName}…`) },
@@ -550,28 +630,90 @@ export default {
 .hbl-actions { display: flex; align-items: center; gap: 6px; }
 .updated-tag { font-size: 10px; }
 
-// ── PO sub-group ─────────────────────────────────────────────────────────────
-.hbl-body { border-top: 1px solid $border; padding: 6px 16px 12px 34px; }
-.po-group { margin-top: 6px; }
-.po-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 10px; background: #f8fafc; border-radius: 6px; cursor: pointer;
-  &:hover { background: #f0f4f8; }
-}
-.po-caret { color: #909399; font-size: 12px; }
-.po-title { font-weight: 600; font-size: 12px; color: #333; }
-.po-cartons { font-size: 11px; color: #999; }
-.po-doccount { font-size: 10px; color: #bbb; }
-.po-actions { margin-left: auto; display: flex; gap: 0; }
+// ── Flat document ledger ─────────────────────────────────────────────────────
+.hbl-body { border-top: 1px solid $border; padding: 8px 16px 12px 38px; }
 
-// ── Document rows ────────────────────────────────────────────────────────────
-.doc-list { padding: 4px 0 4px 26px; }
-.doc-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px; border-bottom: 1px dashed #eef1f5; font-size: 12px;
+.po-filter-bar {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: #3A71A8; background: #ecf5ff;
+  border: 1px solid #c8e0f5; border-radius: 6px;
+  padding: 6px 12px; margin-bottom: 8px;
+  strong { color: $primary; }
+  .pf-clear {
+    margin-left: auto; cursor: pointer; font-weight: 600; color: #3A71A8;
+    &:hover { color: $primary; }
+  }
+}
+
+.ledger-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 10px; border-bottom: 1px dashed #eef1f5;
   &:last-child { border-bottom: none; }
   &:hover { background: #fcfdfe; }
 }
+.lt-badge {
+  flex-shrink: 0; width: 34px; height: 34px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.3px; margin-top: 2px;
+  &.lt-ci    { background: #e8f0f6; color: $primary; }
+  &.lt-pl    { background: #e6f9ef; color: #0d9b50; }
+  &.lt-bl    { background: #fdf3e3; color: #c25e00; }
+  &.lt-isf   { background: #f3e5f5; color: #7b1fa2; }
+  &.lt-coo   { background: #fce8f0; color: #c2185b; }
+  &.lt-other { background: #f0f2f5; color: #909399; }
+}
+.ledger-main { flex: 1; min-width: 0; }
+.ledger-line-a { display: flex; align-items: center; gap: 8px; }
+.ledger-dn {
+  font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  font-size: 13px; font-weight: 700; color: $primary; letter-spacing: 0.3px;
+  cursor: pointer; white-space: nowrap;
+  &:hover { text-decoration: underline; }
+}
+.ledger-type { font-size: 11px; color: #666; white-space: nowrap; }
+.ver-chip {
+  font-size: 10px; font-weight: 700; color: #909399;
+  background: #f0f2f5; border-radius: 9px; padding: 2px 8px;
+  cursor: pointer; white-space: nowrap; flex-shrink: 0;
+  i { margin-left: 1px; font-size: 9px; }
+  &.multi { background: #e8f0f6; color: $primary; }
+  &:hover { background: #d8e6f0; color: $primary; }
+}
+.ledger-file { font-size: 11px; color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledger-actions { margin-left: auto; display: flex; gap: 0; flex-shrink: 0; }
+.ledger-line-b {
+  display: flex; align-items: center; gap: 12px; margin-top: 4px;
+  font-size: 11px;
+}
+.ocr-tag {
+  font-size: 9px; font-weight: 800; letter-spacing: 0.5px;
+  color: #7b1fa2; background: #f3e5f5; border-radius: 4px;
+  padding: 1px 6px; white-space: nowrap;
+  i { margin-right: 1px; }
+}
+.meta-kv {
+  display: flex; align-items: center; gap: 5px;
+  label { color: #bbb; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
+}
+.meta-pos { display: flex; gap: 3px; }
+.meta-po {
+  font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  font-size: 10px; font-weight: 600; color: #3A71A8;
+  background: #ecf5ff; border-radius: 4px; padding: 1px 6px;
+}
+.meta-mono {
+  font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  font-size: 10px; color: #666;
+}
+.meta-none { color: #d0d4da; }
+.ledger-by { margin-left: auto; font-size: 10px; color: #bbb; white-space: nowrap; }
+
+.chip-filter {
+  cursor: pointer;
+  &:hover { box-shadow: 0 0 0 1px #3A71A8 inset; }
+  &.active { background: $primary; color: #fff; }
+}
+
 .doc-icon { color: $primary; }
 .doc-name { font-weight: 600; cursor: pointer; color: #333; &:hover { color: $primary; } }
 .doc-file { font-size: 11px; color: #999; font-weight: 400; margin-left: 4px; }
@@ -619,8 +761,23 @@ export default {
 .ver-meta { font-size: 10px; color: #999; }
 .ver-remark { font-size: 11px; color: #c25e00; font-style: italic; }
 .dc-timeline { padding-left: 2px; ::v-deep .el-timeline-item__content { font-size: 12px; } ::v-deep .el-timeline-item__timestamp { font-size: 10px; } }
-.phase2-slot { border: 1px dashed #d3dce6; border-radius: 6px; padding: 12px; background: #fafbfc; }
-.phase2-hint { font-size: 11px; color: #aab; }
+
+// ── Detail: OCR extracted fields ─────────────────────────────────────────────
+.detail-dn {
+  font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  font-size: 13px; font-weight: 700; color: $primary; margin-top: 3px;
+}
+.xf-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px;
+  border: 1px solid $border; border-radius: 6px; padding: 12px 14px; background: #fafbfd;
+}
+.xf-item {
+  display: flex; flex-direction: column; gap: 3px; font-size: 12px;
+  label { font-size: 10px; color: #999; text-transform: uppercase; letter-spacing: 0.4px; }
+}
+.xf-mono { font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace; font-size: 11px; color: #333; }
+.xf-dn { font-size: 13px; font-weight: 700; color: $primary; }
+.verdlg-sub { font-size: 11px; color: #999; margin-bottom: 10px; }
 .detail-actions { display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid $border; padding-top: 14px; }
 
 // ── Brand dialog header ──────────────────────────────────────────────────────
