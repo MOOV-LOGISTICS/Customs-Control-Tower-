@@ -52,35 +52,28 @@
         <div class="hbl-row" @click="toggleHbl(grp.key)">
           <i :class="expandedHbls[grp.key] ? 'el-icon-arrow-down' : 'el-icon-arrow-right'" class="hbl-caret"></i>
           <span class="hbl-no">{{ grp.title }}</span>
-          <span v-if="grp.unassigned" class="hbl-unassigned-tag">POs not yet linked to a HBL</span>
-          <template v-else>
-            <!-- PO chips double as document filters (hidden when grouping BY PO) -->
-            <span v-if="grp.kind !== 'PO'" class="ent-chips" @click.stop>
-              <el-tooltip v-for="po in headerPos(grp)" :key="po" :content="poFilters[grp.key] === po ? 'Clear filter' : `Show only documents of ${po}`" placement="top">
-                <el-tag size="mini" :class="['chip', 'chip-po', 'chip-filter', { active: poFilters[grp.key] === po }]"
-                  @click.native="togglePoFilter(grp, po)">{{ po }}</el-tag>
-              </el-tooltip>
-              <el-tag v-if="grp.poIds.length > 3 && !chipsOpen[grp.key]" size="mini" class="chip chip-filter"
-                @click.native="$set(chipsOpen, grp.key, true)">+{{ grp.poIds.length - 3 }}</el-tag>
-            </span>
-            <span v-if="grp.kind !== 'HBL' && grp.hblIds.length" class="ent-chips">
-              <el-tag v-for="h in grp.hblIds" :key="h" size="mini" class="chip chip-hbl">{{ h }}</el-tag>
-            </span>
-            <span v-if="grp.kind !== 'MBL' && grp.mblIds.length" class="hbl-meta">MBL <strong>{{ grp.mblIds.join(', ') }}</strong></span>
-            <span v-if="grp.kind !== 'CONTAINER'" class="ent-chips">
-              <el-tag v-for="c in grp.containerIds" :key="c" size="mini" class="chip chip-cont">{{ c }}</el-tag>
-            </span>
-          </template>
-          <span class="hbl-completeness" :class="{ full: grp.uploaded >= grp.required }">
-            <i class="el-icon-folder-checked"></i> {{ grp.uploaded }}/{{ grp.required }} docs
+          <!-- PO chips double as document filters (hidden when grouping BY PO) -->
+          <span v-if="grp.kind !== 'PO'" class="ent-chips" @click.stop>
+            <el-tooltip v-for="po in headerPos(grp)" :key="po" :content="poFilters[grp.key] === po ? 'Clear filter' : `Show only documents of ${po}`" placement="top">
+              <el-tag size="mini" :class="['chip', 'chip-po', 'chip-filter', { active: poFilters[grp.key] === po }]"
+                @click.native="togglePoFilter(grp, po)">{{ po }}</el-tag>
+            </el-tooltip>
+            <el-tag v-if="grp.poIds.length > 3 && !chipsOpen[grp.key]" size="mini" class="chip chip-filter"
+              @click.native="$set(chipsOpen, grp.key, true)">+{{ grp.poIds.length - 3 }}</el-tag>
           </span>
-
+          <span v-if="grp.kind !== 'HBL' && grp.hblIds.length" class="ent-chips">
+            <el-tag v-for="h in grp.hblIds" :key="h" size="mini" class="chip chip-hbl">{{ h }}</el-tag>
+          </span>
+          <span v-if="grp.kind !== 'MBL' && grp.mblIds.length" class="hbl-meta">MBL <strong>{{ grp.mblIds.join(', ') }}</strong></span>
+          <span v-if="grp.kind !== 'CONTAINER'" class="ent-chips">
+            <el-tag v-for="c in grp.containerIds" :key="c" size="mini" class="chip chip-cont">{{ c }}</el-tag>
+          </span>
           <span class="hbl-updated">{{ grp.lastUpdated }}</span>
           <span class="hbl-actions" @click.stop>
             <el-tag v-if="isBroker && grp.updatedSince" size="mini" type="warning" class="updated-tag">
               ⚠ Updated since your last download
             </el-tag>
-            <el-button v-if="canPackage && !grp.unassigned" type="primary" size="mini" icon="el-icon-download"
+            <el-button v-if="canPackage" type="primary" size="mini" icon="el-icon-download"
               @click="openPackage(grp.kind, grp.key)">Download All</el-button>
           </span>
         </div>
@@ -451,7 +444,7 @@
 import { roleStore } from '@/store/role'
 import {
   docStore, DOC_TYPES, REQUIRED_TYPES,
-  poById, docsForPo, docsForHbl, unassignedPos, entitiesForDoc, isShared, currentVersion,
+  poById, docsForPo, docsForHbl, entitiesForDoc, isShared, currentVersion,
   addDocument, addVersion,
   activityForDoc, recordPackageDownload, hblUpdatedSinceDownload, searchScope, searchSuggest,
 } from '@/store/documents'
@@ -494,7 +487,6 @@ export default {
 
     searchHit() { return searchScope(this.searchQ) },
 
-    // HBL groups + "Unassigned to HBL" pseudo group, role-trimmed and search-filtered
     // Groups for the selected dimension — same descriptor shape for all four:
     // { kind, key, title, poIds, hblIds, containerIds, mblIds }
     shipmentGroups() {
@@ -549,16 +541,6 @@ export default {
         })
       }
 
-      // POs not yet linked to a HBL: pseudo group in entity dims; in the PO
-      // dimension they are already first-class groups
-      const un = unassignedPos()
-      if (dim !== 'PO' && un.length && !this.isBroker) {
-        groups.push(this.mkGroup({
-          kind: dim, key: 'UNASSIGNED', title: 'Unassigned to HBL',
-          poIds: un.map(p => p.id), hblIds: [], containerIds: [], mblIds: [],
-        }, true))
-      }
-
       if (this.searchHit) groups = groups.filter(g =>
         g.poIds.some(po => docsForPo(po).some(d => this.searchHit.docIds.has(d.id))))
 
@@ -604,7 +586,7 @@ export default {
     poById, cv: currentVersion, shared: isShared, entities: entitiesForDoc, activityOf: activityForDoc,
 
     // Enrich a dimension descriptor with doc stats (docs deduped across POs)
-    mkGroup(g, unassigned = false) {
+    mkGroup(g) {
       const seen = new Set()
       const docs = g.poIds.flatMap(po => docsForPo(po)).filter(d => !seen.has(d.id) && seen.add(d.id))
       const counts = { PENDING_REVIEW: 0, PENDING_REREVIEW: 0, APPROVED: 0, REJECTED: 0 }
@@ -614,9 +596,9 @@ export default {
         n + REQUIRED_TYPES.filter(t => docsForPo(po).some(d => d.docType === t)).length, 0)
       const lastUpdated = docs.map(d => currentVersion(d).at).sort().pop() || '—'
       return {
-        ...g, unassigned,
+        ...g,
         counts, required, uploaded, lastUpdated,
-        updatedSince: g.kind === 'HBL' && !unassigned ? hblUpdatedSinceDownload(g.key) : false,
+        updatedSince: g.kind === 'HBL' ? hblUpdatedSinceDownload(g.key) : false,
       }
     },
 
@@ -776,7 +758,6 @@ export default {
 }
 .hbl-caret { color: #909399; font-size: 13px; flex-shrink: 0; }
 .hbl-no { font-weight: 700; color: $primary; font-size: 13px; white-space: nowrap; }
-.hbl-unassigned-tag { font-size: 11px; color: #e6a817; }
 .hbl-meta { font-size: 11px; color: #666; white-space: nowrap; strong { color: #333; } }
 .ent-chips { display: flex; gap: 4px; flex-wrap: wrap; }
 .chip { font-size: 10px; border: none; }
@@ -784,10 +765,6 @@ export default {
 .chip-hbl  { background: #fdf3e3; color: #c25e00; }
 .chip-mbl  { background: #fce8f0; color: #c2185b; }
 .chip-cont { background: #e6f9ef; color: #0d9b50; }
-.hbl-completeness {
-  font-size: 11px; font-weight: 600; color: #e6a817; white-space: nowrap;
-  &.full { color: #13ce66; }
-}
 .hbl-badges { display: flex; gap: 4px; flex-wrap: wrap; }
 .cnt-badge {
   font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 9px; white-space: nowrap;
