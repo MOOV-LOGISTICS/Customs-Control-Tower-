@@ -119,7 +119,6 @@
 
           <!-- LIST mode: ledger rows -->
           <div v-else v-for="doc in ledgerDocs(grp)" :key="doc.id" class="ledger-row">
-            <span :class="['lt-badge', typeBadge(doc.docType).cls]">{{ typeBadge(doc.docType).abbr }}</span>
             <div class="ledger-main">
               <div class="ledger-line-a">
                 <span class="ledger-dn" @click="openDetail(doc)">{{ doc.docNumber }}</span>
@@ -141,17 +140,11 @@
                 </span>
               </div>
               <div class="ledger-line-b">
-                <span class="ocr-tag"><i class="el-icon-cpu"></i> OCR</span>
                 <span class="meta-kv">
                   <label>PO</label>
                   <span v-if="(doc.poIds || [doc.poId]).length" class="meta-pos">
                     <span v-for="po in doc.poIds || [doc.poId]" :key="po" class="meta-po">{{ po }}</span>
                   </span>
-                  <span v-else class="meta-none">—</span>
-                </span>
-                <span class="meta-kv">
-                  <label>Products</label>
-                  <span v-if="(doc.ocr && doc.ocr.products || []).length" class="meta-mono">{{ doc.ocr.products.join(' · ') }}</span>
                   <span v-else class="meta-none">—</span>
                 </span>
                 <span class="ledger-by">{{ cv(doc).by }} · {{ cv(doc).at }}</span>
