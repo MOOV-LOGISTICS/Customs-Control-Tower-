@@ -387,24 +387,6 @@
       :title="pv.doc ? `Preview — ${pv.doc.docType} (v${pv.v.v})` : 'Preview'"
       width="760px" top="5vh" append-to-body>
       <div v-if="pv.doc" class="preview-dialog">
-        <div class="preview-meta">
-          <el-descriptions :column="3" size="mini" border>
-            <el-descriptions-item label="Document No.">
-              <span class="xf-mono xf-dn">{{ pv.doc.docNumber }}</span>
-            </el-descriptions-item>
-            <el-descriptions-item label="Version">
-              <el-tag size="mini" :type="pvIsCurrent ? 'success' : 'warning'">
-                v{{ pv.v.v }} · {{ pvIsCurrent ? 'Current' : 'Superseded' }}
-              </el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item label="Uploaded">{{ pv.v.at }}</el-descriptions-item>
-            <el-descriptions-item label="File Name" :span="2">{{ pv.v.fileName }}</el-descriptions-item>
-            <el-descriptions-item label="PO Number(s)">
-              <span style="color:#004F7C;font-weight:600">{{ (pv.doc.poIds || [pv.doc.poId]).join(', ') }}</span>
-            </el-descriptions-item>
-          </el-descriptions>
-        </div>
-
         <div v-if="pvIsCurrent" class="preview-verify-bar">
           <i class="el-icon-circle-check" style="color:#13ce66"></i>
           <span>Current valid version — OCR fields extracted at upload time</span>
@@ -453,8 +435,6 @@
         </div>
       </div>
       <div slot="footer">
-        <el-button size="small" icon="el-icon-download" type="primary"
-          @click="$message.success(`Downloading ${pv.v.fileName}…`)">Download</el-button>
         <el-button size="small" @click="pv.visible = false">Close</el-button>
       </div>
     </el-dialog>
