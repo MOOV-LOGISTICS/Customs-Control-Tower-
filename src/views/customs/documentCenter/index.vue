@@ -71,10 +71,6 @@
               <el-tag v-for="c in grp.containerIds" :key="c" size="mini" class="chip chip-cont">{{ c }}</el-tag>
             </span>
           </template>
-          <span class="hbl-completeness" :class="{ full: grp.uploaded >= grp.required }">
-            <i class="el-icon-folder-checked"></i> {{ grp.uploaded }}/{{ grp.required }} docs
-          </span>
-
           <span class="hbl-updated">{{ grp.lastUpdated }}</span>
           <span class="hbl-actions" @click.stop>
             <el-tag v-if="isBroker && grp.updatedSince" size="mini" type="warning" class="updated-tag">
@@ -784,10 +780,6 @@ export default {
 .chip-hbl  { background: #fdf3e3; color: #c25e00; }
 .chip-mbl  { background: #fce8f0; color: #c2185b; }
 .chip-cont { background: #e6f9ef; color: #0d9b50; }
-.hbl-completeness {
-  font-size: 11px; font-weight: 600; color: #e6a817; white-space: nowrap;
-  &.full { color: #13ce66; }
-}
 .hbl-badges { display: flex; gap: 4px; flex-wrap: wrap; }
 .cnt-badge {
   font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 9px; white-space: nowrap;
