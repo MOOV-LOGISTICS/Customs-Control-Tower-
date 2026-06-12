@@ -230,8 +230,10 @@ export function log(docId, action, user, detail) {
   docStore.activity.unshift({ id: ++LOG_SEQ, docId, action, user, at: nowStr(), detail })
 }
 
+// Newest first — the most recent action sits at the top of the timeline
 export function activityForDoc(docId) {
   return docStore.activity.filter(a => a.docId === docId)
+    .sort((a, b) => b.at.localeCompare(a.at))
 }
 
 // ── Broker package download + "updated since last download" ────────────────
