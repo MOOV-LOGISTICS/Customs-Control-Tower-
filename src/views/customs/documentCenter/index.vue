@@ -19,10 +19,6 @@
         <el-select v-model="filterTypes" size="mini" multiple collapse-tags placeholder="Doc Type" style="width:180px">
           <el-option v-for="t in docTypes" :key="t" :label="t" :value="t" />
         </el-select>
-        <el-select v-model="filterStatuses" size="mini" multiple collapse-tags placeholder="Status" style="width:190px">
-          <el-option v-for="(s, k) in statusMap" :key="k" :label="s.label" :value="k" />
-        </el-select>
-        <el-switch v-model="pendingMine" active-text="Pending my action" style="margin-left:auto" />
       </div>
       <div class="dc-rolehint">
         <i class="el-icon-user"></i>
@@ -364,7 +360,7 @@
 <script>
 import { roleStore } from '@/store/role'
 import {
-  docStore, DOC_TYPES, DOC_STATUS, REQUIRED_TYPES,
+  docStore, DOC_TYPES, REQUIRED_TYPES,
   poById, docsForPo, docsForHbl, unassignedPos, entitiesForDoc, isShared, currentVersion,
   addDocument, addVersion,
   activityForDoc, recordPackageDownload, hblUpdatedSinceDownload, searchScope, searchSuggest,
@@ -377,8 +373,7 @@ export default {
       view: 'shipment',
       searchQ: '',
       filterTypes: [],
-      filterStatuses: [],
-      pendingMine: false,
+
       expandedHbls: { 'HBL-001': true },
       poFilters: {},    // { hblKey: poId } — header chip filter
       chipsOpen: {},    // { hblKey: true } — header chips expanded past 3
@@ -389,7 +384,7 @@ export default {
       pkg: { visible: false, scopeType: 'HBL', scopeId: '', onlyApproved: true, state: 'config', progress: 0 },
 
       docTypes: DOC_TYPES,
-      statusMap: DOC_STATUS,
+
     }
   },
 
@@ -482,13 +477,7 @@ export default {
     },
 
     passFilters(d) {
-      if (this.filterTypes.length && !this.filterTypes.includes(d.docType)) return false
-      if (this.filterStatuses.length && !this.filterStatuses.includes(d.status)) return false
-      if (this.pendingMine) {
-        if (this.isSupplier && d.status !== 'REJECTED') return false
-        if ((this.isPepco || this.isOps) && !['PENDING_REVIEW', 'PENDING_REREVIEW'].includes(d.status)) return false
-      }
-      return true
+      return !this.filterTypes.length || this.filterTypes.includes(d.docType)
     },
 
     docsOfPo(poId) { return docsForPo(poId) },
