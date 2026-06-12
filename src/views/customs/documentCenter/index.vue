@@ -376,11 +376,7 @@
       :title="pv.doc ? `Preview — ${pv.doc.docType} (v${pv.v.v})` : 'Preview'"
       width="760px" top="5vh" append-to-body>
       <div v-if="pv.doc" class="preview-dialog">
-        <div v-if="pvIsCurrent" class="preview-verify-bar">
-          <i class="el-icon-circle-check" style="color:#13ce66"></i>
-          <span>Current valid version — OCR fields extracted at upload time</span>
-        </div>
-        <div v-else class="preview-verify-bar superseded">
+        <div v-if="!pvIsCurrent" class="preview-verify-bar superseded">
           <i class="el-icon-warning-outline" style="color:#E6A817"></i>
           <span>Superseded version — v{{ cv(pv.doc).v }} is the current valid version of this document</span>
         </div>
