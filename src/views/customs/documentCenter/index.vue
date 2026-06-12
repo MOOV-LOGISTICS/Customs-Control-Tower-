@@ -19,9 +19,9 @@
         <template v-if="view === 'shipment'">
           <span class="gb-label">Group by</span>
           <el-radio-group v-model="groupBy" size="mini">
-            <el-radio-button label="HBL">HBL</el-radio-button>
             <el-radio-button label="MBL">MBL</el-radio-button>
             <el-radio-button label="CONTAINER">Container</el-radio-button>
+            <el-radio-button label="HBL">HBL</el-radio-button>
             <el-radio-button label="PO">PO</el-radio-button>
           </el-radio-group>
           <el-tooltip placement="top"
