@@ -16,6 +16,13 @@
           <el-radio-button label="shipment">Shipment View</el-radio-button>
           <el-radio-button label="document">Document View</el-radio-button>
         </el-radio-group>
+        <el-tooltip v-if="view === 'shipment'" placement="top"
+          :content="userViewMode ? 'Display mode (your preference is remembered)' : 'Auto — small groups show as cards, large ones as a list'">
+          <el-radio-group :value="userViewMode" size="mini" @input="setViewMode">
+            <el-radio-button label="list"><i class="el-icon-s-fold"></i> List</el-radio-button>
+            <el-radio-button label="grid"><i class="el-icon-menu"></i> Grid</el-radio-button>
+          </el-radio-group>
+        </el-tooltip>
         <el-select v-model="filterTypes" size="mini" multiple collapse-tags placeholder="Doc Type" style="width:180px">
           <el-option v-for="t in docTypes" :key="t" :label="t" :value="t" />
         </el-select>
@@ -73,7 +80,32 @@
             <span class="pf-clear" @click="clearPoFilter(grp.key)"><i class="el-icon-close"></i> Clear</span>
           </div>
 
-          <div v-for="doc in ledgerDocs(grp)" :key="doc.id" class="ledger-row">
+          <!-- GRID mode: tile cards, like a desktop folder -->
+          <div v-if="modeFor(grp) === 'grid'" class="ledger-grid">
+            <div v-for="doc in ledgerDocs(grp)" :key="doc.id" class="doc-card" @click="previewVersion(doc, cv(doc))">
+              <div class="card-top">
+                <span :class="['lt-badge', typeBadge(doc.docType).cls]">{{ typeBadge(doc.docType).abbr }}</span>
+                <span :class="['ver-chip', { multi: doc.versions.length > 1 }]" @click.stop="openVersions(doc)">
+                  v{{ cv(doc).v }}<i v-if="doc.versions.length > 1" class="el-icon-caret-bottom"></i>
+                </span>
+              </div>
+              <div class="card-dn">{{ doc.docNumber }}</div>
+              <div class="card-type">{{ doc.docType }}</div>
+              <div class="card-file">{{ cv(doc).fileName }}</div>
+              <div class="card-pos">
+                <span v-for="po in doc.poIds || [doc.poId]" :key="po" class="meta-po">{{ po }}</span>
+                <span v-if="shared(doc)" class="shared-tag">🔗</span>
+              </div>
+              <div class="card-actions" @click.stop>
+                <el-button type="text" size="mini" icon="el-icon-view" @click="previewVersion(doc, cv(doc))" />
+                <el-button type="text" size="mini" icon="el-icon-download" @click="downloadOne(doc)" />
+                <el-button type="text" size="mini" icon="el-icon-info" @click="openDetail(doc)" />
+              </div>
+            </div>
+          </div>
+
+          <!-- LIST mode: ledger rows -->
+          <div v-else v-for="doc in ledgerDocs(grp)" :key="doc.id" class="ledger-row">
             <span :class="['lt-badge', typeBadge(doc.docType).cls]">{{ typeBadge(doc.docType).abbr }}</span>
             <div class="ledger-main">
               <div class="ledger-line-a">
@@ -466,6 +498,8 @@ export default {
       chipsOpen: {},    // { hblKey: true } — header chips expanded past 3
       verDlg: { visible: false, doc: null },
       pv: { visible: false, doc: null, v: null },   // in-page file preview dialog
+      // '' = auto (≤6 docs → grid, otherwise list); 'list'/'grid' = user preference
+      userViewMode: localStorage.getItem('dcViewMode') || '',
 
       detail: { visible: false, doc: null },
       upload: { visible: false, poId: '', doc: null, docType: '', fileName: '', remark: '' },
@@ -610,6 +644,17 @@ export default {
     },
 
     openVersions(doc) { this.verDlg = { visible: true, doc } },
+
+    // Display mode: explicit user choice wins; otherwise auto by group size
+    modeFor(grp) {
+      return this.userViewMode || (this.ledgerDocs(grp).length <= 6 ? 'grid' : 'list')
+    },
+    setViewMode(mode) {
+      // clicking the active button again returns to auto
+      this.userViewMode = this.userViewMode === mode ? '' : mode
+      if (this.userViewMode) localStorage.setItem('dcViewMode', this.userViewMode)
+      else localStorage.removeItem('dcViewMode')
+    },
 
 
     // Open the in-page preview dialog for one specific version (same UX as Document Upload)
@@ -794,6 +839,34 @@ export default {
   cursor: pointer;
   &:hover { box-shadow: 0 0 0 1px #3A71A8 inset; }
   &.active { background: $primary; color: #fff; }
+}
+
+// ── Grid (tile card) mode ────────────────────────────────────────────────────
+.ledger-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px; padding: 4px 0;
+}
+.doc-card {
+  position: relative; background: #fff; border: 1px solid $border; border-radius: 8px;
+  padding: 12px 14px; cursor: pointer; transition: box-shadow .15s, transform .15s;
+  &:hover {
+    box-shadow: 0 3px 10px rgba(0, 79, 124, 0.12); transform: translateY(-1px);
+    .card-actions { opacity: 1; }
+  }
+}
+.card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.card-dn {
+  font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace;
+  font-size: 13px; font-weight: 700; color: $primary; letter-spacing: 0.3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card-type { font-size: 11px; color: #666; margin-top: 1px; }
+.card-file { font-size: 10px; color: #aaa; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-pos { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 7px; align-items: center; }
+.card-actions {
+  position: absolute; right: 8px; bottom: 6px; opacity: 0; transition: opacity .15s;
+  background: rgba(255,255,255,0.95); border-radius: 6px; padding: 0 2px;
+  display: flex; gap: 0;
 }
 
 .doc-icon { color: $primary; }
