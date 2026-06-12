@@ -241,7 +241,16 @@ export function activityForDoc(docId) {
 export function recordPackageDownload(scopeType, scopeId, packagedDocs, user) {
   // Snapshot covers ALL documents in scope at download time (not only the
   // packaged subset), so the "updated since" badge fires only on real changes.
-  const scopeDocs = scopeType === 'HBL' ? docsForHbl(scopeId) : docsForPo(scopeId)
+  let scopeDocs
+  if (scopeType === 'HBL') scopeDocs = docsForHbl(scopeId)
+  else if (scopeType === 'PO') scopeDocs = docsForPo(scopeId)
+  else {
+    const hbls = scopeType === 'MBL'
+      ? docStore.hbls.filter(h => h.mblId === scopeId)
+      : docStore.hbls.filter(h => h.containerIds.includes(scopeId))
+    const seen = new Set()
+    scopeDocs = hbls.flatMap(h => docsForHbl(h.id)).filter(d => !seen.has(d.id) && seen.add(d.id))
+  }
   const snapshot = {}
   scopeDocs.forEach(d => { snapshot[d.id] = currentVersion(d).v })
   docStore.brokerDownloads.unshift({ scopeType, scopeId, by: user, at: nowStr(), snapshot })

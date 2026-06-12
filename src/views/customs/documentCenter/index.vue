@@ -16,13 +16,22 @@
           <el-radio-button label="shipment">Shipment View</el-radio-button>
           <el-radio-button label="document">Document View</el-radio-button>
         </el-radio-group>
-        <el-tooltip v-if="view === 'shipment'" placement="top"
-          :content="userViewMode ? 'Display mode (your preference is remembered)' : 'Auto — small groups show as cards, large ones as a list'">
-          <el-radio-group :value="userViewMode" size="mini" @input="setViewMode">
-            <el-radio-button label="list"><i class="el-icon-s-fold"></i> List</el-radio-button>
-            <el-radio-button label="grid"><i class="el-icon-menu"></i> Grid</el-radio-button>
+        <template v-if="view === 'shipment'">
+          <span class="gb-label">Group by</span>
+          <el-radio-group v-model="groupBy" size="mini">
+            <el-radio-button label="HBL">HBL</el-radio-button>
+            <el-radio-button label="MBL">MBL</el-radio-button>
+            <el-radio-button label="CONTAINER">Container</el-radio-button>
+            <el-radio-button label="PO">PO</el-radio-button>
           </el-radio-group>
-        </el-tooltip>
+          <el-tooltip placement="top"
+            :content="userViewMode ? 'Display mode (your preference is remembered)' : 'Auto — small groups show as cards, large ones as a list'">
+            <el-radio-group :value="userViewMode" size="mini" @input="setViewMode">
+              <el-radio-button label="list"><i class="el-icon-s-fold"></i> List</el-radio-button>
+              <el-radio-button label="grid"><i class="el-icon-menu"></i> Grid</el-radio-button>
+            </el-radio-group>
+          </el-tooltip>
+        </template>
         <el-select v-model="filterTypes" size="mini" multiple collapse-tags placeholder="Doc Type" style="width:180px">
           <el-option v-for="t in docTypes" :key="t" :label="t" :value="t" />
         </el-select>
@@ -45,7 +54,8 @@
           <span class="hbl-no">{{ grp.title }}</span>
           <span v-if="grp.unassigned" class="hbl-unassigned-tag">POs not yet linked to a HBL</span>
           <template v-else>
-            <span class="ent-chips" @click.stop>
+            <!-- PO chips double as document filters (hidden when grouping BY PO) -->
+            <span v-if="grp.kind !== 'PO'" class="ent-chips" @click.stop>
               <el-tooltip v-for="po in headerPos(grp)" :key="po" :content="poFilters[grp.key] === po ? 'Clear filter' : `Show only documents of ${po}`" placement="top">
                 <el-tag size="mini" :class="['chip', 'chip-po', 'chip-filter', { active: poFilters[grp.key] === po }]"
                   @click.native="togglePoFilter(grp, po)">{{ po }}</el-tag>
@@ -53,8 +63,11 @@
               <el-tag v-if="grp.poIds.length > 3 && !chipsOpen[grp.key]" size="mini" class="chip chip-filter"
                 @click.native="$set(chipsOpen, grp.key, true)">+{{ grp.poIds.length - 3 }}</el-tag>
             </span>
-            <span class="hbl-meta">MBL <strong>{{ grp.mblId }}</strong></span>
-            <span class="ent-chips">
+            <span v-if="grp.kind !== 'HBL' && grp.hblIds.length" class="ent-chips">
+              <el-tag v-for="h in grp.hblIds" :key="h" size="mini" class="chip chip-hbl">{{ h }}</el-tag>
+            </span>
+            <span v-if="grp.kind !== 'MBL' && grp.mblIds.length" class="hbl-meta">MBL <strong>{{ grp.mblIds.join(', ') }}</strong></span>
+            <span v-if="grp.kind !== 'CONTAINER'" class="ent-chips">
               <el-tag v-for="c in grp.containerIds" :key="c" size="mini" class="chip chip-cont">{{ c }}</el-tag>
             </span>
           </template>
@@ -68,7 +81,7 @@
               ⚠ Updated since your last download
             </el-tag>
             <el-button v-if="canPackage && !grp.unassigned" type="primary" size="mini" icon="el-icon-download"
-              @click="openPackage('HBL', grp.key)">Download All</el-button>
+              @click="openPackage(grp.kind, grp.key)">Download All</el-button>
           </span>
         </div>
 
@@ -500,6 +513,7 @@ export default {
       pv: { visible: false, doc: null, v: null },   // in-page file preview dialog
       // '' = auto (≤6 docs → grid, otherwise list); 'list'/'grid' = user preference
       userViewMode: localStorage.getItem('dcViewMode') || '',
+      groupBy: 'HBL',   // HBL | MBL | CONTAINER | PO
 
       detail: { visible: false, doc: null },
       upload: { visible: false, poId: '', doc: null, docType: '', fileName: '', remark: '' },
@@ -523,21 +537,72 @@ export default {
     searchHit() { return searchScope(this.searchQ) },
 
     // HBL groups + "Unassigned to HBL" pseudo group, role-trimmed and search-filtered
+    // Groups for the selected dimension — same descriptor shape for all four:
+    // { kind, key, title, poIds, hblIds, containerIds, mblIds }
     shipmentGroups() {
-      let hbls = docStore.hbls
-      if (this.isBroker) hbls = hbls.filter(h => docStore.brokerAssignedHbls.includes(h.id))
-      let groups = hbls.map(h => this.mkGroup(h))
+      const dim = this.groupBy
+      const visHbls = this.isBroker
+        ? docStore.hbls.filter(h => docStore.brokerAssignedHbls.includes(h.id))
+        : docStore.hbls
+      let groups
 
+      if (dim === 'HBL') {
+        groups = visHbls.map(h => this.mkGroup({
+          kind: 'HBL', key: h.id, title: h.id,
+          poIds: h.poIds, hblIds: [h.id], containerIds: h.containerIds, mblIds: [h.mblId],
+        }))
+      } else if (dim === 'MBL') {
+        const mbls = [...new Set(visHbls.map(h => h.mblId))]
+        groups = mbls.map(m => {
+          const hbls = visHbls.filter(h => h.mblId === m)
+          return this.mkGroup({
+            kind: 'MBL', key: m, title: m,
+            poIds: [...new Set(hbls.flatMap(h => h.poIds))],
+            hblIds: hbls.map(h => h.id),
+            containerIds: [...new Set(hbls.flatMap(h => h.containerIds))],
+            mblIds: [m],
+          })
+        })
+      } else if (dim === 'CONTAINER') {
+        const conts = [...new Set(visHbls.flatMap(h => h.containerIds))]
+        groups = conts.map(c => {
+          const hbls = visHbls.filter(h => h.containerIds.includes(c))
+          return this.mkGroup({
+            kind: 'CONTAINER', key: c, title: c,
+            poIds: [...new Set(hbls.flatMap(h => h.poIds))],
+            hblIds: hbls.map(h => h.id),
+            containerIds: [c],
+            mblIds: [...new Set(hbls.map(h => h.mblId))],
+          })
+        })
+      } else { // PO
+        const poIds = this.isBroker
+          ? [...new Set(visHbls.flatMap(h => h.poIds))]
+          : docStore.pos.map(p => p.id)
+        groups = poIds.map(poId => {
+          const hbls = visHbls.filter(h => h.poIds.includes(poId))
+          return this.mkGroup({
+            kind: 'PO', key: poId, title: poId,
+            poIds: [poId],
+            hblIds: hbls.map(h => h.id),
+            containerIds: [...new Set(hbls.flatMap(h => h.containerIds))],
+            mblIds: [...new Set(hbls.map(h => h.mblId))],
+          })
+        })
+      }
+
+      // POs not yet linked to a HBL: pseudo group in entity dims; in the PO
+      // dimension they are already first-class groups
       const un = unassignedPos()
-      if (un.length && !this.isBroker) {
+      if (dim !== 'PO' && un.length && !this.isBroker) {
         groups.push(this.mkGroup({
-          id: 'UNASSIGNED', poIds: un.map(p => p.id), containerIds: [], mblId: '',
+          kind: dim, key: 'UNASSIGNED', title: 'Unassigned to HBL',
+          poIds: un.map(p => p.id), hblIds: [], containerIds: [], mblIds: [],
         }, true))
       }
 
-      if (this.searchHit) groups = groups.filter(g => g.unassigned
-        ? g.poIds.some(po => docsForPo(po).some(d => this.searchHit.docIds.has(d.id)))
-        : this.searchHit.hblIds.has(g.key))
+      if (this.searchHit) groups = groups.filter(g =>
+        g.poIds.some(po => docsForPo(po).some(d => this.searchHit.docIds.has(d.id))))
 
       // groups with documents needing action first
       return groups.sort((a, b) => this.actionWeight(b) - this.actionWeight(a))
@@ -556,36 +621,44 @@ export default {
 
     pkgDocs() {
       if (!this.pkg.scopeId) return []
-      let docs = this.pkg.scopeType === 'HBL' ? docsForHbl(this.pkg.scopeId) : docsForPo(this.pkg.scopeId)
+      let docs = this.docsForScope(this.pkg.scopeType, this.pkg.scopeId)
       if (this.pkg.onlyApproved) docs = docs.filter(d => d.status === 'APPROVED')
       return docs
     },
   },
 
   watch: {
-    // expand matched HBLs automatically when searching
+    // expand matched groups automatically when searching
     searchQ() {
       if (!this.searchHit) return
-      this.searchHit.hblIds.forEach(h => this.$set(this.expandedHbls, h, true))
+      this.shipmentGroups.forEach(g => this.$set(this.expandedHbls, g.key, true))
+    },
+    // dimension switch: reset filters, expand the first group
+    groupBy() {
+      this.poFilters = {}
+      this.chipsOpen = {}
+      const first = this.shipmentGroups[0]
+      this.expandedHbls = first ? { [first.key]: true } : {}
     },
   },
 
   methods: {
     poById, cv: currentVersion, shared: isShared, entities: entitiesForDoc, activityOf: activityForDoc,
 
-    mkGroup(hbl, unassigned = false) {
-      const docs = hbl.poIds.flatMap(po => docsForPo(po))
+    // Enrich a dimension descriptor with doc stats (docs deduped across POs)
+    mkGroup(g, unassigned = false) {
+      const seen = new Set()
+      const docs = g.poIds.flatMap(po => docsForPo(po)).filter(d => !seen.has(d.id) && seen.add(d.id))
       const counts = { PENDING_REVIEW: 0, PENDING_REREVIEW: 0, APPROVED: 0, REJECTED: 0 }
       docs.forEach(d => counts[d.status]++)
-      const required = hbl.poIds.length * REQUIRED_TYPES.length
-      const uploaded = hbl.poIds.reduce((n, po) =>
+      const required = g.poIds.length * REQUIRED_TYPES.length
+      const uploaded = g.poIds.reduce((n, po) =>
         n + REQUIRED_TYPES.filter(t => docsForPo(po).some(d => d.docType === t)).length, 0)
       const lastUpdated = docs.map(d => currentVersion(d).at).sort().pop() || '—'
       return {
-        key: hbl.id, title: unassigned ? 'Unassigned to HBL' : hbl.id, unassigned,
-        poIds: hbl.poIds, containerIds: hbl.containerIds, mblId: hbl.mblId,
+        ...g, unassigned,
         counts, required, uploaded, lastUpdated,
-        updatedSince: unassigned ? false : hblUpdatedSinceDownload(hbl.id),
+        updatedSince: g.kind === 'HBL' && !unassigned ? hblUpdatedSinceDownload(g.key) : false,
       }
     },
 
@@ -604,6 +677,17 @@ export default {
     },
 
     docsOfPo(poId) { return docsForPo(poId) },
+
+    // Deduplicated documents of any scope type (used by Download All packaging)
+    docsForScope(type, id) {
+      if (type === 'PO') return docsForPo(id)
+      if (type === 'HBL') return docsForHbl(id)
+      const hbls = type === 'MBL'
+        ? docStore.hbls.filter(h => h.mblId === id)
+        : docStore.hbls.filter(h => h.containerIds.includes(id))
+      const seen = new Set()
+      return hbls.flatMap(h => docsForHbl(h.id)).filter(d => !seen.has(d.id) && seen.add(d.id))
+    },
 
     // Flat deduplicated ledger of an HBL group, sorted type-first then newest
     ledgerDocs(grp) {
@@ -718,6 +802,7 @@ export default {
 // ── Top bar ──────────────────────────────────────────────────────────────────
 .dc-topbar { margin-bottom: 12px; ::v-deep .el-card__body { padding: 12px 16px; } }
 .dc-topbar-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gb-label { font-size: 11px; color: #909399; margin-left: 4px; white-space: nowrap; }
 .dc-rolehint {
   margin-top: 8px; font-size: 11px; color: #888;
   i { color: $primary; margin-right: 2px; }
