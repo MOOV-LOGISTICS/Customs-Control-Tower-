@@ -404,31 +404,6 @@
     <!-- ── Preview Dialog ──────────────────────────────────────────────── -->
     <el-dialog :visible.sync="preview.visible" :title="preview.title" width="760px" top="5vh" append-to-body>
       <div class="preview-dialog">
-        <div class="preview-meta">
-          <el-descriptions :column="3" size="mini" border>
-            <el-descriptions-item label="Document Type">{{ preview.docType }}</el-descriptions-item>
-            <el-descriptions-item label="Version">
-              <el-tag size="mini" :type="preview.status === 'VERIFIED' ? 'success' : 'warning'">
-                v{{ preview.version }} · {{ preview.status === 'VERIFIED' ? 'Verified' : 'Unverified' }}
-              </el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item label="Uploaded">{{ preview.uploadedAt }}</el-descriptions-item>
-            <el-descriptions-item label="File Name" :span="2">{{ preview.fileName }}</el-descriptions-item>
-            <el-descriptions-item label="PO Number">
-              <span style="color:#004F7C;font-weight:600">{{ preview.poNumber }}</span>
-            </el-descriptions-item>
-          </el-descriptions>
-        </div>
-
-        <div v-if="preview.status === 'VERIFIED'" class="preview-verify-bar">
-          <i class="el-icon-circle-check" style="color:#13ce66"></i>
-          <span>AI Verified — Document type, PO Number and Supplier all matched</span>
-        </div>
-        <div v-else class="preview-verify-bar unverified">
-          <i class="el-icon-warning-outline" style="color:#E6A817"></i>
-          <span>Unverified — Pending OHA review</span>
-        </div>
-
         <div class="pdf-viewer">
           <div class="pdf-page">
             <div class="pdf-header-row">
