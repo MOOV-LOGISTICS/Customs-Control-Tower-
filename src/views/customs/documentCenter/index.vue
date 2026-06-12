@@ -90,8 +90,9 @@
                 </el-tooltip>
                 <span class="ledger-file">{{ cv(doc).fileName }}</span>
                 <span class="ledger-actions">
-                  <el-button type="text" size="mini" icon="el-icon-view" @click="openDetail(doc)">Preview</el-button>
+                  <el-button type="text" size="mini" icon="el-icon-view" @click="previewVersion(doc, cv(doc))">Preview</el-button>
                   <el-button type="text" size="mini" icon="el-icon-download" @click="downloadOne(doc)">Download</el-button>
+                  <el-button type="text" size="mini" icon="el-icon-info" @click="openDetail(doc)">Detail</el-button>
                 </span>
               </div>
               <div class="ledger-line-b">
@@ -337,6 +338,83 @@
       </div>
     </el-dialog>
 
+    <!-- ════════════════ File preview dialog (in-page, same as Document Upload) ════ -->
+    <el-dialog :visible.sync="pv.visible"
+      :title="pv.doc ? `Preview — ${pv.doc.docType} (v${pv.v.v})` : 'Preview'"
+      width="760px" top="5vh" append-to-body>
+      <div v-if="pv.doc" class="preview-dialog">
+        <div class="preview-meta">
+          <el-descriptions :column="3" size="mini" border>
+            <el-descriptions-item label="Document No.">
+              <span class="xf-mono xf-dn">{{ pv.doc.docNumber }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="Version">
+              <el-tag size="mini" :type="pvIsCurrent ? 'success' : 'warning'">
+                v{{ pv.v.v }} · {{ pvIsCurrent ? 'Current' : 'Superseded' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="Uploaded">{{ pv.v.at }}</el-descriptions-item>
+            <el-descriptions-item label="File Name" :span="2">{{ pv.v.fileName }}</el-descriptions-item>
+            <el-descriptions-item label="PO Number(s)">
+              <span style="color:#004F7C;font-weight:600">{{ (pv.doc.poIds || [pv.doc.poId]).join(', ') }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
+        </div>
+
+        <div v-if="pvIsCurrent" class="preview-verify-bar">
+          <i class="el-icon-circle-check" style="color:#13ce66"></i>
+          <span>Current valid version — OCR fields extracted at upload time</span>
+        </div>
+        <div v-else class="preview-verify-bar superseded">
+          <i class="el-icon-warning-outline" style="color:#E6A817"></i>
+          <span>Superseded version — v{{ cv(pv.doc).v }} is the current valid version of this document</span>
+        </div>
+
+        <div class="pdf-viewer">
+          <div class="pdf-page">
+            <div class="pdf-header-row">
+              <div class="pdf-company">{{ (poById(pv.doc.poId) || {}).supplier || 'Supplier Co.' }}</div>
+              <div class="pdf-doc-title">{{ pv.doc.docType }}</div>
+            </div>
+            <div class="pdf-divider"></div>
+            <div class="pdf-fields">
+              <div class="pdf-field"><span class="pdf-label">Document No.</span><span class="pdf-value highlight xf-mono">{{ pv.doc.docNumber }}</span></div>
+              <div class="pdf-field"><span class="pdf-label">PO Number(s)</span><span class="pdf-value highlight">{{ (pv.doc.poIds || [pv.doc.poId]).join(', ') }}</span></div>
+              <div class="pdf-field"><span class="pdf-label">Date</span><span class="pdf-value">{{ pv.v.at }}</span></div>
+              <div class="pdf-field"><span class="pdf-label">Supplier</span><span class="pdf-value">{{ (poById(pv.doc.poId) || {}).supplier || '—' }}</span></div>
+              <div v-if="(pv.doc.ocr && pv.doc.ocr.products || []).length" class="pdf-field">
+                <span class="pdf-label">Products</span><span class="pdf-value xf-mono">{{ pv.doc.ocr.products.join(' · ') }}</span>
+              </div>
+              <div v-if="pv.v.remark" class="pdf-field">
+                <span class="pdf-label">Remark</span><span class="pdf-value" style="color:#c25e00">“{{ pv.v.remark }}”</span>
+              </div>
+            </div>
+            <div class="pdf-table-mock">
+              <div class="pdf-table-hdr">
+                <span>Item Description</span><span>Qty</span><span>Unit Price</span><span>Amount</span>
+              </div>
+              <div class="pdf-table-row" v-for="i in 4" :key="i">
+                <span>Product Item {{ String.fromCharCode(64+i) }}</span>
+                <span>{{ i * 120 }}</span>
+                <span>USD {{ (i * 3.5).toFixed(2) }}</span>
+                <span>USD {{ (i * 120 * 3.5).toFixed(2) }}</span>
+              </div>
+              <div class="pdf-table-total">
+                <span>Total</span><span></span><span></span>
+                <span>USD {{ (1*120*3.5 + 2*120*3.5 + 3*120*3.5 + 4*120*3.5).toFixed(2) }}</span>
+              </div>
+            </div>
+            <div class="pdf-footer">[ Simulated document preview — for demo purposes ]</div>
+          </div>
+        </div>
+      </div>
+      <div slot="footer">
+        <el-button size="small" icon="el-icon-download" type="primary"
+          @click="$message.success(`Downloading ${pv.v.fileName}…`)">Download</el-button>
+        <el-button size="small" @click="pv.visible = false">Close</el-button>
+      </div>
+    </el-dialog>
+
     <!-- ════════════════ Version history dialog ════════════════ -->
     <el-dialog :visible.sync="verDlg.visible"
       :title="verDlg.doc ? `Version History — ${verDlg.doc.docNumber}` : 'Version History'"
@@ -388,6 +466,7 @@ export default {
       poFilters: {},    // { hblKey: poId } — header chip filter
       chipsOpen: {},    // { hblKey: true } — header chips expanded past 3
       verDlg: { visible: false, doc: null },
+      pv: { visible: false, doc: null, v: null },   // in-page file preview dialog
 
       detail: { visible: false, doc: null },
       upload: { visible: false, poId: '', doc: null, docType: '', fileName: '', remark: '' },
@@ -405,6 +484,7 @@ export default {
     isOps() { return this.role === 'MOOV Ops' },
     isPepco() { return ['Pepco PGS', 'Pepco Finance', 'Pepco Customs'].includes(this.role) },
     canUpload() { return this.isSupplier || this.isOps },
+    pvIsCurrent() { return this.pv.doc && this.pv.v && this.pv.v.v === currentVersion(this.pv.doc).v },
     canPackage() { return this.isBroker || this.isPepco || this.isOps },
 
     searchHit() { return searchScope(this.searchQ) },
@@ -532,100 +612,9 @@ export default {
 
     openVersions(doc) { this.verDlg = { visible: true, doc } },
 
-    // Open a simulated PDF preview of one specific version in a new tab
-    previewVersion(doc, v) {
-      const w = window.open('', '_blank')
-      if (!w) { this.$message.warning('Pop-up blocked — please allow pop-ups for this site and try again'); return }
-      const isCurrent = v.v === currentVersion(doc).v
-      const poIds = doc.poIds || [doc.poId]
-      const products = (doc.ocr && doc.ocr.products) || []
-      const supplier = (poById(doc.poId) || {}).supplier || '—'
-      w.document.write(`<!DOCTYPE html>
-<html>
-<head>
-  <title>${doc.docNumber} v${v.v} — ${doc.docType}</title>
-  <meta charset="utf-8">
-  <style>
-    body { font-family: 'DM Sans', Arial, sans-serif; background:#EBF0F4; margin:0; padding:24px; }
-    .wrapper { max-width:760px; margin:0 auto; }
-    .topbar { background:#004F7C; color:#fff; padding:12px 20px; border-radius:8px 8px 0 0;
-              display:flex; justify-content:space-between; align-items:center; }
-    .topbar-title { font-size:15px; font-weight:700; font-family:Consolas,monospace; }
-    .topbar-meta  { font-size:11px; opacity:0.8; }
-    .superseded { background:#fdf3e3; border:1px solid #f5d590; border-radius:6px; padding:8px 14px;
-                  font-size:12px; color:#c25e00; margin-bottom:14px; font-weight:600; }
-    .meta-card { background:#fff; border:1px solid #dce3ea; padding:14px 20px; margin-bottom:14px; }
-    .meta-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 20px; font-size:12px; }
-    .meta-label { color:#909399; margin-bottom:2px; font-size:11px; text-transform:uppercase; letter-spacing:0.4px; }
-    .meta-value { color:#303133; font-weight:600; }
-    .mono { font-family:Consolas,monospace; }
-    .pdf-page { background:#fff; border:1px solid #dce3ea; padding:28px 32px; border-radius:0 0 8px 8px; }
-    .pdf-header { display:flex; justify-content:space-between; margin-bottom:14px; }
-    .pdf-company { font-weight:700; font-size:15px; color:#004F7C; }
-    .pdf-doctype { font-weight:700; font-size:18px; color:#303133; }
-    .pdf-divider { height:2px; background:#004F7C; margin-bottom:16px; }
-    .pdf-fields { display:grid; grid-template-columns:1fr 1fr; gap:6px 24px; margin-bottom:18px; font-size:12px; }
-    .pdf-label { color:#909399; width:110px; display:inline-block; }
-    .pdf-value { color:#303133; font-weight:500; }
-    .pdf-value.hi { color:#004F7C; font-weight:700; }
-    table { width:100%; border-collapse:collapse; font-size:12px; margin-bottom:14px; }
-    thead tr { background:#f5f7fa; }
-    th, td { padding:6px 10px; border:1px solid #ebeef5; text-align:left; }
-    th { font-weight:600; color:#606266; font-size:11px; }
-    .footer { text-align:center; color:#bbb; font-size:11px; margin-top:14px; font-style:italic; }
-    .simulate-note { background:#fffbe6; border:1px solid #ffe58f; border-radius:4px; padding:6px 12px;
-                     font-size:11px; color:#876800; margin-top:10px; }
-  </style>
-</head>
-<body>
-  <div class="wrapper">
-    <div class="topbar">
-      <span class="topbar-title">${doc.docNumber}</span>
-      <span class="topbar-meta">${doc.docType} · v${v.v}${isCurrent ? ' (Current)' : ''} · ${v.fileName}</span>
-    </div>
-    ${isCurrent ? '' : `<div class="superseded">⚠ Superseded version — v${currentVersion(doc).v} is the current valid version of this document</div>`}
-    <div class="meta-card">
-      <div class="meta-grid">
-        <div><div class="meta-label">Document Number</div><div class="meta-value mono" style="color:#004F7C">${doc.docNumber}</div></div>
-        <div><div class="meta-label">Document Type</div><div class="meta-value">${doc.docType}</div></div>
-        <div><div class="meta-label">Version</div><div class="meta-value">v${v.v}${isCurrent ? ' · Current' : ' · Superseded'}</div></div>
-        <div><div class="meta-label">PO Numbers</div><div class="meta-value mono">${poIds.join(', ')}</div></div>
-        <div><div class="meta-label">Products</div><div class="meta-value mono">${products.length ? products.join(' · ') : '—'}</div></div>
-        <div><div class="meta-label">Uploaded</div><div class="meta-value">${v.by} · ${v.at}</div></div>
-        ${v.remark ? `<div><div class="meta-label">Remark</div><div class="meta-value" style="color:#c25e00">“${v.remark}”</div></div>` : ''}
-      </div>
-    </div>
-    <div class="pdf-page">
-      <div class="pdf-header">
-        <div class="pdf-company">${supplier}</div>
-        <div class="pdf-doctype">${doc.docType}</div>
-      </div>
-      <div class="pdf-divider"></div>
-      <div class="pdf-fields">
-        <div><span class="pdf-label">Document No.</span><span class="pdf-value hi mono">${doc.docNumber}</span></div>
-        <div><span class="pdf-label">PO Number(s)</span><span class="pdf-value hi mono">${poIds.join(', ')}</span></div>
-        <div><span class="pdf-label">File</span><span class="pdf-value">${v.fileName}</span></div>
-        <div><span class="pdf-label">Date</span><span class="pdf-value">${v.at}</span></div>
-        <div><span class="pdf-label">Supplier</span><span class="pdf-value">${supplier}</span></div>
-        <div><span class="pdf-label">Version</span><span class="pdf-value">v${v.v}</span></div>
-      </div>
-      <table>
-        <thead><tr><th>Item Description</th><th>Qty</th><th>Unit Price</th><th>Amount</th></tr></thead>
-        <tbody>
-          <tr><td>Product Item A</td><td>120</td><td>USD 3.50</td><td>USD 420.00</td></tr>
-          <tr><td>Product Item B</td><td>240</td><td>USD 7.00</td><td>USD 1,680.00</td></tr>
-          <tr><td>Product Item C</td><td>360</td><td>USD 10.50</td><td>USD 3,780.00</td></tr>
-        </tbody>
-        <tfoot><tr style="font-weight:700;background:#f0f7ff"><td>Total</td><td></td><td></td><td>USD 5,880.00</td></tr></tfoot>
-      </table>
-      <div class="footer">[ Simulated document preview — for demo purposes ]</div>
-      <div class="simulate-note">This is a prototype simulation. In production this tab would display the actual uploaded PDF file (v${v.v}).</div>
-    </div>
-  </div>
-</body>
-</html>`)
-      w.document.close()
-    },
+
+    // Open the in-page preview dialog for one specific version (same UX as Document Upload)
+    previewVersion(doc, v) { this.pv = { visible: true, doc, v } },
 
     toggleHbl(k) { this.$set(this.expandedHbls, k, !this.expandedHbls[k]) },
 
@@ -872,6 +861,33 @@ export default {
 .xf-mono { font-family: 'Consolas', 'SFMono-Regular', Menlo, monospace; font-size: 11px; color: #333; }
 .xf-dn { font-size: 13px; font-weight: 700; color: $primary; }
 .verdlg-sub { font-size: 11px; color: #999; margin-bottom: 10px; }
+
+// ── In-page file preview dialog (mirrors Document Upload) ───────────────────
+.preview-dialog { display:flex; flex-direction:column; gap:12px; }
+.preview-verify-bar {
+  display:flex; align-items:center; gap:8px; padding:8px 12px;
+  border-radius:6px; font-size:12px; font-weight:500;
+  background:#e6f9ef; color:#0d9b50;
+  &.superseded { background:#fff8e0; color:#e6a817; }
+  i { font-size:16px; }
+}
+.pdf-viewer { border:1px solid $border; border-radius:6px; overflow:hidden; max-height:380px; overflow-y:auto; }
+.pdf-page { background:#fff; padding:24px 28px; font-size:12px; min-height:300px; }
+.pdf-header-row { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; }
+.pdf-company   { font-weight:700; font-size:14px; color:$primary; }
+.pdf-doc-title { font-weight:700; font-size:16px; color:#303133; }
+.pdf-divider   { height:2px; background:$primary; margin-bottom:14px; }
+.pdf-fields    { display:grid; grid-template-columns:1fr 1fr; gap:6px 20px; margin-bottom:16px; }
+.pdf-field     { display:flex; gap:8px; }
+.pdf-label     { color:#909399; width:100px; flex-shrink:0; }
+.pdf-value     { color:#303133; font-weight:500; &.highlight { color:$primary; font-weight:700; } }
+.pdf-table-mock { border:1px solid $border; border-radius:4px; overflow:hidden; margin-bottom:12px; }
+.pdf-table-hdr { display:grid; grid-template-columns:3fr 1fr 1fr 1fr; background:#f5f7fa; padding:6px 10px; font-weight:600; font-size:11px; color:#909399; gap:8px; }
+.pdf-table-row { display:grid; grid-template-columns:3fr 1fr 1fr 1fr; padding:5px 10px; border-top:1px solid $border; gap:8px;
+  &:nth-child(even) { background:#fafafa; }
+}
+.pdf-table-total { display:grid; grid-template-columns:3fr 1fr 1fr 1fr; padding:6px 10px; border-top:2px solid $border; font-weight:700; gap:8px; background:#f0f7ff; }
+.pdf-footer { text-align:center; color:#bbb; font-size:11px; margin-top:8px; font-style:italic; }
 .detail-actions { display: flex; gap: 8px; justify-content: flex-end; border-top: 1px solid $border; padding-top: 14px; }
 
 // ── Brand dialog header ──────────────────────────────────────────────────────
