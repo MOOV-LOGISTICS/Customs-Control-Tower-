@@ -1349,15 +1349,19 @@ export default {
       const d = this.updateDialog
       const today = new Date().toISOString().slice(0, 10)
       d.newVersion = d.doc.version + 1
-      // Replace the row in place: same list entry, new file/version/doc number.
-      // Superseded versions are archived to the Document Center (Phase 1 backlog).
-      d.doc.docNumber = ++DOC_NO
+      // Archive the current version into history BEFORE replacing it in place,
+      // so the Version cell exposes a clickable history (preview + download per version).
+      // The Document Number is the document's stable key and is preserved across versions.
+      this.$set(d.doc, 'versionHistory', [
+        { version: d.doc.version, fileName: d.doc.fileName, uploadDate: d.doc.uploadDate, status: d.doc.status },
+        ...(d.doc.versionHistory || []),
+      ])
       d.doc.fileName = d.fileName
       d.doc.uploadDate = today
       d.doc.version = d.newVersion
       d.doc.status = 'VERIFIED'
       d.state = 'done'
-      this.$message.success(`${d.doc.docTypeLabel} updated to v${d.newVersion}`)
+      this.$message.success(`${d.doc.docTypeLabel} updated to v${d.newVersion} — previous version kept in history`)
     },
 
     // ── Slot upload flow (unchanged AI-verify simulation) ────────────────
