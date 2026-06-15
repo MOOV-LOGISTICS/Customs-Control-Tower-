@@ -209,6 +209,7 @@
                     <span class="demo-label">Demo:</span>
                     <el-button size="mini" type="text" @click="startUpload(slot, null, 'type_error')">Wrong doc type</el-button>
                     <el-button size="mini" type="text" @click="startUpload(slot, null, 'po_mismatch')">PO mismatch</el-button>
+                    <el-button size="mini" type="text" @click="startUpload(slot, null, 'ocr_fail')">OCR can't read No.</el-button>
                   </div>
                 </div>
               </div>
@@ -247,6 +248,17 @@
                     <div class="check-item pass"><i class="el-icon-circle-check"></i> Document type: {{ slot.label }} ✓</div>
                     <div class="check-item pass"><i class="el-icon-circle-check"></i> PO Number: {{ currentPo.orderNo }} ✓</div>
                     <div class="check-item pass"><i class="el-icon-circle-check"></i> Supplier: {{ currentPo.supplier }} ✓</div>
+                  </div>
+                  <div class="docnum-field">
+                    <label>Document Number <span class="dn-req">*</span></label>
+                    <el-input v-model="slot.docNumber" size="mini" placeholder="Enter document number"
+                      :class="{ 'dn-missing': !slot.docNumber }" @input="onDocNumEdit(slot)" />
+                    <div class="dn-hint" :class="{ warn: !slot.docNumber }">
+                      <template v-if="slot.docNumberSource === 'ai'"><i class="el-icon-cpu"></i> Auto-filled by OCR — editable</template>
+                      <template v-else-if="slot.docNumberSource === 'edited'"><i class="el-icon-edit"></i> Edited by you</template>
+                      <template v-else-if="slot.docNumberSource === 'manual'"><i class="el-icon-check"></i> Entered manually</template>
+                      <template v-else><i class="el-icon-warning-outline"></i> OCR could not read it — manual input required</template>
+                    </div>
                   </div>
                 </div>
                 <div class="new-version-row">
@@ -320,6 +332,17 @@
                     </div>
                   </div>
                 </div>
+                <div class="docnum-field">
+                  <label>Document Number <span class="dn-req">*</span></label>
+                  <el-input v-model="slot.docNumber" size="mini" placeholder="Enter document number"
+                    :class="{ 'dn-missing': !slot.docNumber }" @input="onDocNumEdit(slot)" />
+                  <div class="dn-hint" :class="{ warn: !slot.docNumber }">
+                    <template v-if="slot.docNumberSource === 'ai'"><i class="el-icon-cpu"></i> Auto-filled by OCR — editable</template>
+                    <template v-else-if="slot.docNumberSource === 'edited'"><i class="el-icon-edit"></i> Edited by you</template>
+                    <template v-else-if="slot.docNumberSource === 'manual'"><i class="el-icon-check"></i> Entered manually</template>
+                    <template v-else><i class="el-icon-warning-outline"></i> OCR could not read it — manual input required</template>
+                  </div>
+                </div>
                 <el-alert title="Saved as Unverified — pending OHA review" type="warning" :closable="false" show-icon style="margin-top:8px" />
                 <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')" style="margin-top:8px">
                   <el-button type="text" size="mini" icon="el-icon-refresh-left">Replace with correct file</el-button>
@@ -367,7 +390,13 @@
                 <i class="el-icon-document" style="color:#004F7C;margin-right:4px"></i>{{ row.docTypeLabel }}
               </template>
             </el-table-column>
-            <el-table-column label="File Name" min-width="180" prop="fileName" />
+            <el-table-column label="File Name" min-width="150" prop="fileName" />
+            <el-table-column label="Document Number" width="180">
+              <template #default="{row}">
+                <el-input v-model="row.docNumber" size="mini" placeholder="Required"
+                  :class="{ 'dn-missing': !row.docNumber }" @input="onDocNumEdit(row)" />
+              </template>
+            </el-table-column>
             <el-table-column label="Ver" width="50" align="center">
               <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
             </el-table-column>
@@ -388,14 +417,14 @@
 
       <div slot="footer">
         <el-button size="small" @click="uploadDialog.visible=false">Cancel</el-button>
-        <el-tooltip :disabled="hasSessionUploads" content="Nothing to save yet — upload at least one document" placement="top">
+        <el-tooltip :disabled="hasSessionUploads && docNumbersComplete" :content="saveBlockReason" placement="top">
           <span style="margin-left:10px">
-            <el-button size="small" icon="el-icon-folder-checked" :disabled="!hasSessionUploads" @click="saveUpload">Save</el-button>
+            <el-button size="small" icon="el-icon-folder-checked" :disabled="!hasSessionUploads || !docNumbersComplete" @click="saveUpload">Save</el-button>
           </span>
         </el-tooltip>
-        <el-tooltip :disabled="canConfirm" content="Submit requires Commercial Invoice and Packing List — both uploaded and AI-verified" placement="top">
+        <el-tooltip :disabled="canConfirm && docNumbersComplete" :content="submitBlockReason" placement="top">
           <span style="margin-left:10px">
-            <el-button size="small" type="primary" :disabled="!canConfirm" @click="submitUpload">Submit</el-button>
+            <el-button size="small" type="primary" :disabled="!canConfirm || !docNumbersComplete" @click="submitUpload">Submit</el-button>
           </span>
         </el-tooltip>
       </div>
@@ -757,7 +786,14 @@ const mkSlot = (key, label) => ({
   key, label, state: 'idle',
   fileName: '', version: 1, uploadedAt: '',
   progress: 0, steps: [], detectedType: '', foundPO: '',
+  // Document Number captured via OCR (auto-fill) or manual input.
+  // docNumberSource: '' (none/required) | 'ai' | 'edited' | 'manual'
+  docNumber: '', docNumberSource: '',
 })
+
+// OCR document-number prefix per mandatory slot (mock extraction)
+const DN_PREFIX = { ci: 'INV', pl: 'PL' }
+let OCR_SEQ = 880600
 
 // PO mock data — each PO carries its own uploaded-document history
 const mkPo = (orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs = [], confirmed = false) => ({
@@ -895,6 +931,27 @@ export default {
     hasSessionUploads() {
       return this.mandatorySlots.some(s => s.state === 'verified' || s.state === 'force_saved')
         || this.otherDocuments.length > 0
+    },
+    // Every uploaded document this session (mandatory slots + other docs)
+    sessionDocs() {
+      return [
+        ...this.mandatorySlots.filter(s => s.state === 'verified' || s.state === 'force_saved'),
+        ...this.otherDocuments,
+      ]
+    },
+    // Document Number is mandatory on every uploaded document
+    docNumbersComplete() {
+      return this.sessionDocs.every(d => (d.docNumber || '').toString().trim())
+    },
+    saveBlockReason() {
+      if (!this.hasSessionUploads) return 'Nothing to save yet — upload at least one document'
+      if (!this.docNumbersComplete) return 'Each uploaded document needs a Document Number — fill the highlighted field(s)'
+      return ''
+    },
+    submitBlockReason() {
+      if (!this.canConfirm) return 'Submit requires Commercial Invoice and Packing List — both uploaded and AI-verified'
+      if (!this.docNumbersComplete) return 'Each uploaded document needs a Document Number — fill the highlighted field(s)'
+      return ''
     },
     // PO-level gates for the document history dialog footer
     poHasAnyDocs() {
@@ -1186,7 +1243,7 @@ export default {
       this.mandatorySlots.forEach(slot => {
         if (slot.state === 'verified' || slot.state === 'force_saved') {
           this.currentPo.docs.push({
-            docNumber: ++DOC_NO,
+            docNumber: slot.docNumber,
             poNumber: this.currentPo.orderNo,
             soRef: this.currentPo.soRef,
             docTypeLabel: slot.label,
@@ -1201,7 +1258,7 @@ export default {
       })
       this.otherDocuments.forEach(d => {
         this.currentPo.docs.push({
-          docNumber: ++DOC_NO,
+          docNumber: d.docNumber,
           poNumber: this.currentPo.orderNo,
           soRef: this.currentPo.soRef,
           docTypeLabel: d.docTypeLabel,
@@ -1222,6 +1279,11 @@ export default {
     // Save: store whatever was uploaded (other documents alone are fine) —
     // the milestone is NOT completed; files reappear in the PO history.
     saveUpload() {
+      // Backstop: every uploaded document must carry a Document Number (FR-04)
+      if (!this.docNumbersComplete) {
+        this.$message.error('Cannot save: each uploaded document needs a Document Number')
+        return
+      }
       const saved = this.persistSessionUploads()
       this.uploadDialog.visible = false
       this.$message.success(`${saved} document(s) saved to ${this.currentPo.orderNo} — you can continue later. Submit still requires CI + PL.`)
@@ -1232,6 +1294,10 @@ export default {
       // Backstop for the disabled button — same rule as canConfirm
       if (!this.canConfirm) {
         this.$message.error('Cannot submit: Commercial Invoice and Packing List are both required')
+        return
+      }
+      if (!this.docNumbersComplete) {
+        this.$message.error('Cannot submit: each uploaded document needs a Document Number')
         return
       }
       const saved = this.persistSessionUploads()
@@ -1283,15 +1349,19 @@ export default {
       const d = this.updateDialog
       const today = new Date().toISOString().slice(0, 10)
       d.newVersion = d.doc.version + 1
-      // Replace the row in place: same list entry, new file/version/doc number.
-      // Superseded versions are archived to the Document Center (Phase 1 backlog).
-      d.doc.docNumber = ++DOC_NO
+      // Archive the current version into history BEFORE replacing it in place,
+      // so the Version cell exposes a clickable history (preview + download per version).
+      // The Document Number is the document's stable key and is preserved across versions.
+      this.$set(d.doc, 'versionHistory', [
+        { version: d.doc.version, fileName: d.doc.fileName, uploadDate: d.doc.uploadDate, status: d.doc.status },
+        ...(d.doc.versionHistory || []),
+      ])
       d.doc.fileName = d.fileName
       d.doc.uploadDate = today
       d.doc.version = d.newVersion
       d.doc.status = 'VERIFIED'
       d.state = 'done'
-      this.$message.success(`${d.doc.docTypeLabel} updated to v${d.newVersion}`)
+      this.$message.success(`${d.doc.docTypeLabel} updated to v${d.newVersion} — previous version kept in history`)
     },
 
     // ── Slot upload flow (unchanged AI-verify simulation) ────────────────
@@ -1339,7 +1409,14 @@ export default {
       if (scenario === 'pass') {
         slot.state = 'verified'; slot.uploadedAt = new Date().toLocaleTimeString()
         slot.version = this.nextVersion(slot.label)
+        this.captureDocNumber(slot, true)   // OCR succeeds → auto-fill
         this.$message.success(`${slot.label} verified successfully!`)
+      } else if (scenario === 'ocr_fail') {
+        // Type + PO pass, but OCR cannot read the Document Number → manual input required
+        slot.state = 'verified'; slot.uploadedAt = new Date().toLocaleTimeString()
+        slot.version = this.nextVersion(slot.label)
+        this.captureDocNumber(slot, false)
+        this.$message.warning(`${slot.label} verified — but OCR could not read the Document Number. Please enter it manually.`)
       } else if (scenario === 'type_error') {
         slot.steps[2].status = 'error'; slot.steps[3].status = 'pending'
         slot.state = 'type_error'
@@ -1355,7 +1432,26 @@ export default {
     forceSave(slot) {
       slot.state = 'force_saved'; slot.uploadedAt = new Date().toLocaleTimeString()
       slot.version = this.nextVersion(slot.label)
+      this.captureDocNumber(slot, true)
       this.$message.warning('Saved as Unverified. OHA will review this document.')
+    },
+
+    // Simulate OCR extraction of the Document Number.
+    //  ok === true  → auto-fill (source 'ai', editable)
+    //  ok === false → leave empty, supplier must type it (manual input required)
+    captureDocNumber(slot, ok) {
+      if (ok) {
+        slot.docNumber = `${DN_PREFIX[slot.key] || 'DOC'}-${++OCR_SEQ}`
+        slot.docNumberSource = 'ai'
+      } else {
+        slot.docNumber = ''
+        slot.docNumberSource = ''
+      }
+    },
+    // Track manual edits so the UI shows the right provenance label.
+    onDocNumEdit(slot) {
+      if (slot.docNumberSource === 'ai') slot.docNumberSource = 'edited'
+      else if (slot.docNumberSource !== 'edited') slot.docNumberSource = 'manual'
     },
 
     // ── Preview / download ───────────────────────────────────────────────
@@ -1406,15 +1502,18 @@ export default {
     onOtherFileChange(file) { this.otherForm.fileName = file.name },
     saveOtherDoc() {
       const labelMap = { BILL_OF_LADING:'Bill of Lading', CERTIFICATE_OF_ORIGIN:'Certificate of Origin', SANITARY_CERT:'Sanitary Certificate', OTHER:'Other' }
+      const prefix = { BILL_OF_LADING:'HBL', CERTIFICATE_OF_ORIGIN:'COO', SANITARY_CERT:'SC', OTHER:'DOC' }[this.otherForm.docType] || 'DOC'
       this.otherDocuments.push({
         id: Date.now(), docType: this.otherForm.docType,
         docTypeLabel: labelMap[this.otherForm.docType] || 'Other',
         fileName: this.otherForm.fileName || `DOC-${Date.now()}.pdf`,
+        // OCR auto-fills the Document Number; still editable in the table (FR-04)
+        docNumber: `${prefix}-${++OCR_SEQ}`, docNumberSource: 'ai',
         version: 1, status: 'VERIFIED', uploadedAt: new Date().toLocaleTimeString()
       })
       this.otherForm = { docType: '', fileName: '' }
       this.showOtherUpload = false
-      this.$message.success('Document added — will be saved on Confirm')
+      this.$message.success('Document added — Document Number auto-filled by OCR (editable). Will be saved on Confirm.')
     },
   },
 }
@@ -1523,6 +1622,20 @@ export default {
 .cv-meta { margin-top:3px; display:flex; align-items:center; }
 .cv-actions { display:flex; gap:0; flex-shrink:0; }
 .new-version-row { margin-bottom:6px; }
+
+// Document Number capture (FR-04)
+.docnum-field {
+  margin-top:10px; padding-top:8px; border-top:1px dashed #d6e3d9;
+  label { display:block; font-size:11px; font-weight:600; color:$text-primary; margin-bottom:4px;
+    .dn-req { color:#ff4949; }
+  }
+  .dn-hint { margin-top:4px; font-size:11px; color:#3A71A8;
+    i { margin-right:2px; }
+    &.warn { color:#E6A817; }
+  }
+  ::v-deep .dn-missing .el-input__inner { border-color:#E6A817; background:#fffdf5; }
+}
+::v-deep .dn-missing .el-input__inner { border-color:#E6A817; background:#fffdf5; }
 
 // Check lists
 .check-list { display:flex; flex-direction:column; gap:3px; margin-bottom:8px; }
