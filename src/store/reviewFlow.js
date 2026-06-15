@@ -21,6 +21,9 @@ const doc = (docType, fileName, version, poNo, uploadedAt, reviewStatus = 'OK', 
   reviewStatus, reject,
   versionHistory,
   docNumber,
+  thread: [],                   // discussion: [{ by, role:'supplier'|'reviewer', text, at, system? }]
+  resolution: 'PENDING',        // PENDING | RESUBMITTED | ACCEPTED_AS_IS (meaningful once rejected)
+  awaitingReviewer: false,      // true = supplier responded, ball is in the reviewer's court
 })
 
 const mkHbl = (hblNo, mblNo, supplier, pol, pod, eta, pgs, fin, cus, docs, history, correctionRound = 0) => ({
@@ -74,10 +77,10 @@ export const reviewStore = Vue.observable({
       ms('LOCKED', null, null, true, 'Waiting for Finance Check'),
       [
         doc('Commercial Invoice', 'INV-240003-v2.pdf', 2, 'PO-2401-3001', '2024-11-13 11:30', 'RESUBMITTED',
-          { reason: 'V002 - Incorrect shipping docs', remark: 'CI date mismatch vs PL', by: 'Sarah J. (PGS)', at: '2024-11-11 14:20', milestone: 'PGS Document Check', round: 1 },
+          { reason: 'V002 - Incorrect shipping docs', remark: 'CI date mismatch vs PL', by: 'Sarah J. (PGS)', at: '2024-11-11 14:20', milestone: 'PGS Document Check', milestoneKey: 'PGS', round: 1 },
           [{ version: 1, fileName: 'INV-240003.pdf', uploadedAt: '2024-11-09 14:00', status: 'VERIFIED' }], 'INV-2401-3301'),
         doc('Packing List', 'PL-240003-v2.pdf', 2, 'PO-2401-3001', '2024-11-13 11:32', 'RESUBMITTED',
-          { reason: 'V002 - Incorrect shipping docs', remark: 'Re-uploaded together with CI', by: 'Sarah J. (PGS)', at: '2024-11-11 14:20', milestone: 'PGS Document Check', round: 1 },
+          { reason: 'V002 - Incorrect shipping docs', remark: 'Re-uploaded together with CI', by: 'Sarah J. (PGS)', at: '2024-11-11 14:20', milestone: 'PGS Document Check', milestoneKey: 'PGS', round: 1 },
           [{ version: 1, fileName: 'PL-240003.pdf', uploadedAt: '2024-11-09 14:05', status: 'VERIFIED' }], 'PLR-2401-3301'),
         doc('Bill of Lading', 'HBL-240003.pdf', 1, 'PO-2401-3002', '2024-11-09 16:20', 'OK', null, [], 'CMDU240003'),
       ],
@@ -131,7 +134,7 @@ export const reviewStore = Vue.observable({
         doc('Commercial Invoice',   'INV-240006.pdf', 1, 'PO-2401-6001', '2024-11-12 09:00', 'OK', null, [], 'INV-2401-6634'),
         doc('Packing List',         'PL-240006.pdf',  1, 'PO-2401-6001', '2024-11-12 09:03', 'OK', null, [], 'PLR-2401-6634'),
         doc('Sanitary Certificate', 'SAN-240006.pdf', 1, 'PO-2401-6002', '2024-11-13 14:20', 'REJECTED',
-          { reason: 'V003 - Missing/incorrect sanitary docs', remark: 'Sanitary cert expiry date does not match shipment ETA', by: 'Anna W. (Customs)', at: '2024-11-17 11:45', milestone: 'Customs Document Check', round: 1 },
+          { reason: 'V003 - Missing/incorrect sanitary docs', remark: 'Sanitary cert expiry date does not match shipment ETA', by: 'Anna W. (Customs)', at: '2024-11-17 11:45', milestone: 'Customs Document Check', milestoneKey: 'CUSTOMS', round: 1 },
           [], 'SC-2401-6634'),
       ],
       [
@@ -143,6 +146,31 @@ export const reviewStore = Vue.observable({
     ),
   ],
 })
+
+// ── Demo seed: an in-progress discussion on the pending-correction HBL ─────────
+// MOOV240006's Sanitary Certificate was returned by Customs; supplier has replied
+// arguing the document is valid, so the ball is in the reviewer's court. The
+// pre-reject snapshot lets an "accept as-is" resume the flow at Customs.
+const _h6 = reviewStore.hbls.find(h => h.hblNo === 'MOOV240006')
+if (_h6) {
+  _h6._preReject = {
+    PGS:     { status: 'COMPLETE', completedBy: 'Sarah J. (PGS)',   completedAt: '2024-11-15 10:00 CET (UTC+1)', isRecheck: false, lockReason: '' },
+    FINANCE: { status: 'COMPLETE', completedBy: 'Tom K. (Finance)', completedAt: '2024-11-16 09:30 CET (UTC+1)', isRecheck: false, lockReason: '' },
+    CUSTOMS: { status: 'IN_PROGRESS', completedBy: null, completedAt: null, isRecheck: false, lockReason: '' },
+  }
+  const _san = _h6.documents.find(d => d.docType === 'Sanitary Certificate')
+  if (_san) {
+    _san.thread = [
+      { by: 'Anna W. (Customs)', role: 'reviewer',
+        text: 'The sanitary certificate expiry date (2024-11-30) is earlier than the shipment ETA (2024-12-18). Please provide a valid certificate.',
+        at: '2024-11-17 11:45' },
+      { by: 'Guangzhou Clothing Co. (Supplier)', role: 'supplier',
+        text: 'This certificate is the latest one issued by the authority for this product batch. The goods clear customs at origin before the expiry date — the ETA is the destination arrival. Could you confirm whether the origin-clearance date applies here?',
+        at: '2024-11-18 02:10' },
+    ]
+    _san.awaitingReviewer = true
+  }
+}
 
 // ── Queries ──────────────────────────────────────────────────────────────────
 
@@ -162,7 +190,9 @@ export function correctionProgress(hbl) {
   const inRound = hbl.documents.filter(d => d.reject && d.reject.round === hbl.correctionRound)
   return {
     total: inRound.length,
-    done: inRound.filter(d => d.reviewStatus === 'RESUBMITTED').length,
+    // A returned document is "resolved" once it is no longer REJECTED —
+    // either re-uploaded by the supplier or accepted as-is by the reviewer.
+    done: inRound.filter(d => d.reviewStatus !== 'REJECTED').length,
     docs: inRound,
   }
 }
@@ -171,12 +201,27 @@ export function correctionProgress(hbl) {
 
 // PEPCO rejects specific documents at a milestone:
 // docs → REJECTED (with reason), all milestones → PENDING_CORRECTION
-export function rejectDocuments(hbl, docs, { reason, remark, milestoneName, user }) {
+export function rejectDocuments(hbl, docs, { reason, remark, milestoneName, milestoneKey, user }) {
   hbl.correctionRound++
   const at = nowStr()
+
+  // Snapshot the milestone states BEFORE the rejection overwrites them, so a
+  // later "accept as-is" (no re-upload) can resume the flow exactly here
+  // instead of forcing a full PGS re-check.
+  hbl._preReject = {}
+  Object.keys(hbl.milestones).forEach(k => {
+    const m = hbl.milestones[k]
+    hbl._preReject[k] = {
+      status: m.status, completedBy: m.completedBy, completedAt: m.completedAt,
+      isRecheck: m.isRecheck, lockReason: m.lockReason,
+    }
+  })
+
   docs.forEach(d => {
     d.reviewStatus = 'REJECTED'
-    d.reject = { reason, remark: remark || '', by: user, at, milestone: milestoneName, round: hbl.correctionRound }
+    d.resolution = 'PENDING'
+    d.awaitingReviewer = false
+    d.reject = { reason, remark: remark || '', by: user, at, milestone: milestoneName, milestoneKey: milestoneKey || 'PGS', round: hbl.correctionRound }
   })
 
   Object.keys(hbl.milestones).forEach(k => {
@@ -196,34 +241,104 @@ export function rejectDocuments(hbl, docs, { reason, remark, milestoneName, user
   })
 }
 
-// Supplier re-uploads a rejected document. When the HBL has no rejected
-// documents left, the whole flow automatically resets to PGS re-check.
+const MS_NAME = { PGS: 'PGS Check', FINANCE: 'Finance Check', CUSTOMS: 'Customs Check' }
+
+// Supplier re-uploads a rejected document (the content has changed).
 export function resubmitDocument(hbl, document, fileName, user) {
   document.fileName = fileName
   document.version += 1
   document.uploadedAt = nowStr().replace(' CET (UTC+1)', '')
   document.reviewStatus = 'RESUBMITTED'
+  document.resolution = 'RESUBMITTED'
+  document.awaitingReviewer = false
+  return finalizeIfDone(hbl, user)
+}
 
-  const remaining = hbl.documents.filter(d => d.reviewStatus === 'REJECTED').length
-  if (remaining > 0) return { reset: false, remaining }
-
-  // All corrected → reset milestones, restart at PGS with re-check flags
-  const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
-  ORDER.forEach((k, i) => {
-    const m = hbl.milestones[k]
-    m.isRecheck = true
-    m.completedBy = null
-    m.completedAt = null
-    if (i === 0) { m.status = 'IN_PROGRESS'; m.lockReason = '' }
-    else { m.status = 'LOCKED'; m.lockReason = i === 1 ? 'Waiting for PGS Check' : 'Waiting for Finance Check' }
+// Reviewer accepts a returned document as-is after discussion — no new upload.
+// Used when the supplier argues the current file is already correct and the
+// reviewer agrees.
+export function acceptDocumentAsIs(hbl, document, user) {
+  document.reviewStatus = 'OK'
+  document.resolution = 'ACCEPTED_AS_IS'
+  document.awaitingReviewer = false
+  document.thread.push({
+    by: user, role: 'reviewer', system: true,
+    text: 'Accepted as-is — supplier clarification approved, no re-upload required.',
+    at: nowStr().replace(' CET (UTC+1)', ''),
   })
+  return finalizeIfDone(hbl, user)
+}
 
+// Append a message to a document's discussion thread. Pure communication:
+// milestones are NOT touched, so the document stays at the same review stage.
+export function postComment(hbl, document, { text, role, user }) {
+  const at = nowStr().replace(' CET (UTC+1)', '')
+  document.thread.push({ by: user, role, text, at })
+  document.awaitingReviewer = role === 'supplier'
   hbl.verifyHistory.unshift({
-    milestone: 'Supplier Note', status: 'Correction',
-    user, time: nowStr(), reason: '',
-    remark: 'All rejected documents resubmitted by supplier — flow restarts at PGS (re-check). PGS notified.',
+    milestone: 'Discussion',
+    status: role === 'supplier' ? 'Supplier Note' : 'Reviewer Note',
+    user, time: nowStr(), reason: '', remark: text, isRecheck: false,
+  })
+}
+
+// Once no returned document is still REJECTED, close out the correction round:
+//   · any document was re-uploaded (content changed) → full reset to PGS re-check
+//   · all were accepted as-is (only clarified)        → resume at the rejection milestone
+function finalizeIfDone(hbl, user) {
+  const remaining = hbl.documents.filter(d => d.reviewStatus === 'REJECTED').length
+  if (remaining > 0) return { reset: false, finalized: false, remaining }
+
+  const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
+  const round = hbl.correctionRound
+  const roundDocs = hbl.documents.filter(d => d.reject && d.reject.round === round)
+  const anyResubmit = roundDocs.some(d => d.resolution === 'RESUBMITTED')
+
+  if (anyResubmit) {
+    // Content changed somewhere → re-check the whole flow from PGS
+    ORDER.forEach((k, i) => {
+      const m = hbl.milestones[k]
+      m.isRecheck = true
+      m.completedBy = null
+      m.completedAt = null
+      if (i === 0) { m.status = 'IN_PROGRESS'; m.lockReason = '' }
+      else { m.status = 'LOCKED'; m.lockReason = i === 1 ? 'Waiting for PGS Check' : 'Waiting for Finance Check' }
+    })
+    hbl.verifyHistory.unshift({
+      milestone: 'Supplier Note', status: 'Correction',
+      user: user || 'System', time: nowStr(), reason: '',
+      remark: 'All returned documents resolved (with re-uploads) — flow restarts at PGS (re-check). PGS notified.',
+      isRecheck: false,
+    })
+    return { reset: true, finalized: true, resumedAt: 'PGS' }
+  }
+
+  // Pure clarification — restore the pre-rejection state and complete the
+  // milestone that returned the document, exactly as a normal approval would.
+  const mk = (roundDocs[0].reject && roundDocs[0].reject.milestoneKey) || 'PGS'
+  const snap = hbl._preReject
+  if (snap) {
+    ORDER.forEach(k => {
+      const m = hbl.milestones[k], s = snap[k]
+      m.status = s.status; m.completedBy = s.completedBy; m.completedAt = s.completedAt
+      m.isRecheck = s.isRecheck; m.lockReason = s.lockReason
+    })
+  }
+  const at = nowStr()
+  const m = hbl.milestones[mk]
+  m.status = 'COMPLETE'; m.completedBy = user; m.completedAt = at; m.isRecheck = false; m.lockReason = ''
+  const idx = ORDER.indexOf(mk)
+  if (idx < ORDER.length - 1) {
+    const next = ORDER[idx + 1]
+    if (hbl.milestones[next].status === 'LOCKED') {
+      hbl.milestones[next].status = 'IN_PROGRESS'; hbl.milestones[next].lockReason = ''
+    }
+  }
+  hbl.verifyHistory.unshift({
+    milestone: MS_NAME[mk] || mk, status: 'Complete',
+    user, time: at, reason: '',
+    remark: 'Approved after discussion — supplier clarification accepted, no re-upload required.',
     isRecheck: false,
   })
-
-  return { reset: true, remaining: 0 }
+  return { reset: false, finalized: true, resumedAt: mk }
 }

@@ -258,12 +258,26 @@
                       Flow resets to PGS re-check automatically when all are corrected.
                       <div class="corr-doc-list">
                         <div v-for="(d, i) in progress(row).docs" :key="i" class="corr-doc-row">
-                          <i :class="d.reviewStatus === 'RESUBMITTED' ? 'el-icon-circle-check ok' : 'el-icon-remove-outline waiting'"></i>
+                          <i :class="d.reviewStatus === 'REJECTED' ? 'el-icon-remove-outline waiting' : 'el-icon-circle-check ok'"></i>
                           <span class="cdr-po">{{ d.poNo }}</span>
                           <span class="cdr-type">{{ d.docType }}</span>
                           <span class="cdr-file">{{ d.fileName }} (v{{ d.version }})</span>
-                          <span :class="['cdr-state', d.reviewStatus === 'RESUBMITTED' ? 'ok' : 'waiting']">
-                            {{ d.reviewStatus === 'RESUBMITTED' ? 'Re-uploaded' : 'Waiting for re-upload' }}
+                          <span :class="['cdr-state', d.reviewStatus === 'REJECTED' ? 'waiting' : 'ok']">
+                            {{ resolutionLabel(d) }}
+                          </span>
+                          <span class="cdr-actions" @click.stop>
+                            <el-badge :is-dot="d.awaitingReviewer" class="cdr-badge">
+                              <el-button type="text" size="mini" icon="el-icon-chat-dot-round" @click="openReviewerComment(row, d)">
+                                Discuss<span v-if="(d.thread || []).length"> ({{ d.thread.length }})</span>
+                              </el-button>
+                            </el-badge>
+                            <el-tooltip v-if="d.reviewStatus === 'REJECTED'" :disabled="canResolve(d)"
+                              content="Only the reviewer who returned this document can accept it" placement="top">
+                              <span>
+                                <el-button type="success" size="mini" plain icon="el-icon-circle-check"
+                                  :disabled="!canResolve(d)" @click="doAcceptAsIs(row, d)">Accept as-is</el-button>
+                              </span>
+                            </el-tooltip>
                           </span>
                         </div>
                       </div>
@@ -534,6 +548,33 @@
       </div>
     </el-dialog>
 
+    <!-- ── Discussion with supplier (per returned document) ──────────────── -->
+    <el-dialog
+      :visible.sync="commentDialog.visible"
+      :title="commentDialog.doc ? `Discussion — ${commentDialog.doc.docType} · ${commentDialog.hbl.hblNo}` : 'Discussion'"
+      width="560px" top="6vh" custom-class="brand-dialog"
+    >
+      <comment-thread
+        v-if="commentDialog.doc"
+        :hbl="commentDialog.hbl"
+        :doc="commentDialog.doc"
+        role="reviewer"
+        :user="role"
+      />
+      <div slot="footer">
+        <el-tooltip v-if="commentDialog.doc && commentDialog.doc.reviewStatus === 'REJECTED'"
+          :disabled="canResolve(commentDialog.doc)"
+          content="Only the reviewer who returned this document can accept it" placement="top">
+          <span>
+            <el-button type="success" plain size="small" icon="el-icon-circle-check"
+              :disabled="!canResolve(commentDialog.doc)"
+              @click="doAcceptAsIs(commentDialog.hbl, commentDialog.doc)">Accept as-is (no re-upload)</el-button>
+          </span>
+        </el-tooltip>
+        <el-button size="small" style="margin-left:10px" @click="commentDialog.visible=false">Close</el-button>
+      </div>
+    </el-dialog>
+
   </div>
 </template>
 
@@ -541,10 +582,12 @@
 import { roleStore, ROLE_MILESTONE } from '@/store/role'
 // Shared with the Document Upload tab: HBL/milestone/document state lives in
 // one store so PEPCO rejections and supplier re-uploads stay in sync.
-import { reviewStore, rejectDocuments, correctionProgress } from '@/store/reviewFlow'
+import { reviewStore, rejectDocuments, correctionProgress, acceptDocumentAsIs } from '@/store/reviewFlow'
+import CommentThread from '@/components/CommentThread.vue'
 
 export default {
   name: 'PepcoReview',
+  components: { CommentThread },
   data() {
     return {
       pageView: 'board',   // 'board' | 'list'
@@ -596,6 +639,9 @@ export default {
       },
 
       versionHistoryDialog: { visible: false, doc: null, hblRow: null },
+
+      // Discussion thread with the supplier (per returned document)
+      commentDialog: { visible: false, hbl: null, doc: null },
     }
   },
 
@@ -763,6 +809,56 @@ export default {
 
     // Correction progress of the current rejection round (shared store)
     progress(h) { return correctionProgress(h) },
+
+    // ── Discussion + accept-as-is (no re-upload) ──────────────────────────
+    openReviewerComment(hbl, doc) {
+      this.commentDialog = { visible: true, hbl, doc }
+    },
+    // Only the reviewer who returned the document (its milestone role) — or Ops —
+    // may accept it as-is. Front-end mirror of the backend RBAC check.
+    canResolve(doc) {
+      if (!doc || !doc.reject) return false
+      return this.isOps || this.myKey === doc.reject.milestoneKey
+    },
+    resolutionLabel(doc) {
+      if (doc.resolution === 'RESUBMITTED') return 'Re-uploaded'
+      if (doc.resolution === 'ACCEPTED_AS_IS') return 'Accepted as-is'
+      return 'Waiting for supplier'
+    },
+    doAcceptAsIs(hbl, doc) {
+      if (!this.canResolve(doc)) {
+        this.$message.error('Only the reviewer who returned this document can accept it')
+        return
+      }
+      const r = acceptDocumentAsIs(hbl, doc, 'Demo User')
+      this.commentDialog.visible = false
+      if (!r.finalized) {
+        this.$message.success(`${doc.docType} accepted — ${r.remaining} returned document(s) still pending on ${hbl.hblNo}`)
+        return
+      }
+      if (r.reset) {
+        this.$notify({
+          title: 'Flow reset to PGS re-check',
+          dangerouslyUseHTMLString: true,
+          message: `<div style="font-size:12px;line-height:1.7">
+            <div><b>${hbl.hblNo}</b> — all returned documents resolved.</div>
+            <div style="color:#999">A re-uploaded document in this round changed content, so the flow restarts at <b>PGS Check (re-check)</b>.</div>
+          </div>`,
+          type: 'warning', duration: 6000,
+        })
+      } else {
+        this.$notify({
+          title: 'Approved after discussion',
+          dangerouslyUseHTMLString: true,
+          message: `<div style="font-size:12px;line-height:1.7">
+            <div><b>${hbl.hblNo}</b> — supplier clarification accepted.</div>
+            <div style="color:#13ce66">✔ ${this.milestoneNameOf(r.resumedAt)} completed without a re-upload.</div>
+            <div style="color:#999">Flow resumes from this milestone — no PGS re-check.</div>
+          </div>`,
+          type: 'success', duration: 6000,
+        })
+      }
+    },
 
     openAllDocs(hblRow) {
       const docs = this.sortedDocs(hblRow.documents)
@@ -994,7 +1090,7 @@ export default {
           // The reset to PGS re-check happens automatically once the supplier
           // has re-uploaded every rejected document (Document Upload tab).
           const docs = this.verifyDialog.docSel.map(i => h.documents[i])
-          rejectDocuments(h, docs, { reason, remark, milestoneName, user: 'Demo User' })
+          rejectDocuments(h, docs, { reason, remark, milestoneName, milestoneKey: milestone, user: 'Demo User' })
 
           // Email notification feedback
           this.$notify({
@@ -1207,6 +1303,8 @@ export default {
     &.ok      { color:#13ce66; }
     &.waiting { color:#c25e00; }
   }
+  .cdr-actions { display:flex; align-items:center; gap:6px; padding-left:4px; }
+  .cdr-badge ::v-deep .el-badge__content.is-dot { top:4px; right:6px; }
 }
 
 // ── Document Preview Dialog ──────────────────────────────────────────────────

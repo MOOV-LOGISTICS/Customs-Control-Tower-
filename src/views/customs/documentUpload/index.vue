@@ -488,9 +488,14 @@
             <span v-else style="color:#c0c4cc">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="Action" width="110" align="center">
+        <el-table-column label="Action" width="240" align="center">
           <template #default="{row}">
             <el-button type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
+            <el-badge :is-dot="!row.doc.awaitingReviewer && (row.doc.thread || []).some(m => m.role === 'reviewer')" class="comment-badge" style="margin-left:8px">
+              <el-button size="mini" icon="el-icon-chat-dot-round" @click="openComment(row)">
+                Comment<span v-if="(row.doc.thread || []).length"> ({{ row.doc.thread.length }})</span>
+              </el-button>
+            </el-badge>
           </template>
         </el-table-column>
       </el-table>
@@ -546,11 +551,21 @@
           <div v-else style="font-size:12px;color:#666;margin-bottom:10px">
             This document type does not require AI verification — the new version is saved directly.
           </div>
-          <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startCorrUpload(f)">
-            <el-button type="primary" size="small" icon="el-icon-upload2">
-              {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
+          <div style="display:flex;align-items:center;gap:10px">
+            <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startCorrUpload(f)">
+              <el-button type="primary" size="small" icon="el-icon-upload2">
+                {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
+              </el-button>
+            </el-upload>
+            <span style="font-size:11px;color:#999">or</span>
+            <el-button size="small" icon="el-icon-chat-dot-round" @click="openComment(corrUpload.item)">
+              Leave a Comment<span v-if="(corrUpload.item.doc.thread || []).length"> ({{ corrUpload.item.doc.thread.length }})</span>
             </el-button>
-          </el-upload>
+          </div>
+          <div style="font-size:11px;color:#999;margin-top:8px;line-height:1.6">
+            <i class="el-icon-info"></i>
+            If you believe the current document is already correct, leave a comment to explain — the reviewer can confirm it without a re-upload.
+          </div>
         </div>
 
         <!-- VERIFYING -->
@@ -585,6 +600,25 @@
 
       <div slot="footer">
         <el-button size="small" @click="corrUpload.visible=false">{{ corrUpload.state === 'done' ? 'Close' : 'Cancel' }}</el-button>
+      </div>
+    </el-dialog>
+
+    <!-- ── Discussion with reviewer (per rejected document) ─────────────── -->
+    <el-dialog
+      :visible.sync="commentDialog.visible"
+      :title="commentDialog.item ? `Discussion — ${commentDialog.item.doc.docType} · ${commentDialog.item.hbl.hblNo}` : 'Discussion'"
+      width="560px" custom-class="brand-dialog" append-to-body
+    >
+      <comment-thread
+        v-if="commentDialog.item"
+        :hbl="commentDialog.item.hbl"
+        :doc="commentDialog.item.doc"
+        role="supplier"
+        :user="`${commentDialog.item.hbl.supplier} (Supplier)`"
+        @posted="onSupplierPosted"
+      />
+      <div slot="footer">
+        <el-button size="small" @click="commentDialog.visible=false">Close</el-button>
       </div>
     </el-dialog>
 
@@ -710,6 +744,7 @@
 
 <script>
 import { rejectedDocs, resubmittedCount, resubmitDocument } from '@/store/reviewFlow'
+import CommentThread from '@/components/CommentThread.vue'
 
 const VERIFY_STEPS = [
   { label: 'Uploading file to server',      status: 'pending' },
@@ -733,6 +768,7 @@ let DOC_NO = 4567890
 
 export default {
   name: 'DocumentUpload',
+  components: { CommentThread },
   data() {
     return {
       // Origin task board (only Upload Shipping Documents is interactive)
@@ -797,6 +833,9 @@ export default {
 
       // Version history viewer
       versionHistoryDialog: { visible: false, doc: null },
+
+      // Discussion thread with the reviewer (per rejected document)
+      commentDialog: { visible: false, item: null },
 
       // Rejected-document correction queue (shared with Pepco Review)
       correctionDialog: { visible: false },
@@ -1013,6 +1052,14 @@ export default {
 </body>
 </html>`)
       w.document.close()
+    },
+
+    // Open the discussion thread with the reviewer for a rejected document
+    openComment(item) {
+      this.commentDialog = { visible: true, item }
+    },
+    onSupplierPosted() {
+      this.$message.success('Comment sent to the reviewer — this stays at the same milestone. No re-upload is triggered.')
     },
 
     openCorrReupload(item) {
