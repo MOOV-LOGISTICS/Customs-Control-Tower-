@@ -728,7 +728,7 @@
           <el-table-column label="SO Ref" prop="soRef" min-width="150" />
           <el-table-column label="Document Type" prop="docType" min-width="140" />
           <el-table-column label="File Name" prop="fileName" min-width="150" />
-          <el-table-column label="AI Status" width="140" align="center">
+          <el-table-column label="Document Verified Status" width="170" align="center">
             <template #default="{row}">
               <span :class="['ai-badge', aiBadge(row).cls]"><i :class="aiBadge(row).icon"></i> {{ aiBadge(row).label }}</span>
             </template>
