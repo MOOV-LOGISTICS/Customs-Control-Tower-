@@ -656,7 +656,7 @@
         <el-table-column label="Supplier Name" min-width="200" prop="supplier" />
         <el-table-column label="Urgent Date" width="110" prop="urgentDate" />
         <el-table-column label="Due date" width="110" prop="dueDate" sortable />
-        <el-table-column label="AI Status" width="130" align="center">
+        <el-table-column label="Document Verified Status" width="150" align="center">
           <template #default="{row}">
             <el-tag v-if="ohaUnverified(row).length" size="mini" type="warning">{{ ohaUnverified(row).length }} unverified</el-tag>
             <el-tag v-else size="mini" type="success">All verified</el-tag>
@@ -728,7 +728,17 @@
           <el-table-column label="SO Ref" prop="soRef" min-width="150" />
           <el-table-column label="Document Type" prop="docType" min-width="140" />
           <el-table-column label="File Name" prop="fileName" min-width="150" />
-          <el-table-column label="AI Status" width="140" align="center">
+          <el-table-column label="Version" width="90" align="center">
+            <template #default="{row}">
+              <el-tooltip v-if="(row.versionHistory || []).length" content="Click to view version history" placement="top">
+                <el-tag size="mini" type="primary" style="cursor:pointer" @click="openOhaVersions(ohaVerifyDialog.shipment, row)">
+                  v{{ row.version }} <i class="el-icon-time" style="font-size:10px;margin-left:2px"></i>
+                </el-tag>
+              </el-tooltip>
+              <el-tag v-else size="mini" type="info">v{{ row.version }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="Document Verified Status" width="170" align="center">
             <template #default="{row}">
               <span :class="['ai-badge', aiBadge(row).cls]"><i :class="aiBadge(row).icon"></i> {{ aiBadge(row).label }}</span>
             </template>
@@ -815,6 +825,46 @@
             @click="approveOhaDoc(ohaCommentDialog.shipment, ohaCommentDialog.doc); ohaCommentDialog.visible=false">{{ ohaCommentDialog.doc.ohaStatus === 'RESUBMITTED' ? 'Approve' : 'Accept' }}</el-button>
         </el-tooltip>
         <el-button size="small" style="margin-left:10px" @click="ohaCommentDialog.visible=false">Close</el-button>
+      </div>
+    </el-dialog>
+
+    <!-- OHA document version history -->
+    <el-dialog
+      :visible.sync="ohaVerDialog.visible"
+      :title="ohaVerDialog.doc ? `Version History — ${ohaVerDialog.doc.docType}` : 'Version History'"
+      width="640px" top="6vh" append-to-body custom-class="brand-dialog"
+    >
+      <template v-if="ohaVerDialog.doc">
+        <div style="font-size:12px;color:#666;margin-bottom:10px">
+          Document No. <strong style="color:#004F7C;font-family:Consolas,monospace">{{ ohaVerDialog.doc.docNumber }}</strong> · SO Ref {{ ohaVerDialog.doc.soRef }}
+        </div>
+        <el-table :data="ohaVersionRows(ohaVerDialog.doc)" size="mini" border :header-cell-style="{background:'#fafafa'}">
+          <el-table-column label="Version" width="120" align="center">
+            <template #default="{row}">
+              <el-tag v-if="row.isCurrent" size="mini" type="success">v{{ row.version }} · Current</el-tag>
+              <el-tag v-else size="mini" type="info">v{{ row.version }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="File Name" min-width="180" prop="fileName" />
+          <el-table-column label="Uploaded" width="120" prop="uploadedAt" align="center" />
+          <el-table-column label="Document Verified Status" width="160" align="center">
+            <template #default="{row}">
+              <span :class="['ai-badge', row.status==='VERIFIED' ? 'ai-ok' : 'ai-bad']">
+                <i :class="row.status==='VERIFIED' ? 'el-icon-circle-check' : 'el-icon-warning-outline'"></i>
+                {{ row.status==='VERIFIED' ? 'AI Verified' : 'AI Unverified' }}
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Actions" width="120" align="center">
+            <template #default="{row}">
+              <el-button type="text" size="mini" icon="el-icon-view" @click="previewOhaVersion(row)">Preview</el-button>
+              <el-button type="text" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)">DL</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+      <div slot="footer">
+        <el-button size="small" @click="ohaVerDialog.visible=false">Close</el-button>
       </div>
     </el-dialog>
 
@@ -1049,6 +1099,7 @@ export default {
       ohaVerifyDialog: { visible: false, shipment: null },
       ohaRejectDialog: { visible: false, shipment: null, doc: null, reason: '', remark: '' },
       ohaCommentDialog: { visible: false, shipment: null, doc: null },
+      ohaVerDialog: { visible: false, shipment: null, doc: null },
 
       // Rejected-document correction queue (shared with Pepco Review)
       correctionDialog: { visible: false },
@@ -1234,6 +1285,29 @@ export default {
     },
     openOhaReject(shipment, doc) {
       this.ohaRejectDialog = { visible: true, shipment, doc, reason: '', remark: '' }
+    },
+    openOhaVersions(shipment, doc) {
+      this.ohaVerDialog = { visible: true, shipment, doc }
+    },
+    // current version + history, newest first
+    ohaVersionRows(doc) {
+      if (!doc) return []
+      const current = { version: doc.version, fileName: doc.fileName, uploadedAt: doc.uploadedAt, status: doc.aiStatus, isCurrent: true }
+      const history = (doc.versionHistory || []).slice().sort((a, b) => b.version - a.version)
+      return [current, ...history]
+    },
+    previewOhaVersion(row) {
+      const d = this.ohaVerDialog.doc, s = this.ohaVerDialog.shipment
+      this.preview = {
+        visible: true,
+        title: `Preview — ${d.docType} (v${row.version})`,
+        docType: d.docType,
+        fileName: row.fileName,
+        version: row.version,
+        status: row.status || 'VERIFIED',
+        uploadedAt: row.uploadedAt || '',
+        poNumber: (s && s.orderNo) || d.soRef,
+      }
     },
     submitOhaReject() {
       const { shipment, doc, remark } = this.ohaRejectDialog
