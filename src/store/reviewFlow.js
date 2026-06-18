@@ -342,3 +342,138 @@ function finalizeIfDone(hbl, user) {
   })
   return { reset: false, finalized: true, resumedAt: mk }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OHA — "Verify Shipping Documents" (origin-side gate, BEFORE Pepco review)
+//
+// Supplier upload → AI tags each file VERIFIED / UNVERIFIED → OHA verifies the
+// shipment here → Pepco 3-stage review. OHA only has to act on AI-Unverified
+// files: preview, then reject (→ supplier re-upload) or discuss. AI-Verified
+// files need no OHA action. A shipment can be Confirmed once no file is
+// AI-Unverified. OHA rejections flow into the same Document Correction queue.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ohaDoc: a supplier-uploaded file as seen by OHA
+//   aiStatus:  VERIFIED | UNVERIFIED   (set by AI at upload)
+//   ohaStatus: PENDING | REJECTED | RESOLVED
+const ohaDoc = (docNumber, soRef, docType, fileName, aiStatus = 'VERIFIED') => ({
+  docNumber, soRef, docType, fileName,
+  poNo: soRef,                 // alias so the shared correction table (keyed on poNo) renders
+  aiStatus, ohaStatus: 'PENDING',
+  version: 1, reject: null, thread: [],
+})
+
+export const ohaStore = Vue.observable({
+  shipments: [
+    {
+      id: 'SHP-1', bookingRef: 'PEPCO26042000023', carrierBookingNo: '277690159', carrier: 'MAEU', craNumber: '299983899',
+      placeOfReceipt: 'CNNGB', portOfLoading: 'CNNGB', portOfDischarge: 'PLGDN', finalDestination: 'PLGDN',
+      carriageContract: 'CY/CY', paymentTerm: '', etd: '2026-05-23', eta: '2026-07-14', mblNumber: '', blType: '',
+      orderNo: 'ORD01776966_01', supplier: 'Ningbo Winpex Imp. and Exp. CO., Ltd', urgentDate: '2026-05-25', dueDate: '2026-05-26', bucket: 'overdue',
+      ohaStatus: 'PENDING', verifyHistory: [],
+      shippingOrders: [
+        { shipperBookingNo: 'NGB26041776035', shipmentType: 'FCL', hblNo: '', blType: '', cbm: '60.269', packages: 1311, grossWeight: '6811.4', clrStatus: 'Done' },
+      ],
+      documents: [
+        ohaDoc('BA26LU05215A', 'NGB26041776035', 'Commercial Invoice', 'BA26LU05215A IV.pdf', 'VERIFIED'),
+        ohaDoc('BA26LU05215A', 'NGB26041776035', 'Packing List', 'BA26LU05215A PL.pdf', 'UNVERIFIED'),
+      ],
+    },
+    {
+      id: 'SHP-2', bookingRef: 'PEPCO26042000031', carrierBookingNo: '277690204', carrier: 'MAEU', craNumber: '299984120',
+      placeOfReceipt: 'CNNGB', portOfLoading: 'CNNGB', portOfDischarge: 'PLGDN', finalDestination: 'PLGDN',
+      carriageContract: 'CY/CY', paymentTerm: '', etd: '2026-05-24', eta: '2026-07-15', mblNumber: 'MAEU240031', blType: 'HBL',
+      orderNo: 'ORD01788037_01', supplier: 'NINGBO GENERAL UNION CO.,LTD', urgentDate: '2026-05-25', dueDate: '2026-05-26', bucket: 'overdue',
+      ohaStatus: 'PENDING', verifyHistory: [],
+      shippingOrders: [
+        { shipperBookingNo: 'NGB26041788037', shipmentType: 'FCL', hblNo: 'MOOV26041788', blType: 'HBL', cbm: '7.327', packages: 244, grossWeight: '3904', clrStatus: 'Done' },
+      ],
+      documents: [
+        ohaDoc('INV-880910', 'NGB26041788037', 'Commercial Invoice', 'INV-880910.pdf', 'VERIFIED'),
+        ohaDoc('PL-880910', 'NGB26041788037', 'Packing List', 'PL-880910.pdf', 'VERIFIED'),
+        ohaDoc('HBL-880910', 'NGB26041788037', 'Bill of Lading', 'HBL-880910.pdf', 'VERIFIED'),
+      ],
+    },
+    {
+      id: 'SHP-3', bookingRef: 'PEPCO26042000048', carrierBookingNo: '277690310', carrier: 'COSU', craNumber: '299984500',
+      placeOfReceipt: 'CNSHA', portOfLoading: 'CNSHA', portOfDischarge: 'DEHAM', finalDestination: 'DEHAM',
+      carriageContract: 'CY/CY', paymentTerm: '', etd: '2026-05-26', eta: '2026-07-18', mblNumber: '', blType: '',
+      orderNo: 'ORD01780737_01', supplier: 'KEYCRAFT LTD', urgentDate: '2026-05-25', dueDate: '2026-05-26', bucket: 'overdue',
+      ohaStatus: 'PENDING', verifyHistory: [],
+      shippingOrders: [
+        { shipperBookingNo: 'SHA26041780737', shipmentType: 'LCL', hblNo: '', blType: '', cbm: '12.500', packages: 320, grossWeight: '1820', clrStatus: 'Pending' },
+      ],
+      documents: [
+        ohaDoc('INV-771201', 'SHA26041780737', 'Commercial Invoice', 'INV-771201.pdf', 'UNVERIFIED'),
+        ohaDoc('PL-771201', 'SHA26041780737', 'Packing List', 'PL-771201.pdf', 'VERIFIED'),
+      ],
+    },
+  ],
+})
+
+// ── OHA queries ────────────────────────────────────────────────────────────────
+export function ohaShipments() { return ohaStore.shipments }
+
+// AI-unverified files still blocking confirmation on a shipment
+export function ohaUnverifiedDocs(shipment) {
+  return shipment.documents.filter(d => d.aiStatus === 'UNVERIFIED')
+}
+// A shipment can be confirmed once no file is AI-Unverified (OHA need not touch verified files)
+export function ohaCanConfirm(shipment) {
+  return shipment.ohaStatus !== 'CONFIRMED' && shipment.documents.every(d => d.aiStatus === 'VERIFIED')
+}
+// OHA-returned documents, shaped to share the Document Correction queue with Pepco
+export function ohaRejectedDocs() {
+  return ohaStore.shipments.flatMap(s =>
+    s.documents.filter(d => d.ohaStatus === 'REJECTED').map(d => ({
+      // present a shipment as an "hbl-like" row for the shared correction table.
+      // Pass the LIVE doc reference (not a copy) so re-upload resolves the exact file.
+      hbl: { hblNo: s.bookingRef, supplier: s.supplier, shipmentId: s.id },
+      doc: d,
+      source: 'OHA',
+    })))
+}
+
+// ── OHA mutations ────────────────────────────────────────────────────────────────
+// OHA returns an AI-Unverified file to the supplier (→ Document Correction queue)
+export function ohaRejectDoc(shipment, doc, { reason, remark, user }) {
+  const at = nowStr().replace(' CET (UTC+1)', '')
+  doc.ohaStatus = 'REJECTED'
+  doc.reject = {
+    reason, remark: remark || '', by: user, at,
+    milestone: 'Verify Shipping Documents', milestoneKey: 'OHA', round: 1,
+  }
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Incomplete',
+    user, time: nowStr(), reason, remark: `${doc.docType} returned to supplier. ${remark || ''}`.trim(), isRecheck: false,
+  })
+}
+
+// Supplier re-uploads an OHA-returned file → AI re-verifies (passes) → back to OHA Verify
+export function ohaResubmitDoc(shipment, doc, fileName, user) {
+  // doc is the live shipment document; fall back to a docType+soRef match if needed
+  const target = shipment.documents.find(d => d === doc)
+    || shipment.documents.find(d => d.docType === doc.docType && d.soRef === doc.soRef)
+    || doc
+  target.fileName = fileName || target.fileName
+  target.version = (target.version || 1) + 1
+  target.aiStatus = 'VERIFIED'     // re-uploaded file passes AI re-check
+  target.ohaStatus = 'RESOLVED'
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Correction',
+    user, time: nowStr(), reason: '',
+    remark: `${target.docType} re-uploaded and passed AI re-check — back in OHA verify queue.`, isRecheck: false,
+  })
+  return { allClear: shipment.documents.every(d => d.aiStatus === 'VERIFIED') }
+}
+
+// OHA confirms the shipment's "Verify Shipping Documents" milestone (hands over downstream)
+export function ohaConfirmShipment(shipment, user) {
+  if (!ohaCanConfirm(shipment)) return { ok: false }
+  shipment.ohaStatus = 'CONFIRMED'
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Complete',
+    user, time: nowStr(), reason: '', remark: 'All documents AI-verified — shipment handed over to downstream review.', isRecheck: false,
+  })
+  return { ok: true }
+}
