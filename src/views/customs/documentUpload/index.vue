@@ -16,6 +16,7 @@
                 <i class="el-icon-question" style="color:#3A71A8;font-size:13px;cursor:help"></i>
               </el-tooltip>
               <el-tag v-if="row.key==='UPLOAD_DOCS'" size="mini" type="success" style="font-size:10px">New flow</el-tag>
+              <el-tag v-if="row.key==='VERIFY_DOCS'" size="mini" type="success" style="font-size:10px">New flow</el-tag>
               <el-tag v-if="row.key==='DOC_CORRECTION'" size="mini" type="warning" style="font-size:10px">New flow</el-tag>
             </div>
           </template>
