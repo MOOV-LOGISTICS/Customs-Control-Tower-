@@ -418,15 +418,18 @@ export const ohaStore = Vue.observable({
 // ── OHA queries ────────────────────────────────────────────────────────────────
 export function ohaShipments() { return ohaStore.shipments }
 
-// AI-unverified files still blocking confirmation on a shipment
+// Files still needing OHA attention on a shipment (unverified-pending,
+// returned, or re-uploaded-awaiting-OHA-review)
 export function ohaUnverifiedDocs(shipment) {
-  return shipment.documents.filter(d => d.aiStatus === 'UNVERIFIED')
+  return shipment.documents.filter(d => !ohaDocCleared(d))
 }
-// A shipment can be confirmed once every file is cleared — either AI-Verified
-// or manually approved by OHA. AI-Unverified files that are still PENDING or
-// were returned to the supplier (awaiting re-upload) block confirmation.
+// A file is cleared (counts toward Confirm) only when:
+//  · it was AI-Verified on the INITIAL upload and OHA hasn't touched it, or
+//  · OHA explicitly approved it (manual override, accepted comment, or approved re-upload).
+// Returned (REJECTED) and re-uploaded-pending (RESUBMITTED) files are NOT cleared —
+// a re-upload must be re-reviewed and approved by OHA.
 export function ohaDocCleared(d) {
-  return d.aiStatus === 'VERIFIED' || d.ohaStatus === 'APPROVED'
+  return d.ohaStatus === 'APPROVED' || (d.aiStatus === 'VERIFIED' && d.ohaStatus === 'PENDING')
 }
 export function ohaCanConfirm(shipment) {
   return shipment.ohaStatus !== 'CONFIRMED' && shipment.documents.every(ohaDocCleared)
@@ -458,24 +461,30 @@ export function ohaRejectDoc(shipment, doc, { reason, remark, user }) {
   })
 }
 
-// OHA manually approves an AI-Unverified file (human override — OHA vouches for it
-// despite the AI flag). The file counts as cleared for confirmation.
+// OHA approves a file. Covers three cases:
+//  · manual override of an AI-Unverified initial upload,
+//  · accepting the supplier's explanation on a returned file (no re-upload), and
+//  · approving a re-uploaded file after re-review.
 export function ohaApproveDoc(shipment, doc, user) {
+  const wasResubmit = doc.ohaStatus === 'RESUBMITTED'
+  const wasReturned = doc.ohaStatus === 'REJECTED'
   doc.ohaStatus = 'APPROVED'
   doc.reject = null
+  const note = wasResubmit ? 'Re-uploaded file reviewed and approved by OHA.'
+    : wasReturned ? 'Approved by OHA after discussion — supplier explanation accepted, no re-upload required.'
+    : 'Manually approved by OHA despite the AI-Unverified flag.'
   doc.thread.push({
-    by: user, role: 'reviewer', system: true,
-    text: 'Manually approved by OHA despite AI-Unverified flag.',
+    by: user, role: 'reviewer', system: true, text: note,
     at: nowStr().replace(' CET (UTC+1)', ''),
   })
   shipment.verifyHistory.unshift({
     milestone: 'Verify Shipping Documents', status: 'Complete',
-    user, time: nowStr(), reason: '',
-    remark: `${doc.docType} manually approved by OHA (AI-Unverified override).`, isRecheck: false,
+    user, time: nowStr(), reason: '', remark: `${doc.docType} — ${note}`, isRecheck: false,
   })
 }
 
-// Supplier re-uploads an OHA-returned file → AI re-verifies (passes) → back to OHA Verify
+// Supplier re-uploads an OHA-returned file → AI re-verifies (passes) → the file
+// returns to OHA as RESUBMITTED, awaiting OHA re-review/approval (NOT auto-cleared).
 export function ohaResubmitDoc(shipment, doc, fileName, user) {
   // doc is the live shipment document; fall back to a docType+soRef match if needed
   const target = shipment.documents.find(d => d === doc)
@@ -483,14 +492,15 @@ export function ohaResubmitDoc(shipment, doc, fileName, user) {
     || doc
   target.fileName = fileName || target.fileName
   target.version = (target.version || 1) + 1
-  target.aiStatus = 'VERIFIED'     // re-uploaded file passes AI re-check
-  target.ohaStatus = 'RESOLVED'
+  target.aiStatus = 'VERIFIED'      // re-uploaded file passes AI re-check
+  target.ohaStatus = 'RESUBMITTED'  // back to OHA for re-review before it clears
+  target.awaitingReviewer = true
   shipment.verifyHistory.unshift({
     milestone: 'Verify Shipping Documents', status: 'Correction',
     user, time: nowStr(), reason: '',
-    remark: `${target.docType} re-uploaded and passed AI re-check — back in OHA verify queue.`, isRecheck: false,
+    remark: `${target.docType} re-uploaded by supplier — awaiting OHA re-review.`, isRecheck: false,
   })
-  return { allClear: shipment.documents.every(d => d.aiStatus === 'VERIFIED') }
+  return { awaitingOhaReview: true }
 }
 
 // OHA confirms the shipment's "Verify Shipping Documents" milestone (hands over downstream)

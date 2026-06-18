@@ -544,7 +544,7 @@
     >
       <template v-if="corrUpload.item">
         <!-- Reject reason -->
-        <div class="corr-reject-banner">
+        <div v-if="corrUpload.item.doc.reject" class="corr-reject-banner">
           <i class="el-icon-warning-outline"></i>
           <div>
             <div><strong>{{ corrUpload.item.doc.reject.reason }}</strong></div>
@@ -730,8 +730,8 @@
           <el-table-column label="Document Number" min-width="150">
             <template #default="{row}">
               <span style="font-family:Consolas,monospace;color:#004F7C">{{ row.docNumber }}</span>
-              <el-tag v-if="row.ohaStatus==='RESOLVED'" size="mini" type="success" style="margin-left:4px">re-uploaded</el-tag>
-              <el-tag v-else-if="row.ohaStatus==='APPROVED'" size="mini" type="success" style="margin-left:4px">OHA approved</el-tag>
+              <el-tag v-if="row.ohaStatus==='APPROVED'" size="mini" type="success" style="margin-left:4px">OHA approved</el-tag>
+              <el-tag v-else-if="row.ohaStatus==='RESUBMITTED'" size="mini" type="warning" style="margin-left:4px">re-uploaded · review</el-tag>
               <el-tag v-else-if="row.ohaStatus==='REJECTED'" size="mini" type="danger" style="margin-left:4px">returned</el-tag>
             </template>
           </el-table-column>
@@ -747,19 +747,27 @@
             <template #default="{row}">
               <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
               <el-button type="primary" size="mini" icon="el-icon-view" @click="previewOhaDoc(ohaVerifyDialog.shipment, row)" />
-              <!-- Pending unverified: Approve or Return -->
+              <!-- Initial AI-Unverified, not yet actioned: Approve (override) or Return -->
               <template v-if="row.aiStatus === 'UNVERIFIED' && row.ohaStatus === 'PENDING'">
                 <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Approve</el-button>
                 <el-button type="danger" size="mini" plain icon="el-icon-close" @click="openOhaReject(ohaVerifyDialog.shipment, row)">Return</el-button>
               </template>
-              <!-- Returned: track the conversation, or approve after discussion (no re-upload) -->
+              <!-- Returned, waiting on supplier (re-upload or explain): discuss / accept the explanation -->
               <template v-else-if="row.ohaStatus === 'REJECTED'">
                 <el-badge :is-dot="row.awaitingReviewer" class="oha-discuss-badge">
                   <el-button size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
                 </el-badge>
-                <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Approve</el-button>
+                <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Accept</el-button>
               </template>
-              <!-- Resolved / approved with a conversation: view history -->
+              <!-- Re-uploaded, waiting on OHA re-review: approve the new file or return again -->
+              <template v-else-if="row.ohaStatus === 'RESUBMITTED'">
+                <el-badge :is-dot="row.awaitingReviewer" class="oha-discuss-badge">
+                  <el-button size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
+                </el-badge>
+                <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Approve</el-button>
+                <el-button type="danger" size="mini" plain icon="el-icon-close" @click="openOhaReject(ohaVerifyDialog.shipment, row)">Return</el-button>
+              </template>
+              <!-- Approved with a conversation: view history -->
               <el-button v-else-if="(row.thread || []).length" size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
             </template>
           </el-table-column>
@@ -811,10 +819,10 @@
         user="OHA Origin Desk"
       />
       <div slot="footer">
-        <el-tooltip v-if="ohaCommentDialog.doc && ohaCommentDialog.doc.ohaStatus === 'REJECTED'"
-          content="Accept after discussion — no re-upload needed" placement="top">
+        <el-tooltip v-if="ohaCommentDialog.doc && (ohaCommentDialog.doc.ohaStatus === 'REJECTED' || ohaCommentDialog.doc.ohaStatus === 'RESUBMITTED')"
+          :content="ohaCommentDialog.doc.ohaStatus === 'RESUBMITTED' ? 'Approve the re-uploaded file' : 'Accept after discussion — no re-upload needed'" placement="top">
           <el-button type="success" plain size="small" icon="el-icon-circle-check"
-            @click="approveOhaDoc(ohaCommentDialog.shipment, ohaCommentDialog.doc); ohaCommentDialog.visible=false">Approve as-is</el-button>
+            @click="approveOhaDoc(ohaCommentDialog.shipment, ohaCommentDialog.doc); ohaCommentDialog.visible=false">{{ ohaCommentDialog.doc.ohaStatus === 'RESUBMITTED' ? 'Approve' : 'Accept' }}</el-button>
         </el-tooltip>
         <el-button size="small" style="margin-left:10px" @click="ohaCommentDialog.visible=false">Close</el-button>
       </div>
@@ -1424,22 +1432,18 @@ export default {
       // they do NOT touch the downstream PGS/Finance/Customs flow.
       if (source === 'OHA') {
         const shipment = ohaShipments().find(s => s.id === hbl.shipmentId)
-        const r = shipment ? ohaResubmitDoc(shipment, doc, c.fileName, `${hbl.supplier} (Supplier)`) : { allClear: false }
+        if (shipment) ohaResubmitDoc(shipment, doc, c.fileName, `${hbl.supplier} (Supplier)`)
         c.state = 'done'
         c.resetTriggered = false
-        if (r.allClear) {
-          this.$notify({
-            title: 'Back to OHA verify',
-            dangerouslyUseHTMLString: true,
-            message: `<div style="font-size:12px;line-height:1.7">
-              <div><b>${hbl.hblNo}</b> — ${doc.docType} re-uploaded and passed AI re-check.</div>
-              <div style="color:#13ce66">✔ All documents AI-verified — OHA can now confirm the shipment.</div>
-            </div>`,
-            type: 'success', duration: 6000,
-          })
-        } else {
-          this.$message.success(`${doc.docType} re-uploaded and passed AI re-check — returned to OHA verify queue.`)
-        }
+        this.$notify({
+          title: 'Re-uploaded — awaiting OHA re-review',
+          dangerouslyUseHTMLString: true,
+          message: `<div style="font-size:12px;line-height:1.7">
+            <div><b>${hbl.hblNo}</b> — ${doc.docType} re-uploaded and passed AI re-check.</div>
+            <div style="color:#e6a817">⏳ OHA will re-review the new file before it is cleared.</div>
+          </div>`,
+          type: 'success', duration: 6000,
+        })
         return
       }
 
