@@ -731,6 +731,7 @@
             <template #default="{row}">
               <span style="font-family:Consolas,monospace;color:#004F7C">{{ row.docNumber }}</span>
               <el-tag v-if="row.ohaStatus==='RESOLVED'" size="mini" type="success" style="margin-left:4px">re-uploaded</el-tag>
+              <el-tag v-else-if="row.ohaStatus==='APPROVED'" size="mini" type="success" style="margin-left:4px">OHA approved</el-tag>
               <el-tag v-else-if="row.ohaStatus==='REJECTED'" size="mini" type="danger" style="margin-left:4px">returned</el-tag>
             </template>
           </el-table-column>
@@ -746,9 +747,9 @@
             <template #default="{row}">
               <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
               <el-button type="primary" size="mini" icon="el-icon-view" @click="previewOhaDoc(ohaVerifyDialog.shipment, row)" />
-              <template v-if="row.aiStatus === 'UNVERIFIED'">
+              <template v-if="row.aiStatus === 'UNVERIFIED' && row.ohaStatus === 'PENDING'">
+                <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Approve</el-button>
                 <el-button type="danger" size="mini" plain icon="el-icon-close" @click="openOhaReject(ohaVerifyDialog.shipment, row)">Return</el-button>
-                <el-button size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)" />
               </template>
             </template>
           </el-table-column>
@@ -758,7 +759,7 @@
       <div slot="footer">
         <el-button size="small" @click="ohaVerifyDialog.visible=false">Cancel</el-button>
         <el-tooltip :disabled="ohaVerifyDialog.shipment && ohaCanConfirm(ohaVerifyDialog.shipment)"
-          content="Confirm is blocked while any document is AI-Unverified — return it to the supplier for re-upload" placement="top">
+          content="Confirm is blocked until every AI-Unverified document is handled — either Approve it or Return it to the supplier" placement="top">
           <span style="margin-left:10px">
             <el-button size="small" type="primary"
               :disabled="!ohaVerifyDialog.shipment || !ohaCanConfirm(ohaVerifyDialog.shipment)"
@@ -791,24 +792,6 @@
       <div slot="footer">
         <el-button size="small" @click="ohaRejectDialog.visible=false">Cancel</el-button>
         <el-button size="small" type="danger" :disabled="!ohaRejectDialog.reason" @click="submitOhaReject">Return to Supplier</el-button>
-      </div>
-    </el-dialog>
-
-    <!-- OHA discussion thread -->
-    <el-dialog
-      :visible.sync="ohaCommentDialog.visible"
-      :title="ohaCommentDialog.doc ? `Discussion — ${ohaCommentDialog.doc.docType} · ${ohaCommentDialog.shipment.bookingRef}` : 'Discussion'"
-      width="560px" append-to-body custom-class="brand-dialog"
-    >
-      <comment-thread
-        v-if="ohaCommentDialog.doc"
-        :hbl="ohaCommentDialog.shipment"
-        :doc="ohaCommentDialog.doc"
-        role="reviewer"
-        user="OHA Origin Desk"
-      />
-      <div slot="footer">
-        <el-button size="small" @click="ohaCommentDialog.visible=false">Close</el-button>
       </div>
     </el-dialog>
 
@@ -936,7 +919,7 @@
 import {
   rejectedDocs, resubmittedCount, resubmitDocument,
   ohaShipments, ohaUnverifiedDocs, ohaCanConfirm, ohaRejectedDocs,
-  ohaRejectDoc, ohaResubmitDoc, ohaConfirmShipment,
+  ohaRejectDoc, ohaApproveDoc, ohaResubmitDoc, ohaConfirmShipment,
 } from '@/store/reviewFlow'
 import CommentThread from '@/components/CommentThread.vue'
 
@@ -1042,7 +1025,6 @@ export default {
       ohaListDialog: { visible: false, statusKey: '', statusLabel: '' },
       ohaVerifyDialog: { visible: false, shipment: null },
       ohaRejectDialog: { visible: false, shipment: null, doc: null, reason: '', remark: '' },
-      ohaCommentDialog: { visible: false, shipment: null, doc: null },
 
       // Rejected-document correction queue (shared with Pepco Review)
       correctionDialog: { visible: false },
@@ -1245,8 +1227,9 @@ export default {
         type: 'warning', duration: 5000,
       })
     },
-    openOhaComment(shipment, doc) {
-      this.ohaCommentDialog = { visible: true, shipment, doc }
+    approveOhaDoc(shipment, doc) {
+      ohaApproveDoc(shipment, doc, 'OHA Origin Desk')
+      this.$message.success(`${doc.docType} manually approved by OHA — counts as cleared`)
     },
     confirmOhaShipment() {
       const s = this.ohaVerifyDialog.shipment

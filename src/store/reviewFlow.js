@@ -418,9 +418,14 @@ export function ohaShipments() { return ohaStore.shipments }
 export function ohaUnverifiedDocs(shipment) {
   return shipment.documents.filter(d => d.aiStatus === 'UNVERIFIED')
 }
-// A shipment can be confirmed once no file is AI-Unverified (OHA need not touch verified files)
+// A shipment can be confirmed once every file is cleared — either AI-Verified
+// or manually approved by OHA. AI-Unverified files that are still PENDING or
+// were returned to the supplier (awaiting re-upload) block confirmation.
+export function ohaDocCleared(d) {
+  return d.aiStatus === 'VERIFIED' || d.ohaStatus === 'APPROVED'
+}
 export function ohaCanConfirm(shipment) {
-  return shipment.ohaStatus !== 'CONFIRMED' && shipment.documents.every(d => d.aiStatus === 'VERIFIED')
+  return shipment.ohaStatus !== 'CONFIRMED' && shipment.documents.every(ohaDocCleared)
 }
 // OHA-returned documents, shaped to share the Document Correction queue with Pepco
 export function ohaRejectedDocs() {
@@ -446,6 +451,23 @@ export function ohaRejectDoc(shipment, doc, { reason, remark, user }) {
   shipment.verifyHistory.unshift({
     milestone: 'Verify Shipping Documents', status: 'Incomplete',
     user, time: nowStr(), reason, remark: `${doc.docType} returned to supplier. ${remark || ''}`.trim(), isRecheck: false,
+  })
+}
+
+// OHA manually approves an AI-Unverified file (human override — OHA vouches for it
+// despite the AI flag). The file counts as cleared for confirmation.
+export function ohaApproveDoc(shipment, doc, user) {
+  doc.ohaStatus = 'APPROVED'
+  doc.reject = null
+  doc.thread.push({
+    by: user, role: 'reviewer', system: true,
+    text: 'Manually approved by OHA despite AI-Unverified flag.',
+    at: nowStr().replace(' CET (UTC+1)', ''),
+  })
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Complete',
+    user, time: nowStr(), reason: '',
+    remark: `${doc.docType} manually approved by OHA (AI-Unverified override).`, isRecheck: false,
   })
 }
 
