@@ -581,21 +581,11 @@
           <div v-else style="font-size:12px;color:#666;margin-bottom:10px">
             This document type does not require AI verification — the new version is saved directly.
           </div>
-          <div style="display:flex;align-items:center;gap:10px">
-            <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startCorrUpload(f)">
-              <el-button type="primary" size="small" icon="el-icon-upload2">
-                {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
-              </el-button>
-            </el-upload>
-            <span style="font-size:11px;color:#999">or</span>
-            <el-button size="small" icon="el-icon-chat-dot-round" @click="openComment(corrUpload.item)">
-              Leave a Comment<span v-if="(corrUpload.item.doc.thread || []).length"> ({{ corrUpload.item.doc.thread.length }})</span>
+          <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startCorrUpload(f)">
+            <el-button type="primary" size="small" icon="el-icon-upload2">
+              {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
             </el-button>
-          </div>
-          <div style="font-size:11px;color:#999;margin-top:8px;line-height:1.6">
-            <i class="el-icon-info"></i>
-            If you believe the current document is already correct, leave a comment to explain — the reviewer can confirm it without a re-upload.
-          </div>
+          </el-upload>
         </div>
 
         <!-- VERIFYING -->
