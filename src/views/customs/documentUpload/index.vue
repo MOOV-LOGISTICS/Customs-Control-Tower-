@@ -769,29 +769,21 @@
       </div>
     </el-dialog>
 
-    <!-- OHA reject reason dialog -->
+    <!-- OHA return dialog -->
     <el-dialog :visible.sync="ohaRejectDialog.visible" title="Return Document to Supplier" width="480px" append-to-body custom-class="brand-dialog">
       <template v-if="ohaRejectDialog.doc">
         <div style="font-size:12px;color:#666;margin-bottom:10px">
           <strong style="color:#004F7C">{{ ohaRejectDialog.doc.docType }}</strong> — {{ ohaRejectDialog.doc.fileName }}
         </div>
         <el-form label-position="top" size="mini">
-          <el-form-item label="Reason *" required>
-            <el-select v-model="ohaRejectDialog.reason" placeholder="Select reason" style="width:100%">
-              <el-option label="AI verification failed — unreadable / low quality scan" value="AI verification failed — unreadable scan" />
-              <el-option label="Wrong document type" value="Wrong document type" />
-              <el-option label="Document does not match this shipment" value="Document does not match this shipment" />
-              <el-option label="Missing required fields" value="Missing required fields" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="Remark">
-            <el-input v-model="ohaRejectDialog.remark" type="textarea" :rows="2" placeholder="Note to the supplier (optional)…" />
+          <el-form-item label="Comments *" required>
+            <el-input v-model="ohaRejectDialog.remark" type="textarea" :rows="3" placeholder="Tell the supplier what needs to be fixed (required)…" />
           </el-form-item>
         </el-form>
       </template>
       <div slot="footer">
         <el-button size="small" @click="ohaRejectDialog.visible=false">Cancel</el-button>
-        <el-button size="small" type="danger" :disabled="!ohaRejectDialog.reason" @click="submitOhaReject">Return to Supplier</el-button>
+        <el-button size="small" type="danger" :disabled="!ohaRejectDialog.remark.trim()" @click="submitOhaReject">Return to Supplier</el-button>
       </div>
     </el-dialog>
 
@@ -1212,16 +1204,17 @@ export default {
       this.ohaRejectDialog = { visible: true, shipment, doc, reason: '', remark: '' }
     },
     submitOhaReject() {
-      const { shipment, doc, reason, remark } = this.ohaRejectDialog
-      if (!reason) { this.$message.error('Please select a reason'); return }
-      ohaRejectDoc(shipment, doc, { reason, remark, user: 'OHA Origin Desk' })
+      const { shipment, doc, remark } = this.ohaRejectDialog
+      if (!remark.trim()) { this.$message.error('Please add comments for the supplier'); return }
+      // No canned reason — OHA's comments are the message; tag a system label for the queue
+      ohaRejectDoc(shipment, doc, { reason: 'Returned by OHA Verify', remark: remark.trim(), user: 'OHA Origin Desk' })
       this.ohaRejectDialog.visible = false
       this.$notify({
         title: 'Document returned to supplier',
         dangerouslyUseHTMLString: true,
         message: `<div style="font-size:12px;line-height:1.7">
           <div><b>${shipment.bookingRef}</b> — ${doc.docType}</div>
-          <div>Reason: ${reason}</div>
+          <div>${remark.trim()}</div>
           <div style="color:#13ce66;margin-top:4px">✉ Added to Document Correction (Re-upload)</div>
         </div>`,
         type: 'warning', duration: 5000,
