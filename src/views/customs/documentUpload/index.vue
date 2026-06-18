@@ -16,6 +16,7 @@
                 <i class="el-icon-question" style="color:#3A71A8;font-size:13px;cursor:help"></i>
               </el-tooltip>
               <el-tag v-if="row.key==='UPLOAD_DOCS'" size="mini" type="success" style="font-size:10px">New flow</el-tag>
+              <el-tag v-if="row.key==='VERIFY_DOCS'" size="mini" type="success" style="font-size:10px">New flow</el-tag>
               <el-tag v-if="row.key==='DOC_CORRECTION'" size="mini" type="warning" style="font-size:10px">New flow</el-tag>
             </div>
           </template>
@@ -543,7 +544,7 @@
     >
       <template v-if="corrUpload.item">
         <!-- Reject reason -->
-        <div class="corr-reject-banner">
+        <div v-if="corrUpload.item.doc.reject" class="corr-reject-banner">
           <i class="el-icon-warning-outline"></i>
           <div>
             <div><strong>{{ corrUpload.item.doc.reject.reason }}</strong></div>
@@ -580,21 +581,11 @@
           <div v-else style="font-size:12px;color:#666;margin-bottom:10px">
             This document type does not require AI verification — the new version is saved directly.
           </div>
-          <div style="display:flex;align-items:center;gap:10px">
-            <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startCorrUpload(f)">
-              <el-button type="primary" size="small" icon="el-icon-upload2">
-                {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
-              </el-button>
-            </el-upload>
-            <span style="font-size:11px;color:#999">or</span>
-            <el-button size="small" icon="el-icon-chat-dot-round" @click="openComment(corrUpload.item)">
-              Leave a Comment<span v-if="(corrUpload.item.doc.thread || []).length"> ({{ corrUpload.item.doc.thread.length }})</span>
+          <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startCorrUpload(f)">
+            <el-button type="primary" size="small" icon="el-icon-upload2">
+              {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
             </el-button>
-          </div>
-          <div style="font-size:11px;color:#999;margin-top:8px;line-height:1.6">
-            <i class="el-icon-info"></i>
-            If you believe the current document is already correct, leave a comment to explain — the reviewer can confirm it without a re-upload.
-          </div>
+          </el-upload>
         </div>
 
         <!-- VERIFYING -->
@@ -648,6 +639,182 @@
       />
       <div slot="footer">
         <el-button size="small" @click="commentDialog.visible=false">Close</el-button>
+      </div>
+    </el-dialog>
+
+    <!-- ══ OHA: Verify Shipping Documents — shipment list ════════════════ -->
+    <el-dialog
+      :visible.sync="ohaListDialog.visible"
+      :title="`Verify Shipping Documents ${ohaListDialog.statusLabel}`"
+      width="1000px" top="6vh" custom-class="brand-dialog"
+    >
+      <el-table :data="ohaFilteredShipments()" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
+        <el-table-column label="Task Name" min-width="170"><template>Verify Shipping Documents</template></el-table-column>
+        <el-table-column label="Order Number" width="160">
+          <template #default="{row}"><span class="po-link">{{ row.orderNo }}</span></template>
+        </el-table-column>
+        <el-table-column label="Supplier Name" min-width="200" prop="supplier" />
+        <el-table-column label="Urgent Date" width="110" prop="urgentDate" />
+        <el-table-column label="Due date" width="110" prop="dueDate" sortable />
+        <el-table-column label="AI Status" width="130" align="center">
+          <template #default="{row}">
+            <el-tag v-if="ohaUnverified(row).length" size="mini" type="warning">{{ ohaUnverified(row).length }} unverified</el-tag>
+            <el-tag v-else size="mini" type="success">All verified</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="Actions" width="80" align="center">
+          <template #default="{row}">
+            <el-button type="text" size="mini" icon="el-icon-edit" @click="openOhaVerify(row)" />
+          </template>
+        </el-table-column>
+      </el-table>
+      <div style="margin-top:10px;font-size:12px;color:#666">Total {{ ohaFilteredShipments().length }}</div>
+    </el-dialog>
+
+    <!-- ══ OHA: Verify Documents — shipment detail ═══════════════════════ -->
+    <el-dialog
+      :visible.sync="ohaVerifyDialog.visible"
+      title="Verify Documents"
+      width="1120px" top="4vh" custom-class="brand-dialog"
+    >
+      <template v-if="ohaVerifyDialog.shipment">
+        <!-- Shipment Info (read-only context — existing system layout) -->
+        <div class="oha-sec-title">Shipment Info</div>
+        <div class="oha-info-grid">
+          <div><label>Carrier Booking Ref</label><span>{{ ohaVerifyDialog.shipment.bookingRef }}</span></div>
+          <div><label>Carrier Booking Number</label><span>{{ ohaVerifyDialog.shipment.carrierBookingNo }}</span></div>
+          <div><label>Carrier</label><span>{{ ohaVerifyDialog.shipment.carrier }}</span></div>
+          <div><label>CRA Number</label><span>{{ ohaVerifyDialog.shipment.craNumber }}</span></div>
+          <div><label>Place of Receipt</label><span>{{ ohaVerifyDialog.shipment.placeOfReceipt }}</span></div>
+          <div><label>Port of Loading</label><span>{{ ohaVerifyDialog.shipment.portOfLoading }}</span></div>
+          <div><label>Port of Discharge</label><span>{{ ohaVerifyDialog.shipment.portOfDischarge }}</span></div>
+          <div><label>Final Destination</label><span>{{ ohaVerifyDialog.shipment.finalDestination }}</span></div>
+          <div><label>ETD</label><span>{{ ohaVerifyDialog.shipment.etd }}</span></div>
+          <div><label>ETA</label><span>{{ ohaVerifyDialog.shipment.eta }}</span></div>
+          <div><label>MBL Number</label><span v-if="ohaVerifyDialog.shipment.mblNumber">{{ ohaVerifyDialog.shipment.mblNumber }}</span><el-tag v-else size="mini" type="danger">Undone</el-tag></div>
+          <div><label>BL Type</label><span>{{ ohaVerifyDialog.shipment.blType || '—' }}</span></div>
+        </div>
+
+        <!-- Shipping Orders (read-only) -->
+        <div class="oha-sec-title">Shipping Orders</div>
+        <el-table :data="ohaVerifyDialog.shipment.shippingOrders" size="mini" border :header-cell-style="{background:'#fafafa'}">
+          <el-table-column label="Shipper Booking Number" prop="shipperBookingNo" min-width="170" />
+          <el-table-column label="Shipment Type" prop="shipmentType" width="120" align="center" />
+          <el-table-column label="HBL Number" width="120" align="center">
+            <template #default="{row}"><span v-if="row.hblNo">{{ row.hblNo }}</span><el-tag v-else size="mini" type="danger">Undone</el-tag></template>
+          </el-table-column>
+          <el-table-column label="CBM" prop="cbm" width="90" align="center" />
+          <el-table-column label="Packages" prop="packages" width="90" align="center" />
+          <el-table-column label="Gross Weight" prop="grossWeight" width="110" align="center" />
+          <el-table-column label="CLR Status" width="100" align="center">
+            <template #default="{row}"><el-tag size="mini" :type="row.clrStatus==='Done'?'success':'info'">{{ row.clrStatus }}</el-tag></template>
+          </el-table-column>
+        </el-table>
+
+        <!-- Documents — the OHA verification area -->
+        <div class="oha-sec-title">
+          Documents
+          <span class="oha-sec-hint">AI tags each file; OHA only needs to act on AI-Unverified files</span>
+        </div>
+        <el-table :data="ohaVerifyDialog.shipment.documents" size="mini" border :header-cell-style="{background:'#fafafa'}">
+          <el-table-column label="Document Number" min-width="150">
+            <template #default="{row}">
+              <span style="font-family:Consolas,monospace;color:#004F7C">{{ row.docNumber }}</span>
+              <el-tag v-if="row.ohaStatus==='APPROVED'" size="mini" type="success" style="margin-left:4px">OHA approved</el-tag>
+              <el-tag v-else-if="row.ohaStatus==='RESUBMITTED'" size="mini" type="warning" style="margin-left:4px">re-uploaded · review</el-tag>
+              <el-tag v-else-if="row.ohaStatus==='REJECTED'" size="mini" type="danger" style="margin-left:4px">returned</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="SO Ref" prop="soRef" min-width="150" />
+          <el-table-column label="Document Type" prop="docType" min-width="140" />
+          <el-table-column label="File Name" prop="fileName" min-width="150" />
+          <el-table-column label="AI Status" width="140" align="center">
+            <template #default="{row}">
+              <span :class="['ai-badge', aiBadge(row).cls]"><i :class="aiBadge(row).icon"></i> {{ aiBadge(row).label }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="Action" width="200" align="center">
+            <template #default="{row}">
+              <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
+              <el-button type="primary" size="mini" icon="el-icon-view" @click="previewOhaDoc(ohaVerifyDialog.shipment, row)" />
+              <!-- Initial AI-Unverified, not yet actioned: Approve (override) or Return -->
+              <template v-if="row.aiStatus === 'UNVERIFIED' && row.ohaStatus === 'PENDING'">
+                <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Approve</el-button>
+                <el-button type="danger" size="mini" plain icon="el-icon-close" @click="openOhaReject(ohaVerifyDialog.shipment, row)">Return</el-button>
+              </template>
+              <!-- Returned, waiting on supplier (re-upload or explain): discuss / accept the explanation -->
+              <template v-else-if="row.ohaStatus === 'REJECTED'">
+                <el-badge :is-dot="row.awaitingReviewer" class="oha-discuss-badge">
+                  <el-button size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
+                </el-badge>
+                <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Accept</el-button>
+              </template>
+              <!-- Re-uploaded, waiting on OHA re-review: approve the new file or return again -->
+              <template v-else-if="row.ohaStatus === 'RESUBMITTED'">
+                <el-badge :is-dot="row.awaitingReviewer" class="oha-discuss-badge">
+                  <el-button size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
+                </el-badge>
+                <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Approve</el-button>
+                <el-button type="danger" size="mini" plain icon="el-icon-close" @click="openOhaReject(ohaVerifyDialog.shipment, row)">Return</el-button>
+              </template>
+              <!-- Approved with a conversation: view history -->
+              <el-button v-else-if="(row.thread || []).length" size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+
+      <div slot="footer">
+        <el-button size="small" @click="ohaVerifyDialog.visible=false">Cancel</el-button>
+        <el-tooltip :disabled="ohaVerifyDialog.shipment && ohaCanConfirm(ohaVerifyDialog.shipment)"
+          content="Confirm is blocked until every AI-Unverified document is handled — either Approve it or Return it to the supplier" placement="top">
+          <span style="margin-left:10px">
+            <el-button size="small" type="primary"
+              :disabled="!ohaVerifyDialog.shipment || !ohaCanConfirm(ohaVerifyDialog.shipment)"
+              @click="confirmOhaShipment">Confirm</el-button>
+          </span>
+        </el-tooltip>
+      </div>
+    </el-dialog>
+
+    <!-- OHA return dialog -->
+    <el-dialog :visible.sync="ohaRejectDialog.visible" title="Return Document to Supplier" width="480px" append-to-body custom-class="brand-dialog">
+      <template v-if="ohaRejectDialog.doc">
+        <div style="font-size:12px;color:#666;margin-bottom:10px">
+          <strong style="color:#004F7C">{{ ohaRejectDialog.doc.docType }}</strong> — {{ ohaRejectDialog.doc.fileName }}
+        </div>
+        <el-form label-position="top" size="mini">
+          <el-form-item label="Comments *" required>
+            <el-input v-model="ohaRejectDialog.remark" type="textarea" :rows="3" placeholder="Tell the supplier what needs to be fixed (required)…" />
+          </el-form-item>
+        </el-form>
+      </template>
+      <div slot="footer">
+        <el-button size="small" @click="ohaRejectDialog.visible=false">Cancel</el-button>
+        <el-button size="small" type="danger" :disabled="!ohaRejectDialog.remark.trim()" @click="submitOhaReject">Return to Supplier</el-button>
+      </div>
+    </el-dialog>
+
+    <!-- OHA discussion thread (returned / resolved documents) -->
+    <el-dialog
+      :visible.sync="ohaCommentDialog.visible"
+      :title="ohaCommentDialog.doc ? `Discussion — ${ohaCommentDialog.doc.docType} · ${ohaCommentDialog.shipment.bookingRef}` : 'Discussion'"
+      width="560px" append-to-body custom-class="brand-dialog"
+    >
+      <comment-thread
+        v-if="ohaCommentDialog.doc"
+        :hbl="ohaCommentDialog.shipment"
+        :doc="ohaCommentDialog.doc"
+        role="reviewer"
+        user="OHA Origin Desk"
+      />
+      <div slot="footer">
+        <el-tooltip v-if="ohaCommentDialog.doc && (ohaCommentDialog.doc.ohaStatus === 'REJECTED' || ohaCommentDialog.doc.ohaStatus === 'RESUBMITTED')"
+          :content="ohaCommentDialog.doc.ohaStatus === 'RESUBMITTED' ? 'Approve the re-uploaded file' : 'Accept after discussion — no re-upload needed'" placement="top">
+          <el-button type="success" plain size="small" icon="el-icon-circle-check"
+            @click="approveOhaDoc(ohaCommentDialog.shipment, ohaCommentDialog.doc); ohaCommentDialog.visible=false">{{ ohaCommentDialog.doc.ohaStatus === 'RESUBMITTED' ? 'Approve' : 'Accept' }}</el-button>
+        </el-tooltip>
+        <el-button size="small" style="margin-left:10px" @click="ohaCommentDialog.visible=false">Close</el-button>
       </div>
     </el-dialog>
 
@@ -772,7 +939,11 @@
 </template>
 
 <script>
-import { rejectedDocs, resubmittedCount, resubmitDocument } from '@/store/reviewFlow'
+import {
+  rejectedDocs, resubmittedCount, resubmitDocument,
+  ohaShipments, ohaUnverifiedDocs, ohaCanConfirm, ohaRejectedDocs,
+  ohaRejectDoc, ohaApproveDoc, ohaResubmitDoc, ohaConfirmShipment,
+} from '@/store/reviewFlow'
 import CommentThread from '@/components/CommentThread.vue'
 
 const VERIFY_STEPS = [
@@ -873,6 +1044,12 @@ export default {
       // Discussion thread with the reviewer (per rejected document)
       commentDialog: { visible: false, item: null },
 
+      // OHA — Verify Shipping Documents
+      ohaListDialog: { visible: false, statusKey: '', statusLabel: '' },
+      ohaVerifyDialog: { visible: false, shipment: null },
+      ohaRejectDialog: { visible: false, shipment: null, doc: null, reason: '', remark: '' },
+      ohaCommentDialog: { visible: false, shipment: null, doc: null },
+
       // Rejected-document correction queue (shared with Pepco Review)
       correctionDialog: { visible: false },
       corrUpload: {
@@ -886,21 +1063,33 @@ export default {
   computed: {
     // Static task rows + the live Document Correction row (shared review store)
     allTaskRows() {
-      const rejected = rejectedDocs().length
+      const rejected = this.correctionQueue.length
+      // OHA "Verify Shipping Documents" — origin-side gate, owned by OHA
+      const shipments = ohaShipments()
+      const pending = shipments.filter(s => s.ohaStatus !== 'CONFIRMED')
+      const verifyRow = {
+        key: 'VERIFY_DOCS',
+        taskName: 'Verify Shipping Documents',
+        partyRole: 'OHA',
+        possible: pending.length, urgent: 0,
+        overdue: pending.length,
+        finished: shipments.filter(s => s.ohaStatus === 'CONFIRMED').length,
+        hint: 'OHA verifies AI tags on supplier documents before handover to downstream review',
+      }
       const corrRow = {
         key: 'DOC_CORRECTION',
         taskName: 'Document Correction (Re-upload)',
         partyRole: 'Supplier',
         possible: 0, urgent: rejected, overdue: 0, finished: resubmittedCount(),
-        hint: 'Documents rejected during Pepco review — re-upload to restart the review flow at PGS',
+        hint: 'Documents returned during OHA verify or Pepco review — re-upload to resume the flow',
       }
       const idx = this.taskRows.findIndex(r => r.key === 'UPLOAD_DOCS')
-      return [...this.taskRows.slice(0, idx + 1), corrRow]
+      return [...this.taskRows.slice(0, idx + 1), verifyRow, corrRow]
     },
 
-    // Supplier correction work queue (rejected documents across all HBLs)
+    // Supplier correction work queue — OHA-returned + Pepco-rejected documents
     correctionQueue() {
-      return rejectedDocs()
+      return [...ohaRejectedDocs(), ...rejectedDocs()]
     },
 
     poListFiltered() {
@@ -998,16 +1187,87 @@ export default {
 
     // ── Dialog 1: PO list ────────────────────────────────────────────────
     openPoList(taskRow, statusKey) {
+      const labels = { possible:'Possible', urgent:'Urgent', overdue:'Overdue', finished:'Finished' }
       if (taskRow.key === 'DOC_CORRECTION') {
         this.correctionDialog.visible = true
+        return
+      }
+      if (taskRow.key === 'VERIFY_DOCS') {
+        this.ohaListDialog = { visible: true, statusKey, statusLabel: labels[statusKey] || '' }
         return
       }
       if (taskRow.key !== 'UPLOAD_DOCS') {
         this.$message.info(`"${taskRow.taskName}" is an existing milestone — demo focuses on Upload Shipping Documents`)
         return
       }
-      const labels = { possible:'Possible', urgent:'Urgent', overdue:'Overdue', finished:'Finished' }
       this.poListDialog = { visible: true, statusKey, statusLabel: labels[statusKey] || '' }
+    },
+
+    // ── OHA: Verify Shipping Documents ───────────────────────────────────
+    ohaUnverified: ohaUnverifiedDocs,
+    ohaCanConfirm,
+    ohaFilteredShipments() {
+      const k = this.ohaListDialog.statusKey
+      const all = ohaShipments()
+      if (k === 'finished') return all.filter(s => s.ohaStatus === 'CONFIRMED')
+      return all.filter(s => s.ohaStatus !== 'CONFIRMED')
+    },
+    openOhaVerify(shipment) {
+      this.ohaVerifyDialog = { visible: true, shipment }
+    },
+    aiBadge(doc) {
+      return doc.aiStatus === 'VERIFIED'
+        ? { cls: 'ai-ok', icon: 'el-icon-circle-check', label: 'AI Verified' }
+        : { cls: 'ai-bad', icon: 'el-icon-warning-outline', label: 'AI Unverified' }
+    },
+    previewOhaDoc(shipment, doc) {
+      this.preview = {
+        visible: true,
+        title: `Preview — ${doc.docType} (${doc.fileName})`,
+        docType: doc.docType,
+        fileName: doc.fileName,
+        version: doc.version || 1,
+        status: doc.aiStatus,
+        uploadedAt: shipment.etd || '',
+        poNumber: shipment.orderNo || doc.soRef,
+      }
+    },
+    openOhaReject(shipment, doc) {
+      this.ohaRejectDialog = { visible: true, shipment, doc, reason: '', remark: '' }
+    },
+    submitOhaReject() {
+      const { shipment, doc, remark } = this.ohaRejectDialog
+      if (!remark.trim()) { this.$message.error('Please add comments for the supplier'); return }
+      // No canned reason — OHA's comments are the message; tag a system label for the queue
+      ohaRejectDoc(shipment, doc, { reason: 'Returned by OHA Verify', remark: remark.trim(), user: 'OHA Origin Desk' })
+      this.ohaRejectDialog.visible = false
+      this.$notify({
+        title: 'Document returned to supplier',
+        dangerouslyUseHTMLString: true,
+        message: `<div style="font-size:12px;line-height:1.7">
+          <div><b>${shipment.bookingRef}</b> — ${doc.docType}</div>
+          <div>${remark.trim()}</div>
+          <div style="color:#13ce66;margin-top:4px">✉ Added to Document Correction (Re-upload)</div>
+        </div>`,
+        type: 'warning', duration: 5000,
+      })
+    },
+    approveOhaDoc(shipment, doc) {
+      const wasReturned = doc.ohaStatus === 'REJECTED'
+      ohaApproveDoc(shipment, doc, 'OHA Origin Desk')
+      this.$message.success(wasReturned
+        ? `${doc.docType} approved after discussion — no re-upload needed`
+        : `${doc.docType} manually approved by OHA — counts as cleared`)
+    },
+    openOhaComment(shipment, doc) {
+      this.ohaCommentDialog = { visible: true, shipment, doc }
+    },
+    confirmOhaShipment() {
+      const s = this.ohaVerifyDialog.shipment
+      const r = ohaConfirmShipment(s, 'OHA Origin Desk')
+      if (!r.ok) { this.$message.error('Cannot confirm — some documents are still AI-Unverified'); return }
+      this.ohaVerifyDialog.visible = false
+      this.$message.success(`${s.bookingRef} — Verify Shipping Documents completed, handed over to downstream review`)
     },
 
     // ── Document Correction (rejected docs re-upload) ────────────────────
@@ -1156,7 +1416,27 @@ export default {
     },
     finishCorrUpload() {
       const c = this.corrUpload
-      const { hbl, doc } = c.item
+      const { hbl, doc, source } = c.item
+
+      // OHA-returned documents re-pass AI and go back to the OHA verify queue —
+      // they do NOT touch the downstream PGS/Finance/Customs flow.
+      if (source === 'OHA') {
+        const shipment = ohaShipments().find(s => s.id === hbl.shipmentId)
+        if (shipment) ohaResubmitDoc(shipment, doc, c.fileName, `${hbl.supplier} (Supplier)`)
+        c.state = 'done'
+        c.resetTriggered = false
+        this.$notify({
+          title: 'Re-uploaded — awaiting OHA re-review',
+          dangerouslyUseHTMLString: true,
+          message: `<div style="font-size:12px;line-height:1.7">
+            <div><b>${hbl.hblNo}</b> — ${doc.docType} re-uploaded and passed AI re-check.</div>
+            <div style="color:#e6a817">⏳ OHA will re-review the new file before it is cleared.</div>
+          </div>`,
+          type: 'success', duration: 6000,
+        })
+        return
+      }
+
       const result = resubmitDocument(hbl, doc, c.fileName, `${hbl.supplier} (Supplier)`)
       c.state = 'done'
       c.resetTriggered = result.reset
@@ -1707,5 +1987,23 @@ export default {
   font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; display:inline-flex; align-items:center; gap:3px;
   &.verified   { background:#e6f9ef; color:darken($status-verified,10%); }
   &.unverified { background:#fff8e0; color:#e6a817; }
+}
+
+// ── OHA Verify Documents ─────────────────────────────────────────────────────
+.oha-sec-title {
+  font-weight:700; color:$primary; font-size:13px; margin:16px 0 8px;
+  padding-bottom:4px; border-bottom:1px solid #eef1f5;
+  .oha-sec-hint { font-weight:400; color:#999; font-size:11px; margin-left:8px; }
+}
+.oha-info-grid {
+  display:grid; grid-template-columns:repeat(4, 1fr); gap:8px 20px; font-size:12px;
+  div { display:flex; flex-direction:column; }
+  label { color:#909399; font-size:10px; text-transform:uppercase; letter-spacing:0.4px; margin-bottom:2px; }
+  span { color:#303133; font-weight:600; }
+}
+.ai-badge {
+  font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; display:inline-flex; align-items:center; gap:3px;
+  &.ai-ok  { background:#e6f9ef; color:#0d9b50; }
+  &.ai-bad { background:#fff8e0; color:#e6a817; }
 }
 </style>

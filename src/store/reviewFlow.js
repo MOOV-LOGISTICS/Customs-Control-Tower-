@@ -275,11 +275,15 @@ export function postComment(hbl, document, { text, role, user }) {
   const at = nowStr().replace(' CET (UTC+1)', '')
   document.thread.push({ by: user, role, text, at })
   document.awaitingReviewer = role === 'supplier'
-  hbl.verifyHistory.unshift({
-    milestone: 'Discussion',
-    status: role === 'supplier' ? 'Supplier Note' : 'Reviewer Note',
-    user, time: nowStr(), reason: '', remark: text, isRecheck: false,
-  })
+  // hbl may be a lightweight "hbl-like" descriptor (e.g. an OHA correction row)
+  // without a verifyHistory log — only record activity when the entity has one.
+  if (hbl && Array.isArray(hbl.verifyHistory)) {
+    hbl.verifyHistory.unshift({
+      milestone: 'Discussion',
+      status: role === 'supplier' ? 'Supplier Note' : 'Reviewer Note',
+      user, time: nowStr(), reason: '', remark: text, isRecheck: false,
+    })
+  }
 }
 
 // Once no returned document is still REJECTED, close out the correction round:
@@ -341,4 +345,171 @@ function finalizeIfDone(hbl, user) {
     isRecheck: false,
   })
   return { reset: false, finalized: true, resumedAt: mk }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OHA — "Verify Shipping Documents" (origin-side gate, BEFORE Pepco review)
+//
+// Supplier upload → AI tags each file VERIFIED / UNVERIFIED → OHA verifies the
+// shipment here → Pepco 3-stage review. OHA only has to act on AI-Unverified
+// files: preview, then reject (→ supplier re-upload) or discuss. AI-Verified
+// files need no OHA action. A shipment can be Confirmed once no file is
+// AI-Unverified. OHA rejections flow into the same Document Correction queue.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ohaDoc: a supplier-uploaded file as seen by OHA
+//   aiStatus:  VERIFIED | UNVERIFIED   (set by AI at upload)
+//   ohaStatus: PENDING | REJECTED | RESOLVED
+const ohaDoc = (docNumber, soRef, docType, fileName, aiStatus = 'VERIFIED') => ({
+  docNumber, soRef, docType, fileName,
+  poNo: soRef,                 // alias so the shared correction table (keyed on poNo) renders
+  aiStatus, ohaStatus: 'PENDING',
+  version: 1, reject: null, thread: [],
+})
+
+export const ohaStore = Vue.observable({
+  shipments: [
+    {
+      id: 'SHP-1', bookingRef: 'PEPCO26042000023', carrierBookingNo: '277690159', carrier: 'MAEU', craNumber: '299983899',
+      placeOfReceipt: 'CNNGB', portOfLoading: 'CNNGB', portOfDischarge: 'PLGDN', finalDestination: 'PLGDN',
+      carriageContract: 'CY/CY', paymentTerm: '', etd: '2026-05-23', eta: '2026-07-14', mblNumber: '', blType: '',
+      orderNo: 'ORD01776966_01', supplier: 'Ningbo Winpex Imp. and Exp. CO., Ltd', urgentDate: '2026-05-25', dueDate: '2026-05-26', bucket: 'overdue',
+      ohaStatus: 'PENDING', verifyHistory: [],
+      shippingOrders: [
+        { shipperBookingNo: 'NGB26041776035', shipmentType: 'FCL', hblNo: '', blType: '', cbm: '60.269', packages: 1311, grossWeight: '6811.4', clrStatus: 'Done' },
+      ],
+      documents: [
+        ohaDoc('BA26LU05215A', 'NGB26041776035', 'Commercial Invoice', 'BA26LU05215A IV.pdf', 'VERIFIED'),
+        ohaDoc('BA26LU05215A', 'NGB26041776035', 'Packing List', 'BA26LU05215A PL.pdf', 'UNVERIFIED'),
+      ],
+    },
+    {
+      id: 'SHP-2', bookingRef: 'PEPCO26042000031', carrierBookingNo: '277690204', carrier: 'MAEU', craNumber: '299984120',
+      placeOfReceipt: 'CNNGB', portOfLoading: 'CNNGB', portOfDischarge: 'PLGDN', finalDestination: 'PLGDN',
+      carriageContract: 'CY/CY', paymentTerm: '', etd: '2026-05-24', eta: '2026-07-15', mblNumber: 'MAEU240031', blType: 'HBL',
+      orderNo: 'ORD01788037_01', supplier: 'NINGBO GENERAL UNION CO.,LTD', urgentDate: '2026-05-25', dueDate: '2026-05-26', bucket: 'overdue',
+      ohaStatus: 'PENDING', verifyHistory: [],
+      shippingOrders: [
+        { shipperBookingNo: 'NGB26041788037', shipmentType: 'FCL', hblNo: 'MOOV26041788', blType: 'HBL', cbm: '7.327', packages: 244, grossWeight: '3904', clrStatus: 'Done' },
+      ],
+      documents: [
+        ohaDoc('INV-880910', 'NGB26041788037', 'Commercial Invoice', 'INV-880910.pdf', 'VERIFIED'),
+        ohaDoc('PL-880910', 'NGB26041788037', 'Packing List', 'PL-880910.pdf', 'VERIFIED'),
+        ohaDoc('HBL-880910', 'NGB26041788037', 'Bill of Lading', 'HBL-880910.pdf', 'VERIFIED'),
+      ],
+    },
+    {
+      id: 'SHP-3', bookingRef: 'PEPCO26042000048', carrierBookingNo: '277690310', carrier: 'COSU', craNumber: '299984500',
+      placeOfReceipt: 'CNSHA', portOfLoading: 'CNSHA', portOfDischarge: 'DEHAM', finalDestination: 'DEHAM',
+      carriageContract: 'CY/CY', paymentTerm: '', etd: '2026-05-26', eta: '2026-07-18', mblNumber: '', blType: '',
+      orderNo: 'ORD01780737_01', supplier: 'KEYCRAFT LTD', urgentDate: '2026-05-25', dueDate: '2026-05-26', bucket: 'overdue',
+      ohaStatus: 'PENDING', verifyHistory: [],
+      shippingOrders: [
+        { shipperBookingNo: 'SHA26041780737', shipmentType: 'LCL', hblNo: '', blType: '', cbm: '12.500', packages: 320, grossWeight: '1820', clrStatus: 'Pending' },
+      ],
+      documents: [
+        ohaDoc('INV-771201', 'SHA26041780737', 'Commercial Invoice', 'INV-771201.pdf', 'UNVERIFIED'),
+        ohaDoc('PL-771201', 'SHA26041780737', 'Packing List', 'PL-771201.pdf', 'VERIFIED'),
+      ],
+    },
+  ],
+})
+
+// ── OHA queries ────────────────────────────────────────────────────────────────
+export function ohaShipments() { return ohaStore.shipments }
+
+// Files still needing OHA attention on a shipment (unverified-pending,
+// returned, or re-uploaded-awaiting-OHA-review)
+export function ohaUnverifiedDocs(shipment) {
+  return shipment.documents.filter(d => !ohaDocCleared(d))
+}
+// A file is cleared (counts toward Confirm) only when:
+//  · it was AI-Verified on the INITIAL upload and OHA hasn't touched it, or
+//  · OHA explicitly approved it (manual override, accepted comment, or approved re-upload).
+// Returned (REJECTED) and re-uploaded-pending (RESUBMITTED) files are NOT cleared —
+// a re-upload must be re-reviewed and approved by OHA.
+export function ohaDocCleared(d) {
+  return d.ohaStatus === 'APPROVED' || (d.aiStatus === 'VERIFIED' && d.ohaStatus === 'PENDING')
+}
+export function ohaCanConfirm(shipment) {
+  return shipment.ohaStatus !== 'CONFIRMED' && shipment.documents.every(ohaDocCleared)
+}
+// OHA-returned documents, shaped to share the Document Correction queue with Pepco
+export function ohaRejectedDocs() {
+  return ohaStore.shipments.flatMap(s =>
+    s.documents.filter(d => d.ohaStatus === 'REJECTED').map(d => ({
+      // present a shipment as an "hbl-like" row for the shared correction table.
+      // Pass the LIVE doc reference (not a copy) so re-upload resolves the exact file.
+      hbl: { hblNo: s.bookingRef, supplier: s.supplier, shipmentId: s.id },
+      doc: d,
+      source: 'OHA',
+    })))
+}
+
+// ── OHA mutations ────────────────────────────────────────────────────────────────
+// OHA returns an AI-Unverified file to the supplier (→ Document Correction queue)
+export function ohaRejectDoc(shipment, doc, { reason, remark, user }) {
+  const at = nowStr().replace(' CET (UTC+1)', '')
+  doc.ohaStatus = 'REJECTED'
+  doc.reject = {
+    reason, remark: remark || '', by: user, at,
+    milestone: 'Verify Shipping Documents', milestoneKey: 'OHA', round: 1,
+  }
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Incomplete',
+    user, time: nowStr(), reason, remark: `${doc.docType} returned to supplier. ${remark || ''}`.trim(), isRecheck: false,
+  })
+}
+
+// OHA approves a file. Covers three cases:
+//  · manual override of an AI-Unverified initial upload,
+//  · accepting the supplier's explanation on a returned file (no re-upload), and
+//  · approving a re-uploaded file after re-review.
+export function ohaApproveDoc(shipment, doc, user) {
+  const wasResubmit = doc.ohaStatus === 'RESUBMITTED'
+  const wasReturned = doc.ohaStatus === 'REJECTED'
+  doc.ohaStatus = 'APPROVED'
+  doc.reject = null
+  const note = wasResubmit ? 'Re-uploaded file reviewed and approved by OHA.'
+    : wasReturned ? 'Approved by OHA after discussion — supplier explanation accepted, no re-upload required.'
+    : 'Manually approved by OHA despite the AI-Unverified flag.'
+  doc.thread.push({
+    by: user, role: 'reviewer', system: true, text: note,
+    at: nowStr().replace(' CET (UTC+1)', ''),
+  })
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Complete',
+    user, time: nowStr(), reason: '', remark: `${doc.docType} — ${note}`, isRecheck: false,
+  })
+}
+
+// Supplier re-uploads an OHA-returned file → AI re-verifies (passes) → the file
+// returns to OHA as RESUBMITTED, awaiting OHA re-review/approval (NOT auto-cleared).
+export function ohaResubmitDoc(shipment, doc, fileName, user) {
+  // doc is the live shipment document; fall back to a docType+soRef match if needed
+  const target = shipment.documents.find(d => d === doc)
+    || shipment.documents.find(d => d.docType === doc.docType && d.soRef === doc.soRef)
+    || doc
+  target.fileName = fileName || target.fileName
+  target.version = (target.version || 1) + 1
+  target.aiStatus = 'VERIFIED'      // re-uploaded file passes AI re-check
+  target.ohaStatus = 'RESUBMITTED'  // back to OHA for re-review before it clears
+  target.awaitingReviewer = true
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Correction',
+    user, time: nowStr(), reason: '',
+    remark: `${target.docType} re-uploaded by supplier — awaiting OHA re-review.`, isRecheck: false,
+  })
+  return { awaitingOhaReview: true }
+}
+
+// OHA confirms the shipment's "Verify Shipping Documents" milestone (hands over downstream)
+export function ohaConfirmShipment(shipment, user) {
+  if (!ohaCanConfirm(shipment)) return { ok: false }
+  shipment.ohaStatus = 'CONFIRMED'
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Complete',
+    user, time: nowStr(), reason: '', remark: 'All documents AI-verified — shipment handed over to downstream review.', isRecheck: false,
+  })
+  return { ok: true }
 }
