@@ -275,11 +275,15 @@ export function postComment(hbl, document, { text, role, user }) {
   const at = nowStr().replace(' CET (UTC+1)', '')
   document.thread.push({ by: user, role, text, at })
   document.awaitingReviewer = role === 'supplier'
-  hbl.verifyHistory.unshift({
-    milestone: 'Discussion',
-    status: role === 'supplier' ? 'Supplier Note' : 'Reviewer Note',
-    user, time: nowStr(), reason: '', remark: text, isRecheck: false,
-  })
+  // hbl may be a lightweight "hbl-like" descriptor (e.g. an OHA correction row)
+  // without a verifyHistory log — only record activity when the entity has one.
+  if (hbl && Array.isArray(hbl.verifyHistory)) {
+    hbl.verifyHistory.unshift({
+      milestone: 'Discussion',
+      status: role === 'supplier' ? 'Supplier Note' : 'Reviewer Note',
+      user, time: nowStr(), reason: '', remark: text, isRecheck: false,
+    })
+  }
 }
 
 // Once no returned document is still REJECTED, close out the correction round:

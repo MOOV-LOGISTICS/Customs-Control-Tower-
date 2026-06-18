@@ -747,10 +747,20 @@
             <template #default="{row}">
               <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
               <el-button type="primary" size="mini" icon="el-icon-view" @click="previewOhaDoc(ohaVerifyDialog.shipment, row)" />
+              <!-- Pending unverified: Approve or Return -->
               <template v-if="row.aiStatus === 'UNVERIFIED' && row.ohaStatus === 'PENDING'">
                 <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Approve</el-button>
                 <el-button type="danger" size="mini" plain icon="el-icon-close" @click="openOhaReject(ohaVerifyDialog.shipment, row)">Return</el-button>
               </template>
+              <!-- Returned: track the conversation, or approve after discussion (no re-upload) -->
+              <template v-else-if="row.ohaStatus === 'REJECTED'">
+                <el-badge :is-dot="row.awaitingReviewer" class="oha-discuss-badge">
+                  <el-button size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
+                </el-badge>
+                <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Approve</el-button>
+              </template>
+              <!-- Resolved / approved with a conversation: view history -->
+              <el-button v-else-if="(row.thread || []).length" size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -784,6 +794,29 @@
       <div slot="footer">
         <el-button size="small" @click="ohaRejectDialog.visible=false">Cancel</el-button>
         <el-button size="small" type="danger" :disabled="!ohaRejectDialog.remark.trim()" @click="submitOhaReject">Return to Supplier</el-button>
+      </div>
+    </el-dialog>
+
+    <!-- OHA discussion thread (returned / resolved documents) -->
+    <el-dialog
+      :visible.sync="ohaCommentDialog.visible"
+      :title="ohaCommentDialog.doc ? `Discussion — ${ohaCommentDialog.doc.docType} · ${ohaCommentDialog.shipment.bookingRef}` : 'Discussion'"
+      width="560px" append-to-body custom-class="brand-dialog"
+    >
+      <comment-thread
+        v-if="ohaCommentDialog.doc"
+        :hbl="ohaCommentDialog.shipment"
+        :doc="ohaCommentDialog.doc"
+        role="reviewer"
+        user="OHA Origin Desk"
+      />
+      <div slot="footer">
+        <el-tooltip v-if="ohaCommentDialog.doc && ohaCommentDialog.doc.ohaStatus === 'REJECTED'"
+          content="Accept after discussion — no re-upload needed" placement="top">
+          <el-button type="success" plain size="small" icon="el-icon-circle-check"
+            @click="approveOhaDoc(ohaCommentDialog.shipment, ohaCommentDialog.doc); ohaCommentDialog.visible=false">Approve as-is</el-button>
+        </el-tooltip>
+        <el-button size="small" style="margin-left:10px" @click="ohaCommentDialog.visible=false">Close</el-button>
       </div>
     </el-dialog>
 
@@ -1017,6 +1050,7 @@ export default {
       ohaListDialog: { visible: false, statusKey: '', statusLabel: '' },
       ohaVerifyDialog: { visible: false, shipment: null },
       ohaRejectDialog: { visible: false, shipment: null, doc: null, reason: '', remark: '' },
+      ohaCommentDialog: { visible: false, shipment: null, doc: null },
 
       // Rejected-document correction queue (shared with Pepco Review)
       correctionDialog: { visible: false },
@@ -1221,8 +1255,14 @@ export default {
       })
     },
     approveOhaDoc(shipment, doc) {
+      const wasReturned = doc.ohaStatus === 'REJECTED'
       ohaApproveDoc(shipment, doc, 'OHA Origin Desk')
-      this.$message.success(`${doc.docType} manually approved by OHA — counts as cleared`)
+      this.$message.success(wasReturned
+        ? `${doc.docType} approved after discussion — no re-upload needed`
+        : `${doc.docType} manually approved by OHA — counts as cleared`)
+    },
+    openOhaComment(shipment, doc) {
+      this.ohaCommentDialog = { visible: true, shipment, doc }
     },
     confirmOhaShipment() {
       const s = this.ohaVerifyDialog.shipment
