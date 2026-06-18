@@ -359,12 +359,15 @@ function finalizeIfDone(hbl, user) {
 
 // ohaDoc: a supplier-uploaded file as seen by OHA
 //   aiStatus:  VERIFIED | UNVERIFIED   (set by AI at upload)
-//   ohaStatus: PENDING | REJECTED | RESOLVED
-const ohaDoc = (docNumber, soRef, docType, fileName, aiStatus = 'VERIFIED') => ({
+//   ohaStatus: PENDING | REJECTED | RESUBMITTED | APPROVED
+const ohaDoc = (docNumber, soRef, docType, fileName, aiStatus = 'VERIFIED', version = 1, uploadedAt = '2026-05-20', versionHistory = []) => ({
   docNumber, soRef, docType, fileName,
   poNo: soRef,                 // alias so the shared correction table (keyed on poNo) renders
   aiStatus, ohaStatus: 'PENDING',
-  version: 1, reject: null, thread: [],
+  version, uploadedAt,
+  // prior versions, newest-first: [{ version, fileName, uploadedAt, status }]
+  versionHistory,
+  reject: null, thread: [],
 })
 
 export const ohaStore = Vue.observable({
@@ -393,7 +396,9 @@ export const ohaStore = Vue.observable({
         { shipperBookingNo: 'NGB26041788037', shipmentType: 'FCL', hblNo: 'MOOV26041788', blType: 'HBL', cbm: '7.327', packages: 244, grossWeight: '3904', clrStatus: 'Done' },
       ],
       documents: [
-        ohaDoc('INV-880910', 'NGB26041788037', 'Commercial Invoice', 'INV-880910.pdf', 'VERIFIED'),
+        ohaDoc('INV-880910', 'NGB26041788037', 'Commercial Invoice', 'INV-880910-v2.pdf', 'VERIFIED', 2, '2026-05-22', [
+          { version: 1, fileName: 'INV-880910.pdf', uploadedAt: '2026-05-20', status: 'VERIFIED' },
+        ]),
         ohaDoc('PL-880910', 'NGB26041788037', 'Packing List', 'PL-880910.pdf', 'VERIFIED'),
         ohaDoc('HBL-880910', 'NGB26041788037', 'Bill of Lading', 'HBL-880910.pdf', 'VERIFIED'),
       ],
@@ -490,8 +495,14 @@ export function ohaResubmitDoc(shipment, doc, fileName, user) {
   const target = shipment.documents.find(d => d === doc)
     || shipment.documents.find(d => d.docType === doc.docType && d.soRef === doc.soRef)
     || doc
+  // archive the superseded version before replacing it in place
+  target.versionHistory = [
+    { version: target.version, fileName: target.fileName, uploadedAt: target.uploadedAt || '', status: target.aiStatus },
+    ...(target.versionHistory || []),
+  ]
   target.fileName = fileName || target.fileName
   target.version = (target.version || 1) + 1
+  target.uploadedAt = nowStr().replace(' CET (UTC+1)', '').slice(0, 10)
   target.aiStatus = 'VERIFIED'      // re-uploaded file passes AI re-check
   target.ohaStatus = 'RESUBMITTED'  // back to OHA for re-review before it clears
   target.awaitingReviewer = true
