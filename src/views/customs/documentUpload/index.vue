@@ -656,7 +656,7 @@
         <el-table-column label="Supplier Name" min-width="200" prop="supplier" />
         <el-table-column label="Urgent Date" width="110" prop="urgentDate" />
         <el-table-column label="Due date" width="110" prop="dueDate" sortable />
-        <el-table-column label="AI Status" width="130" align="center">
+        <el-table-column label="Document Verified Status" width="150" align="center">
           <template #default="{row}">
             <el-tag v-if="ohaUnverified(row).length" size="mini" type="warning">{{ ohaUnverified(row).length }} unverified</el-tag>
             <el-tag v-else size="mini" type="success">All verified</el-tag>
