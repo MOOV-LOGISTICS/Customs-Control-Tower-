@@ -17,7 +17,7 @@
               </el-tooltip>
               <el-tag v-if="row.key==='UPLOAD_DOCS'" size="mini" type="success" style="font-size:10px">New flow</el-tag>
               <el-tag v-if="row.key==='VERIFY_DOCS'" size="mini" type="success" style="font-size:10px">New flow</el-tag>
-              <el-tag v-if="row.key==='DOC_CORRECTION'" size="mini" type="warning" style="font-size:10px">New flow</el-tag>
+              <el-tag v-if="row.key==='DOC_CORRECTION' || row.key==='DOC_CORRECTION_OHA'" size="mini" type="warning" style="font-size:10px">New flow</el-tag>
             </div>
           </template>
         </el-table-column>
@@ -117,8 +117,10 @@
         <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" />
         <el-table-column label="Action" width="220" align="center">
           <template #default="{row}">
-            <el-tooltip content="Update — upload a new version of this document" placement="top">
-              <el-button type="warning" size="mini" icon="el-icon-refresh-left" @click="openUpdateDialog(row)" />
+            <el-tooltip :content="currentPo.confirmed ? 'Locked — documents cannot be updated after Confirm' : 'Update — upload a new version of this document'" placement="top">
+              <span>
+                <el-button type="warning" size="mini" icon="el-icon-refresh-left" :disabled="currentPo.confirmed" @click="openUpdateDialog(row)" />
+              </span>
             </el-tooltip>
             <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
             <el-button type="primary" size="mini" icon="el-icon-view" @click="previewPoDoc(row)" />
@@ -140,9 +142,9 @@
             <el-button size="small" icon="el-icon-folder-checked" :disabled="!poHasAnyDocs" @click="savePoDocs">Save</el-button>
           </span>
         </el-tooltip>
-        <el-tooltip :disabled="poHasRequired" content="Confirm requires Commercial Invoice and Packing List on this PO — upload and submit them first" placement="top">
+        <el-tooltip :disabled="poHasRequired && poNewUpload" :content="confirmBlockReason" placement="top">
           <span style="margin-left:10px">
-            <el-button size="small" type="primary" :disabled="!poHasRequired" @click="confirmPoDocs">Confirm</el-button>
+            <el-button size="small" type="primary" :disabled="!poHasRequired || !poNewUpload" @click="confirmPoDocs">Confirm</el-button>
           </span>
         </el-tooltip>
       </div>
@@ -365,7 +367,6 @@
               <el-row :gutter="12" align="middle" type="flex">
                 <el-col :span="7">
                   <el-select v-model="otherForm.docType" placeholder="Document type" size="mini" style="width:100%">
-                    <el-option label="Bill of Lading (HBL)" value="BILL_OF_LADING" />
                     <el-option label="Certificate of Origin" value="CERTIFICATE_OF_ORIGIN" />
                     <el-option label="Sanitary Certificate" value="SANITARY_CERT" />
                     <el-option label="Other" value="OTHER" />
@@ -520,7 +521,9 @@
         </el-table-column>
         <el-table-column label="Action" width="240" align="center">
           <template #default="{row}">
-            <el-button type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
+            <!-- Supplier corrects by re-uploading; OHA can nudge the supplier by re-sending the reminder email -->
+            <el-button v-if="correctionDialog.role === 'oha'" type="success" size="mini" icon="el-icon-message" @click="resendSupplierEmail(row)">Re-send email</el-button>
+            <el-button v-else type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
             <el-badge :is-dot="!row.doc.awaitingReviewer && (row.doc.thread || []).some(m => m.role === 'reviewer')" class="comment-badge" style="margin-left:8px">
               <el-button size="mini" icon="el-icon-chat-dot-round" @click="openComment(row)">
                 Comment<span v-if="(row.doc.thread || []).length"> ({{ row.doc.thread.length }})</span>
@@ -633,9 +636,9 @@
         v-if="commentDialog.item"
         :hbl="commentDialog.item.hbl"
         :doc="commentDialog.item.doc"
-        role="supplier"
-        :user="`${commentDialog.item.hbl.supplier} (Supplier)`"
-        @posted="onSupplierPosted"
+        :role="commentDialog.role"
+        :user="commentDialog.user"
+        @posted="onCommentPosted"
       />
       <div slot="footer">
         <el-button size="small" @click="commentDialog.visible=false">Close</el-button>
@@ -1066,6 +1069,7 @@ export default {
       poDocsDialog: { visible: false },
       uploadDialog: { visible: false },
       currentPo: null,
+      poNewUpload: false,   // true once a new file is uploaded/updated in this PO-docs session
 
       // Upload dialog state (reset per PO)
       mandatorySlots: [mkSlot('ci', 'Commercial Invoice'), mkSlot('pl', 'Packing List')],
@@ -1092,7 +1096,7 @@ export default {
       versionHistoryDialog: { visible: false, doc: null },
 
       // Discussion thread with the reviewer (per rejected document)
-      commentDialog: { visible: false, item: null },
+      commentDialog: { visible: false, item: null, role: 'supplier', user: '' },
 
       // OHA — Verify Shipping Documents
       ohaListDialog: { visible: false, statusKey: '', statusLabel: '' },
@@ -1102,7 +1106,7 @@ export default {
       ohaVerDialog: { visible: false, shipment: null, doc: null },
 
       // Rejected-document correction queue (shared with Pepco Review)
-      correctionDialog: { visible: false },
+      correctionDialog: { visible: false, role: 'supplier' },
       corrUpload: {
         visible: false, item: null,
         state: 'idle',          // idle | verifying | done
@@ -1134,8 +1138,16 @@ export default {
         possible: 0, urgent: rejected, overdue: 0, finished: resubmittedCount(),
         hint: 'Documents returned during OHA verify or Pepco review — re-upload to resume the flow',
       }
+      // Same correction queue from the OHA's vantage point (same dialog on click)
+      const corrRowOha = {
+        key: 'DOC_CORRECTION_OHA',
+        taskName: 'Document Correction (Re-upload)',
+        partyRole: 'OHA',
+        possible: 0, urgent: rejected, overdue: 0, finished: resubmittedCount(),
+        hint: 'OHA view of documents returned for correction — tracks supplier re-uploads',
+      }
       const idx = this.taskRows.findIndex(r => r.key === 'UPLOAD_DOCS')
-      return [...this.taskRows.slice(0, idx + 1), verifyRow, corrRow]
+      return [...this.taskRows.slice(0, idx + 1), verifyRow, corrRow, corrRowOha]
     },
 
     // Supplier correction work queue — OHA-returned + Pepco-rejected documents
@@ -1202,6 +1214,11 @@ export default {
       return ['Commercial Invoice', 'Packing List'].every(t =>
         this.currentPo.docs.some(d => d.docTypeLabel === t))
     },
+    confirmBlockReason() {
+      if (!this.poNewUpload) return 'Upload a new document before confirming — nothing new has been uploaded in this session'
+      if (!this.poHasRequired) return 'Confirm requires Commercial Invoice and Packing List on this PO — upload and submit them first'
+      return ''
+    },
     milestoneBarClass() {
       const states = this.mandatorySlots.map(s => s.state)
       if (states.every(s => s === 'verified')) return 'bar-complete'
@@ -1239,8 +1256,8 @@ export default {
     // ── Dialog 1: PO list ────────────────────────────────────────────────
     openPoList(taskRow, statusKey) {
       const labels = { possible:'Possible', urgent:'Urgent', overdue:'Overdue', finished:'Finished' }
-      if (taskRow.key === 'DOC_CORRECTION') {
-        this.correctionDialog.visible = true
+      if (taskRow.key === 'DOC_CORRECTION' || taskRow.key === 'DOC_CORRECTION_OHA') {
+        this.correctionDialog = { visible: true, role: taskRow.key === 'DOC_CORRECTION_OHA' ? 'oha' : 'supplier' }
         return
       }
       if (taskRow.key === 'VERIFY_DOCS') {
@@ -1445,12 +1462,35 @@ export default {
       w.document.close()
     },
 
-    // Open the discussion thread with the reviewer for a rejected document
+    // Open the discussion thread. In the OHA view of the correction queue the
+    // OHA posts as the reviewer; otherwise the supplier posts.
     openComment(item) {
-      this.commentDialog = { visible: true, item }
+      const oha = this.correctionDialog.role === 'oha'
+      this.commentDialog = {
+        visible: true, item,
+        role: oha ? 'reviewer' : 'supplier',
+        user: oha ? 'OHA Origin Desk' : `${item.hbl.supplier} (Supplier)`,
+      }
     },
-    onSupplierPosted() {
-      this.$message.success('Comment sent to the reviewer — this stays at the same milestone. No re-upload is triggered.')
+    onCommentPosted() {
+      this.$message.success(this.commentDialog.role === 'reviewer'
+        ? 'Comment sent to the supplier.'
+        : 'Comment sent to the reviewer — this stays at the same milestone. No re-upload is triggered.')
+    },
+
+    // OHA re-sends the reminder email to the supplier (nudge to act on a returned document)
+    resendSupplierEmail(row) {
+      const email = `${row.hbl.supplier.toLowerCase().replace(/[^a-z]/g, '')}@supplier-mail.com`
+      this.$notify({
+        title: 'Reminder email sent',
+        dangerouslyUseHTMLString: true,
+        message: `<div style="font-size:12px;line-height:1.7">
+          <div><b>${row.hbl.hblNo}</b> — ${row.doc.docType}</div>
+          <div style="color:#13ce66">✉ Reminder email re-sent to the supplier</div>
+          <div style="color:#999">${email}</div>
+        </div>`,
+        type: 'success', duration: 5000,
+      })
     },
 
     openCorrReupload(item) {
@@ -1533,6 +1573,9 @@ export default {
     // ── Dialog 2: PO docs history ────────────────────────────────────────
     openPoDocs(po) {
       this.currentPo = po
+      // Reset per-open: Confirm only lights up after a new file is uploaded
+      // in this session (opening to preview existing docs must not enable it).
+      this.poNewUpload = false
       this.poDocsDialog.visible = true
     },
     savePoDocs() {
@@ -1540,7 +1583,11 @@ export default {
       this.$message.success(`${this.currentPo.docs.length} document(s) saved for ${this.currentPo.orderNo} — milestone not completed (CI + PL still required)`)
     },
     confirmPoDocs() {
-      // Backstop for the disabled button — same rule as poHasRequired
+      // Backstop for the disabled button
+      if (!this.poNewUpload) {
+        this.$message.error('Cannot confirm: no new document has been uploaded in this session')
+        return
+      }
       if (!this.poHasRequired) {
         this.$message.error('Cannot confirm: Commercial Invoice and Packing List are required on this PO')
         return
@@ -1627,6 +1674,7 @@ export default {
 
       this.mandatorySlots = [mkSlot('ci', 'Commercial Invoice'), mkSlot('pl', 'Packing List')]
       this.otherDocuments = []
+      if (saved > 0) this.poNewUpload = true   // a new file was uploaded this session → Confirm may enable
       return saved
     },
 
@@ -1715,6 +1763,7 @@ export default {
       d.doc.version = d.newVersion
       d.doc.status = 'VERIFIED'
       d.state = 'done'
+      this.poNewUpload = true   // a new version was uploaded this session
       this.$message.success(`${d.doc.docTypeLabel} updated to v${d.newVersion} — previous version kept in history`)
     },
 
