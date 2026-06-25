@@ -522,7 +522,7 @@
         <el-table-column label="Action" width="240" align="center">
           <template #default="{row}">
             <!-- Supplier corrects by re-uploading; OHA can nudge the supplier by re-sending the reminder email -->
-            <el-button v-if="correctionDialog.role === 'oha'" type="warning" size="mini" icon="el-icon-message" @click="resendSupplierEmail(row)">Re-send email</el-button>
+            <el-button v-if="correctionDialog.role === 'oha'" type="success" size="mini" icon="el-icon-message" @click="resendSupplierEmail(row)">Re-send email</el-button>
             <el-button v-else type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
             <el-badge :is-dot="!row.doc.awaitingReviewer && (row.doc.thread || []).some(m => m.role === 'reviewer')" class="comment-badge" style="margin-left:8px">
               <el-button size="mini" icon="el-icon-chat-dot-round" @click="openComment(row)">
