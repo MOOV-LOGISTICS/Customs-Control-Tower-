@@ -365,7 +365,6 @@
               <el-row :gutter="12" align="middle" type="flex">
                 <el-col :span="7">
                   <el-select v-model="otherForm.docType" placeholder="Document type" size="mini" style="width:100%">
-                    <el-option label="Bill of Lading (HBL)" value="BILL_OF_LADING" />
                     <el-option label="Certificate of Origin" value="CERTIFICATE_OF_ORIGIN" />
                     <el-option label="Sanitary Certificate" value="SANITARY_CERT" />
                     <el-option label="Other" value="OTHER" />
