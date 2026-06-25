@@ -521,7 +521,9 @@
         </el-table-column>
         <el-table-column label="Action" width="240" align="center">
           <template #default="{row}">
-            <el-button type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
+            <!-- Supplier corrects by re-uploading; OHA can nudge the supplier by re-sending the reminder email -->
+            <el-button v-if="correctionDialog.role === 'oha'" type="warning" size="mini" icon="el-icon-message" @click="resendSupplierEmail(row)">Re-send email</el-button>
+            <el-button v-else type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
             <el-badge :is-dot="!row.doc.awaitingReviewer && (row.doc.thread || []).some(m => m.role === 'reviewer')" class="comment-badge" style="margin-left:8px">
               <el-button size="mini" icon="el-icon-chat-dot-round" @click="openComment(row)">
                 Comment<span v-if="(row.doc.thread || []).length"> ({{ row.doc.thread.length }})</span>
@@ -634,9 +636,9 @@
         v-if="commentDialog.item"
         :hbl="commentDialog.item.hbl"
         :doc="commentDialog.item.doc"
-        role="supplier"
-        :user="`${commentDialog.item.hbl.supplier} (Supplier)`"
-        @posted="onSupplierPosted"
+        :role="commentDialog.role"
+        :user="commentDialog.user"
+        @posted="onCommentPosted"
       />
       <div slot="footer">
         <el-button size="small" @click="commentDialog.visible=false">Close</el-button>
@@ -1094,7 +1096,7 @@ export default {
       versionHistoryDialog: { visible: false, doc: null },
 
       // Discussion thread with the reviewer (per rejected document)
-      commentDialog: { visible: false, item: null },
+      commentDialog: { visible: false, item: null, role: 'supplier', user: '' },
 
       // OHA — Verify Shipping Documents
       ohaListDialog: { visible: false, statusKey: '', statusLabel: '' },
@@ -1104,7 +1106,7 @@ export default {
       ohaVerDialog: { visible: false, shipment: null, doc: null },
 
       // Rejected-document correction queue (shared with Pepco Review)
-      correctionDialog: { visible: false },
+      correctionDialog: { visible: false, role: 'supplier' },
       corrUpload: {
         visible: false, item: null,
         state: 'idle',          // idle | verifying | done
@@ -1255,7 +1257,7 @@ export default {
     openPoList(taskRow, statusKey) {
       const labels = { possible:'Possible', urgent:'Urgent', overdue:'Overdue', finished:'Finished' }
       if (taskRow.key === 'DOC_CORRECTION' || taskRow.key === 'DOC_CORRECTION_OHA') {
-        this.correctionDialog.visible = true
+        this.correctionDialog = { visible: true, role: taskRow.key === 'DOC_CORRECTION_OHA' ? 'oha' : 'supplier' }
         return
       }
       if (taskRow.key === 'VERIFY_DOCS') {
@@ -1460,12 +1462,35 @@ export default {
       w.document.close()
     },
 
-    // Open the discussion thread with the reviewer for a rejected document
+    // Open the discussion thread. In the OHA view of the correction queue the
+    // OHA posts as the reviewer; otherwise the supplier posts.
     openComment(item) {
-      this.commentDialog = { visible: true, item }
+      const oha = this.correctionDialog.role === 'oha'
+      this.commentDialog = {
+        visible: true, item,
+        role: oha ? 'reviewer' : 'supplier',
+        user: oha ? 'OHA Origin Desk' : `${item.hbl.supplier} (Supplier)`,
+      }
     },
-    onSupplierPosted() {
-      this.$message.success('Comment sent to the reviewer — this stays at the same milestone. No re-upload is triggered.')
+    onCommentPosted() {
+      this.$message.success(this.commentDialog.role === 'reviewer'
+        ? 'Comment sent to the supplier.'
+        : 'Comment sent to the reviewer — this stays at the same milestone. No re-upload is triggered.')
+    },
+
+    // OHA re-sends the reminder email to the supplier (nudge to act on a returned document)
+    resendSupplierEmail(row) {
+      const email = `${row.hbl.supplier.toLowerCase().replace(/[^a-z]/g, '')}@supplier-mail.com`
+      this.$notify({
+        title: 'Reminder email sent',
+        dangerouslyUseHTMLString: true,
+        message: `<div style="font-size:12px;line-height:1.7">
+          <div><b>${row.hbl.hblNo}</b> — ${row.doc.docType}</div>
+          <div style="color:#13ce66">✉ Reminder email re-sent to the supplier</div>
+          <div style="color:#999">${email}</div>
+        </div>`,
+        type: 'success', duration: 5000,
+      })
     },
 
     openCorrReupload(item) {
