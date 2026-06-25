@@ -117,8 +117,10 @@
         <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" />
         <el-table-column label="Action" width="220" align="center">
           <template #default="{row}">
-            <el-tooltip content="Update — upload a new version of this document" placement="top">
-              <el-button type="warning" size="mini" icon="el-icon-refresh-left" @click="openUpdateDialog(row)" />
+            <el-tooltip :content="currentPo.confirmed ? 'Locked — documents cannot be updated after Confirm' : 'Update — upload a new version of this document'" placement="top">
+              <span>
+                <el-button type="warning" size="mini" icon="el-icon-refresh-left" :disabled="currentPo.confirmed" @click="openUpdateDialog(row)" />
+              </span>
             </el-tooltip>
             <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
             <el-button type="primary" size="mini" icon="el-icon-view" @click="previewPoDoc(row)" />
