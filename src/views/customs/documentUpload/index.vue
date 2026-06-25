@@ -142,9 +142,9 @@
             <el-button size="small" icon="el-icon-folder-checked" :disabled="!poHasAnyDocs" @click="savePoDocs">Save</el-button>
           </span>
         </el-tooltip>
-        <el-tooltip :disabled="poHasRequired" content="Confirm requires Commercial Invoice and Packing List on this PO — upload and submit them first" placement="top">
+        <el-tooltip :disabled="poHasRequired && poNewUpload" :content="confirmBlockReason" placement="top">
           <span style="margin-left:10px">
-            <el-button size="small" type="primary" :disabled="!poHasRequired" @click="confirmPoDocs">Confirm</el-button>
+            <el-button size="small" type="primary" :disabled="!poHasRequired || !poNewUpload" @click="confirmPoDocs">Confirm</el-button>
           </span>
         </el-tooltip>
       </div>
@@ -1067,6 +1067,7 @@ export default {
       poDocsDialog: { visible: false },
       uploadDialog: { visible: false },
       currentPo: null,
+      poNewUpload: false,   // true once a new file is uploaded/updated in this PO-docs session
 
       // Upload dialog state (reset per PO)
       mandatorySlots: [mkSlot('ci', 'Commercial Invoice'), mkSlot('pl', 'Packing List')],
@@ -1202,6 +1203,11 @@ export default {
       if (!this.currentPo) return false
       return ['Commercial Invoice', 'Packing List'].every(t =>
         this.currentPo.docs.some(d => d.docTypeLabel === t))
+    },
+    confirmBlockReason() {
+      if (!this.poNewUpload) return 'Upload a new document before confirming — nothing new has been uploaded in this session'
+      if (!this.poHasRequired) return 'Confirm requires Commercial Invoice and Packing List on this PO — upload and submit them first'
+      return ''
     },
     milestoneBarClass() {
       const states = this.mandatorySlots.map(s => s.state)
@@ -1534,6 +1540,9 @@ export default {
     // ── Dialog 2: PO docs history ────────────────────────────────────────
     openPoDocs(po) {
       this.currentPo = po
+      // Reset per-open: Confirm only lights up after a new file is uploaded
+      // in this session (opening to preview existing docs must not enable it).
+      this.poNewUpload = false
       this.poDocsDialog.visible = true
     },
     savePoDocs() {
@@ -1541,7 +1550,11 @@ export default {
       this.$message.success(`${this.currentPo.docs.length} document(s) saved for ${this.currentPo.orderNo} — milestone not completed (CI + PL still required)`)
     },
     confirmPoDocs() {
-      // Backstop for the disabled button — same rule as poHasRequired
+      // Backstop for the disabled button
+      if (!this.poNewUpload) {
+        this.$message.error('Cannot confirm: no new document has been uploaded in this session')
+        return
+      }
       if (!this.poHasRequired) {
         this.$message.error('Cannot confirm: Commercial Invoice and Packing List are required on this PO')
         return
@@ -1628,6 +1641,7 @@ export default {
 
       this.mandatorySlots = [mkSlot('ci', 'Commercial Invoice'), mkSlot('pl', 'Packing List')]
       this.otherDocuments = []
+      if (saved > 0) this.poNewUpload = true   // a new file was uploaded this session → Confirm may enable
       return saved
     },
 
@@ -1716,6 +1730,7 @@ export default {
       d.doc.version = d.newVersion
       d.doc.status = 'VERIFIED'
       d.state = 'done'
+      this.poNewUpload = true   // a new version was uploaded this session
       this.$message.success(`${d.doc.docTypeLabel} updated to v${d.newVersion} — previous version kept in history`)
     },
 
