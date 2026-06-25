@@ -17,7 +17,7 @@
               </el-tooltip>
               <el-tag v-if="row.key==='UPLOAD_DOCS'" size="mini" type="success" style="font-size:10px">New flow</el-tag>
               <el-tag v-if="row.key==='VERIFY_DOCS'" size="mini" type="success" style="font-size:10px">New flow</el-tag>
-              <el-tag v-if="row.key==='DOC_CORRECTION'" size="mini" type="warning" style="font-size:10px">New flow</el-tag>
+              <el-tag v-if="row.key==='DOC_CORRECTION' || row.key==='DOC_CORRECTION_OHA'" size="mini" type="warning" style="font-size:10px">New flow</el-tag>
             </div>
           </template>
         </el-table-column>
@@ -1136,8 +1136,16 @@ export default {
         possible: 0, urgent: rejected, overdue: 0, finished: resubmittedCount(),
         hint: 'Documents returned during OHA verify or Pepco review — re-upload to resume the flow',
       }
+      // Same correction queue from the OHA's vantage point (same dialog on click)
+      const corrRowOha = {
+        key: 'DOC_CORRECTION_OHA',
+        taskName: 'Document Correction (Re-upload)',
+        partyRole: 'OHA',
+        possible: 0, urgent: rejected, overdue: 0, finished: resubmittedCount(),
+        hint: 'OHA view of documents returned for correction — tracks supplier re-uploads',
+      }
       const idx = this.taskRows.findIndex(r => r.key === 'UPLOAD_DOCS')
-      return [...this.taskRows.slice(0, idx + 1), verifyRow, corrRow]
+      return [...this.taskRows.slice(0, idx + 1), verifyRow, corrRow, corrRowOha]
     },
 
     // Supplier correction work queue — OHA-returned + Pepco-rejected documents
@@ -1246,7 +1254,7 @@ export default {
     // ── Dialog 1: PO list ────────────────────────────────────────────────
     openPoList(taskRow, statusKey) {
       const labels = { possible:'Possible', urgent:'Urgent', overdue:'Overdue', finished:'Finished' }
-      if (taskRow.key === 'DOC_CORRECTION') {
+      if (taskRow.key === 'DOC_CORRECTION' || taskRow.key === 'DOC_CORRECTION_OHA') {
         this.correctionDialog.visible = true
         return
       }
