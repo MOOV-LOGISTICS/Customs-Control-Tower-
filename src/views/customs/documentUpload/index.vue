@@ -367,9 +367,15 @@
               <el-row :gutter="12" align="middle" type="flex">
                 <el-col :span="7">
                   <el-select v-model="otherForm.docType" placeholder="Document type" size="mini" style="width:100%">
-                    <el-option label="Certificate of Origin" value="CERTIFICATE_OF_ORIGIN" />
-                    <el-option label="Sanitary Certificate" value="SANITARY_CERT" />
-                    <el-option label="Other" value="OTHER" />
+                    <el-option label="EUR.1 certificate" value="EUR1_CERT" />
+                    <el-option label="A.TR certificate" value="ATR_CERT" />
+                    <el-option label="Anti-dumping invoice" value="ANTI_DUMPING_INV" />
+                    <el-option label="Export declaration" value="EXPORT_DECL" />
+                    <el-option label="Photo" value="PHOTO" />
+                    <el-option label="Iron &amp; Steel declaration" value="IRON_STEEL_DECL" />
+                    <el-option label="Fumigation certificate" value="FUMIGATION_CERT" />
+                    <el-option label="Declaration of conformity (DoC)" value="DOC_CONFORMITY" />
+                    <el-option label="Registered export declaration (REX)" value="REX_DECL" />
                   </el-select>
                 </el-col>
                 <el-col :span="10">
@@ -401,14 +407,6 @@
             </el-table-column>
             <el-table-column label="Ver" width="50" align="center">
               <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
-            </el-table-column>
-            <el-table-column label="Status" width="115">
-              <template #default="{row}">
-                <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
-                  <i :class="row.status==='VERIFIED'?'el-icon-check':'el-icon-warning-outline'"></i>
-                  {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
-                </span>
-              </template>
             </el-table-column>
             <el-table-column label="Uploaded" width="120" prop="uploadedAt" />
           </el-table>
@@ -1904,8 +1902,16 @@ export default {
     // ── Other docs (within upload dialog session) ────────────────────────
     onOtherFileChange(file) { this.otherForm.fileName = file.name },
     saveOtherDoc() {
-      const labelMap = { BILL_OF_LADING:'Bill of Lading', CERTIFICATE_OF_ORIGIN:'Certificate of Origin', SANITARY_CERT:'Sanitary Certificate', OTHER:'Other' }
-      const prefix = { BILL_OF_LADING:'HBL', CERTIFICATE_OF_ORIGIN:'COO', SANITARY_CERT:'SC', OTHER:'DOC' }[this.otherForm.docType] || 'DOC'
+      const labelMap = {
+        EUR1_CERT: 'EUR.1 certificate', ATR_CERT: 'A.TR certificate', ANTI_DUMPING_INV: 'Anti-dumping invoice',
+        EXPORT_DECL: 'Export declaration', PHOTO: 'Photo', IRON_STEEL_DECL: 'Iron & Steel declaration',
+        FUMIGATION_CERT: 'Fumigation certificate', DOC_CONFORMITY: 'Declaration of conformity (DoC)',
+        REX_DECL: 'Registered export declaration (REX)',
+      }
+      const prefix = {
+        EUR1_CERT: 'EUR1', ATR_CERT: 'ATR', ANTI_DUMPING_INV: 'ADI', EXPORT_DECL: 'EXP', PHOTO: 'PHOTO',
+        IRON_STEEL_DECL: 'ISD', FUMIGATION_CERT: 'FUM', DOC_CONFORMITY: 'DOC', REX_DECL: 'REX',
+      }[this.otherForm.docType] || 'DOC'
       this.otherDocuments.push({
         id: Date.now(), docType: this.otherForm.docType,
         docTypeLabel: labelMap[this.otherForm.docType] || 'Other',
