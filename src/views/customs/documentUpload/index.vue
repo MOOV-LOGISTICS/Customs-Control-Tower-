@@ -137,11 +137,6 @@
       </div>
       <div slot="footer">
         <el-button size="small" @click="poDocsDialog.visible=false">Cancel</el-button>
-        <el-tooltip :disabled="poHasAnyDocs" content="Nothing to save — no documents on this PO yet" placement="top">
-          <span style="margin-left:10px">
-            <el-button size="small" icon="el-icon-folder-checked" :disabled="!poHasAnyDocs" @click="savePoDocs">Save</el-button>
-          </span>
-        </el-tooltip>
         <el-tooltip :disabled="poHasRequired && poNewUpload" :content="confirmBlockReason" placement="top">
           <span style="margin-left:10px">
             <el-button size="small" type="primary" :disabled="!poHasRequired || !poNewUpload" @click="confirmPoDocs">Confirm</el-button>
