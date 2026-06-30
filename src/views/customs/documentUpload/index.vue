@@ -408,14 +408,6 @@
             <el-table-column label="Ver" width="50" align="center">
               <template #default="{row}"><el-tag size="mini" type="info">v{{ row.version }}</el-tag></template>
             </el-table-column>
-            <el-table-column label="Status" width="115">
-              <template #default="{row}">
-                <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
-                  <i :class="row.status==='VERIFIED'?'el-icon-check':'el-icon-warning-outline'"></i>
-                  {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
-                </span>
-              </template>
-            </el-table-column>
             <el-table-column label="Uploaded" width="120" prop="uploadedAt" />
           </el-table>
           <div v-if="!otherDocuments.length" style="text-align:center;padding:14px;color:#c0c4cc;font-size:13px">No other documents added in this session</div>
