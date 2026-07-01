@@ -471,10 +471,10 @@
       title="Document Correction — Rejected by Pepco Review"
       width="1080px" top="6vh" custom-class="brand-dialog"
     >
-      <el-alert v-if="correctionQueue.length" type="warning" :closable="false" show-icon style="margin-bottom:10px"
-        title="These documents were rejected during Pepco review. Re-upload each one — once all rejected documents of a HBL are corrected, its review flow automatically restarts at PGS (re-check).">
+      <el-alert v-if="correctionTableRows.length" type="warning" :closable="false" show-icon style="margin-bottom:10px"
+        title="Documents returned during review. Re-upload each one (same document no. = new version; a different document no. = a replacement). Once all are corrected, the review flow restarts.">
       </el-alert>
-      <el-table :data="correctionQueue" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
+      <el-table :data="correctionTableRows" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
         <el-table-column label="HBL" width="110">
           <template #default="{row}"><span style="font-weight:600;color:#004F7C">{{ row.hbl.hblNo }}</span></template>
         </el-table-column>
@@ -506,17 +506,25 @@
             <div style="color:#ff4949;font-size:12px">{{ row.doc.reject.reason }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="Reviewer Remark" min-width="200">
+        <el-table-column label="Reviewer Remark" min-width="180">
           <template #default="{row}">
             <span v-if="row.doc.reject.remark" style="font-size:12px;color:#303133">{{ row.doc.reject.remark }}</span>
             <span v-else style="color:#c0c4cc">—</span>
           </template>
         </el-table-column>
+        <el-table-column label="Status" width="150" align="center">
+          <template #default="{row}">
+            <el-tag size="mini" :type="corrStatus(row).type">{{ corrStatus(row).label }}</el-tag>
+            <div v-if="row.doc.replacedBy" style="font-size:10px;color:#909399;margin-top:2px">→ {{ row.doc.replacedBy }}</div>
+          </template>
+        </el-table-column>
         <el-table-column label="Action" width="240" align="center">
           <template #default="{row}">
-            <!-- Supplier corrects by re-uploading; OHA can nudge the supplier by re-sending the reminder email -->
-            <el-button v-if="correctionDialog.role === 'oha'" type="success" size="mini" icon="el-icon-message" @click="resendSupplierEmail(row)">Re-send email</el-button>
-            <el-button v-else type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
+            <!-- Actions only while the document is still returned (pending correction) -->
+            <template v-if="corrIsPending(row)">
+              <el-button v-if="correctionDialog.role === 'oha'" type="success" size="mini" icon="el-icon-message" @click="resendSupplierEmail(row)">Re-send email</el-button>
+              <el-button v-else type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
+            </template>
             <el-badge :is-dot="!row.doc.awaitingReviewer && (row.doc.thread || []).some(m => m.role === 'reviewer')" class="comment-badge" style="margin-left:8px">
               <el-button size="mini" icon="el-icon-chat-dot-round" @click="openComment(row)">
                 Comment<span v-if="(row.doc.thread || []).length"> ({{ row.doc.thread.length }})</span>
@@ -525,7 +533,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div v-if="!correctionQueue.length" style="text-align:center;padding:28px;color:#13ce66;font-size:13px">
+      <div v-if="!correctionTableRows.length" style="text-align:center;padding:28px;color:#13ce66;font-size:13px">
         <i class="el-icon-circle-check" style="font-size:20px"></i><br>
         No rejected documents — all corrections are done
       </div>
@@ -577,6 +585,15 @@
           <div v-else style="font-size:12px;color:#666;margin-bottom:10px">
             This document type does not require AI verification — the new version is saved directly.
           </div>
+          <div class="corr-dn-field">
+            <label>Document Number of the new file</label>
+            <el-input v-model="corrUpload.docNumber" size="mini" placeholder="Document number" />
+            <div class="corr-dn-hint">
+              <i class="el-icon-info"></i>
+              Same number as <strong>{{ corrUpload.item.doc.docNumber }}</strong> → saved as a new <strong>version</strong>.
+              A different number → saved as a <strong>replacement</strong> document.
+            </div>
+          </div>
           <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startCorrUpload(f)">
             <el-button type="primary" size="small" icon="el-icon-upload2">
               {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
@@ -600,9 +617,12 @@
         <!-- DONE -->
         <div v-if="corrUpload.state === 'done'" style="margin-top:12px">
           <el-alert type="success" :closable="false" show-icon
-            :title="`Re-uploaded as v${corrUpload.item.doc.version}`">
+            :title="corrUpload.replaced ? `Saved as a new document (${corrUpload.docNumber}) — replaces the rejected one` : `Re-uploaded as v${corrUpload.item.doc.version}`">
             <div style="font-size:12px;margin-top:2px">
-              <template v-if="corrUpload.resetTriggered">
+              <template v-if="corrUpload.replaced">
+                The rejected document <strong>{{ corrUpload.item.doc.docNumber }}</strong> is kept for audit and tagged <strong>Replaced</strong>; the new document takes its place.
+              </template>
+              <template v-else-if="corrUpload.resetTriggered">
                 All rejected documents of {{ corrUpload.item.hbl.hblNo }} are corrected —
                 <strong>review flow restarted at PGS Check (re-check)</strong>, PGS team notified.
               </template>
@@ -986,7 +1006,7 @@
 
 <script>
 import {
-  rejectedDocs, resubmittedCount, resubmitDocument,
+  rejectedDocs, resubmittedCount, resubmitDocument, correctionRows,
   ohaShipments, ohaUnverifiedDocs, ohaCanConfirm, ohaRejectedDocs,
   ohaRejectDoc, ohaApproveDoc, ohaResubmitDoc, ohaConfirmShipment,
 } from '@/store/reviewFlow'
@@ -1143,9 +1163,13 @@ export default {
       return [...this.taskRows.slice(0, idx + 1), verifyRow, corrRow, corrRowOha]
     },
 
-    // Supplier correction work queue — OHA-returned + Pepco-rejected documents
+    // Pending (still-rejected) documents — drives the board counts
     correctionQueue() {
       return [...ohaRejectedDocs(), ...rejectedDocs()]
+    },
+    // Full table rows for the correction dialog — pending + resolved of the round
+    correctionTableRows() {
+      return correctionRows()
     },
 
     poListFiltered() {
@@ -1486,10 +1510,24 @@ export default {
       })
     },
 
+    // Workflow status of a correction row (source-aware) for the Status column
+    corrStatus(row) {
+      const s = row.source === 'OHA' ? row.doc.ohaStatus : row.doc.reviewStatus
+      return {
+        REJECTED:    { label: 'Returned',    type: 'danger'  },
+        RESUBMITTED: { label: 'Re-uploaded', type: 'warning' },
+        REPLACED:    { label: 'Replaced',    type: 'info'    },
+        APPROVED:    { label: 'Approved',    type: 'success' },
+      }[s] || { label: s || '—', type: 'info' }
+    },
+    corrIsPending(row) {
+      return (row.source === 'OHA' ? row.doc.ohaStatus : row.doc.reviewStatus) === 'REJECTED'
+    },
+
     openCorrReupload(item) {
       this.corrUpload = {
-        visible: true, item,
-        state: 'idle', fileName: '', steps: [], progress: 0, resetTriggered: false,
+        visible: true, item, docNumber: item.doc.docNumber || '',
+        state: 'idle', fileName: '', steps: [], progress: 0, resetTriggered: false, replaced: false,
       }
     },
     corrNeedsAi(item) {
@@ -1521,22 +1559,41 @@ export default {
         }, delay)
       })
     },
-    finishCorrUpload() {
+    async finishCorrUpload() {
       const c = this.corrUpload
       const { hbl, doc, source } = c.item
+
+      // Compare the new file's Document Number against the original: same → new
+      // version; different → replacement (confirm with the supplier first).
+      const newDN = (c.docNumber || '').trim()
+      const isReplacement = !!newDN && newDN !== doc.docNumber
+      if (isReplacement) {
+        try {
+          await this.$confirm(
+            `The Document Number (${newDN}) differs from the original (${doc.docNumber}). This will be saved as a NEW document that replaces the rejected one — not as a new version of it.`,
+            'Different document number',
+            { confirmButtonText: 'Save as replacement', cancelButtonText: 'Cancel', type: 'warning' }
+          )
+        } catch (e) {
+          c.state = 'idle'   // let the supplier fix the number or re-pick the file
+          return
+        }
+      }
+      c.replaced = isReplacement
+      const newDocNumber = isReplacement ? newDN : undefined
 
       // OHA-returned documents re-pass AI and go back to the OHA verify queue —
       // they do NOT touch the downstream PGS/Finance/Customs flow.
       if (source === 'OHA') {
         const shipment = ohaShipments().find(s => s.id === hbl.shipmentId)
-        if (shipment) ohaResubmitDoc(shipment, doc, c.fileName, `${hbl.supplier} (Supplier)`)
+        if (shipment) ohaResubmitDoc(shipment, doc, c.fileName, `${hbl.supplier} (Supplier)`, newDocNumber)
         c.state = 'done'
         c.resetTriggered = false
         this.$notify({
-          title: 'Re-uploaded — awaiting OHA re-review',
+          title: isReplacement ? 'Replacement saved — awaiting OHA re-review' : 'Re-uploaded — awaiting OHA re-review',
           dangerouslyUseHTMLString: true,
           message: `<div style="font-size:12px;line-height:1.7">
-            <div><b>${hbl.hblNo}</b> — ${doc.docType} re-uploaded and passed AI re-check.</div>
+            <div><b>${hbl.hblNo}</b> — ${doc.docType} ${isReplacement ? `replaced by <b>${newDN}</b>` : 're-uploaded'} and passed AI re-check.</div>
             <div style="color:#e6a817">⏳ OHA will re-review the new file before it is cleared.</div>
           </div>`,
           type: 'success', duration: 6000,
@@ -1544,7 +1601,7 @@ export default {
         return
       }
 
-      const result = resubmitDocument(hbl, doc, c.fileName, `${hbl.supplier} (Supplier)`)
+      const result = resubmitDocument(hbl, doc, c.fileName, `${hbl.supplier} (Supplier)`, newDocNumber)
       c.state = 'done'
       c.resetTriggered = result.reset
       if (result.reset) {
@@ -1552,14 +1609,16 @@ export default {
           title: 'Review flow restarted',
           dangerouslyUseHTMLString: true,
           message: `<div style="font-size:12px;line-height:1.7">
-            <div><b>${hbl.hblNo}</b> — all rejected documents corrected.</div>
+            <div><b>${hbl.hblNo}</b> — all returned documents resolved${isReplacement ? ` (${doc.docNumber} replaced by ${newDN})` : ''}.</div>
             <div style="color:#13ce66">✔ Milestones reset — flow restarts at <b>PGS Check (Re-check)</b></div>
             <div style="color:#999">✉ PGS team notified for re-review</div>
           </div>`,
           type: 'success', duration: 6000,
         })
       } else {
-        this.$message.success(`${doc.docType} re-uploaded (v${doc.version}) — ${result.remaining} rejected document(s) still pending on ${hbl.hblNo}`)
+        this.$message.success(isReplacement
+          ? `${doc.docType} replaced by ${newDN} — ${result.remaining} document(s) still pending on ${hbl.hblNo}`
+          : `${doc.docType} re-uploaded (v${doc.version}) — ${result.remaining} rejected document(s) still pending on ${hbl.hblNo}`)
       }
     },
 
@@ -2129,5 +2188,11 @@ export default {
   font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; display:inline-flex; align-items:center; gap:3px;
   &.ai-ok  { background:#e6f9ef; color:#0d9b50; }
   &.ai-bad { background:#fff8e0; color:#e6a817; }
+}
+
+.corr-dn-field {
+  margin-bottom:12px;
+  label { display:block; font-size:12px; color:#606266; margin-bottom:4px; font-weight:600; }
+  .corr-dn-hint { font-size:11px; color:#909399; margin-top:5px; line-height:1.6; strong { color:#004F7C; } }
 }
 </style>

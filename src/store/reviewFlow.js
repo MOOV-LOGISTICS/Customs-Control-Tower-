@@ -243,8 +243,26 @@ export function rejectDocuments(hbl, docs, { reason, remark, milestoneName, mile
 
 const MS_NAME = { PGS: 'PGS Check', FINANCE: 'Finance Check', CUSTOMS: 'Customs Check' }
 
-// Supplier re-uploads a rejected document (the content has changed).
-export function resubmitDocument(hbl, document, fileName, user) {
+// Supplier re-uploads a rejected document.
+//  · Same Document Number  → a corrected new VERSION of the same document.
+//  · Different Doc Number   → a REPLACEMENT: the original is withdrawn (kept for
+//    audit, tagged Replaced) and a brand-new document is added in its place.
+export function resubmitDocument(hbl, document, fileName, user, newDocNumber) {
+  const isReplacement = newDocNumber && newDocNumber !== document.docNumber
+
+  if (isReplacement) {
+    document.reviewStatus = 'REPLACED'
+    document.resolution = 'REPLACED'
+    document.replacedBy = newDocNumber
+    document.awaitingReviewer = false
+    const nd = doc(document.docType, fileName, 1, document.poNo,
+      nowStr().replace(' CET (UTC+1)', ''), 'RESUBMITTED', null, [], newDocNumber)
+    nd.resolution = 'RESUBMITTED'
+    nd.replacesDocNumber = document.docNumber
+    hbl.documents.push(nd)
+    return finalizeIfDone(hbl, user)
+  }
+
   document.fileName = fileName
   document.version += 1
   document.uploadedAt = nowStr().replace(' CET (UTC+1)', '')
@@ -296,7 +314,8 @@ function finalizeIfDone(hbl, user) {
   const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
   const round = hbl.correctionRound
   const roundDocs = hbl.documents.filter(d => d.reject && d.reject.round === round)
-  const anyResubmit = roundDocs.some(d => d.resolution === 'RESUBMITTED')
+  // A re-upload or a replacement both mean the document content changed → re-check
+  const anyResubmit = roundDocs.some(d => d.resolution === 'RESUBMITTED' || d.resolution === 'REPLACED')
 
   if (anyResubmit) {
     // Content changed somewhere → re-check the whole flow from PGS
@@ -451,6 +470,22 @@ export function ohaRejectedDocs() {
     })))
 }
 
+// Full Document Correction table rows: every returned document of the current
+// round — pending AND resolved (re-uploaded / replaced) — so the table can show
+// a Status column and keep a Replaced document visible with its tag.
+// (Board counts still use the REJECTED-only queries above.)
+export function correctionRows() {
+  const pepco = reviewStore.hbls.flatMap(h =>
+    h.documents
+      .filter(d => d.reject && d.reject.round === h.correctionRound)
+      .map(d => ({ hbl: h, doc: d, source: 'PEPCO' })))
+  const oha = ohaStore.shipments.flatMap(s =>
+    s.documents
+      .filter(d => d.reject && ['REJECTED', 'RESUBMITTED', 'REPLACED'].includes(d.ohaStatus))
+      .map(d => ({ hbl: { hblNo: s.bookingRef, supplier: s.supplier, shipmentId: s.id }, doc: d, source: 'OHA' })))
+  return [...oha, ...pepco]
+}
+
 // ── OHA mutations ────────────────────────────────────────────────────────────────
 // OHA returns an AI-Unverified file to the supplier (→ Document Correction queue)
 export function ohaRejectDoc(shipment, doc, { reason, remark, user }) {
@@ -490,12 +525,32 @@ export function ohaApproveDoc(shipment, doc, user) {
 
 // Supplier re-uploads an OHA-returned file → AI re-verifies (passes) → the file
 // returns to OHA as RESUBMITTED, awaiting OHA re-review/approval (NOT auto-cleared).
-export function ohaResubmitDoc(shipment, doc, fileName, user) {
+export function ohaResubmitDoc(shipment, doc, fileName, user, newDocNumber) {
   // doc is the live shipment document; fall back to a docType+soRef match if needed
   const target = shipment.documents.find(d => d === doc)
     || shipment.documents.find(d => d.docType === doc.docType && d.soRef === doc.soRef)
     || doc
-  // archive the superseded version before replacing it in place
+
+  // Different Document Number → replacement: withdraw the original (kept, tagged
+  // Replaced) and add a brand-new document that awaits OHA re-review.
+  if (newDocNumber && newDocNumber !== target.docNumber) {
+    target.ohaStatus = 'REPLACED'
+    target.replacedBy = newDocNumber
+    target.awaitingReviewer = false
+    const nd = ohaDoc(newDocNumber, target.soRef, target.docType, fileName || target.fileName, 'VERIFIED', 1)
+    nd.ohaStatus = 'RESUBMITTED'
+    nd.awaitingReviewer = true
+    nd.replacesDocNumber = target.docNumber
+    shipment.documents.push(nd)
+    shipment.verifyHistory.unshift({
+      milestone: 'Verify Shipping Documents', status: 'Correction',
+      user, time: nowStr(), reason: '',
+      remark: `${target.docType} replaced by a new document ${newDocNumber} — awaiting OHA re-review.`, isRecheck: false,
+    })
+    return { awaitingOhaReview: true, replaced: true }
+  }
+
+  // Same Document Number → corrected new version in place
   target.versionHistory = [
     { version: target.version, fileName: target.fileName, uploadedAt: target.uploadedAt || '', status: target.aiStatus },
     ...(target.versionHistory || []),
