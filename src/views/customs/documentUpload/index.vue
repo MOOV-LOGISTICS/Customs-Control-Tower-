@@ -92,6 +92,7 @@
         </span>
       </div>
       <el-table v-if="currentPo" :data="currentPo.docs" size="mini" stripe border :header-cell-style="{background:'#fafafa'}"
+        :default-sort="{ prop: 'uploadDate', order: 'ascending' }"
         :row-class-name="({row}) => row.replaced ? 'po-doc-replaced' : ''">
         <el-table-column label="Document Number" width="130" prop="docNumber" align="center" />
         <el-table-column label="PO Number" width="140" prop="poNumber" align="center" />
@@ -115,7 +116,7 @@
           </template>
         </el-table-column>
         <el-table-column label="File Name" min-width="160" prop="fileName" />
-        <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" />
+        <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" sortable />
         <el-table-column label="Document Status" width="170" align="center">
           <template #default="{row}">
             <template v-if="row.replaced">
