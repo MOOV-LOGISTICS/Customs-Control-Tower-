@@ -93,12 +93,7 @@
       </div>
       <el-table v-if="currentPo" :data="currentPo.docs" size="mini" stripe border :header-cell-style="{background:'#fafafa'}"
         :row-class-name="({row}) => row.replaced ? 'po-doc-replaced' : ''">
-        <el-table-column label="Document Number" width="150" align="center">
-          <template #default="{row}">
-            <span>{{ row.docNumber }}</span>
-            <el-tag v-if="row.replaced" size="mini" type="info" style="margin-left:4px">Replaced</el-tag>
-          </template>
-        </el-table-column>
+        <el-table-column label="Document Number" width="130" prop="docNumber" align="center" />
         <el-table-column label="PO Number" width="140" prop="poNumber" align="center" />
         <el-table-column label="SO Ref" width="140" prop="soRef" align="center" />
         <el-table-column label="Document Type" width="150" align="center">
@@ -121,6 +116,15 @@
         </el-table-column>
         <el-table-column label="File Name" min-width="160" prop="fileName" />
         <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" />
+        <el-table-column label="Document Status" width="170" align="center">
+          <template #default="{row}">
+            <template v-if="row.replaced">
+              <el-tag size="mini" type="info">Replaced</el-tag>
+              <div style="font-size:10px;color:#909399;margin-top:2px">replaced by {{ row.replacedBy }}</div>
+            </template>
+            <el-tag v-else size="mini" type="success">Active</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="Action" width="220" align="center">
           <template #default="{row}">
             <el-tooltip :content="currentPo.confirmed ? 'Locked — documents cannot be updated after Confirm' : 'Update — upload a new version of this document'" placement="top">
