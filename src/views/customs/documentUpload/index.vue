@@ -91,7 +91,9 @@
           PO <strong style="color:#004F7C">{{ currentPo.orderNo }}</strong> · {{ currentPo.supplier }} · SO Ref {{ currentPo.soRef }}
         </span>
       </div>
-      <el-table v-if="currentPo" :data="currentPo.docs" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
+      <el-table v-if="currentPo" :data="currentPo.docs" size="mini" stripe border :header-cell-style="{background:'#fafafa'}"
+        :default-sort="{ prop: 'uploadDate', order: 'ascending' }"
+        :row-class-name="({row}) => row.replaced ? 'po-doc-replaced' : ''">
         <el-table-column label="Document Number" width="130" prop="docNumber" align="center" />
         <el-table-column label="PO Number" width="140" prop="poNumber" align="center" />
         <el-table-column label="SO Ref" width="140" prop="soRef" align="center" />
@@ -114,19 +116,28 @@
           </template>
         </el-table-column>
         <el-table-column label="File Name" min-width="160" prop="fileName" />
-        <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" />
+        <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" sortable />
+        <el-table-column label="Document Status" width="170" align="center">
+          <template #default="{row}">
+            <template v-if="row.replaced">
+              <el-tag size="mini" type="info">Replaced</el-tag>
+              <div style="font-size:10px;color:#909399;margin-top:2px">replaced by {{ row.replacedBy }}</div>
+            </template>
+            <el-tag v-else size="mini" type="success">Active</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="Action" width="220" align="center">
           <template #default="{row}">
-            <el-tooltip :content="currentPo.confirmed ? 'Locked — documents cannot be updated after Confirm' : 'Update — upload a new version of this document'" placement="top">
+            <el-tooltip :content="updateLockReason(row)" placement="top">
               <span>
-                <el-button type="warning" size="mini" icon="el-icon-refresh-left" :disabled="currentPo.confirmed" @click="openUpdateDialog(row)" />
+                <el-button type="warning" size="mini" icon="el-icon-refresh-left" :disabled="docActionLocked(row)" @click="openUpdateDialog(row)" />
               </span>
             </el-tooltip>
             <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
             <el-button type="primary" size="mini" icon="el-icon-view" @click="previewPoDoc(row)" />
-            <el-tooltip :disabled="!currentPo.confirmed" content="Locked — documents cannot be deleted after Confirm" placement="top">
+            <el-tooltip :content="deleteLockReason(row)" :disabled="!docActionLocked(row)" placement="top">
               <span>
-                <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="currentPo.confirmed" @click="deletePoDoc(row)" />
+                <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="docActionLocked(row)" @click="deletePoDoc(row)" />
               </span>
             </el-tooltip>
           </template>
@@ -472,7 +483,7 @@
       width="1080px" top="6vh" custom-class="brand-dialog"
     >
       <el-alert v-if="correctionQueue.length" type="warning" :closable="false" show-icon style="margin-bottom:10px"
-        title="These documents were rejected during Pepco review. Re-upload each one — once all rejected documents of a HBL are corrected, its review flow automatically restarts at PGS (re-check).">
+        title="Documents returned during review — this is the outstanding to-do list. Re-upload each one (same document no. = new version; a different document no. = a replacement). Corrected items drop off this list; their status shows in Upload Shipping Documents.">
       </el-alert>
       <el-table :data="correctionQueue" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
         <el-table-column label="HBL" width="110">
@@ -506,7 +517,7 @@
             <div style="color:#ff4949;font-size:12px">{{ row.doc.reject.reason }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="Reviewer Remark" min-width="200">
+        <el-table-column label="Reviewer Remark" min-width="180">
           <template #default="{row}">
             <span v-if="row.doc.reject.remark" style="font-size:12px;color:#303133">{{ row.doc.reject.remark }}</span>
             <span v-else style="color:#c0c4cc">—</span>
@@ -514,7 +525,6 @@
         </el-table-column>
         <el-table-column label="Action" width="240" align="center">
           <template #default="{row}">
-            <!-- Supplier corrects by re-uploading; OHA can nudge the supplier by re-sending the reminder email -->
             <el-button v-if="correctionDialog.role === 'oha'" type="success" size="mini" icon="el-icon-message" @click="resendSupplierEmail(row)">Re-send email</el-button>
             <el-button v-else type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
             <el-badge :is-dot="!row.doc.awaitingReviewer && (row.doc.thread || []).some(m => m.role === 'reviewer')" class="comment-badge" style="margin-left:8px">
@@ -582,6 +592,11 @@
               {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
             </el-button>
           </el-upload>
+          <div class="demo-btns" style="margin-top:10px">
+            <span class="demo-label">Demo:</span>
+            <el-button size="mini" type="text" @click="startCorrUpload(null, 'same')">Same doc No. → new version</el-button>
+            <el-button size="mini" type="text" @click="startCorrUpload(null, 'different')">Different doc No. → replacement</el-button>
+          </div>
         </div>
 
         <!-- VERIFYING -->
@@ -597,12 +612,42 @@
           <el-progress :percentage="corrUpload.progress" :stroke-width="4" :show-text="false" color="#004F7C" style="margin-top:8px" />
         </div>
 
+        <!-- CONFIRM — OCR read the Document Number from the new file; confirm or edit it -->
+        <div v-if="corrUpload.state === 'confirm'" style="margin-top:12px">
+          <div class="update-current" style="margin-bottom:12px">
+            <i class="el-icon-document" style="color:#0d9b50;font-size:18px"></i>
+            <div style="flex:1">
+              <div style="font-size:12px;font-weight:600">{{ corrUpload.fileName }}</div>
+              <div style="margin-top:3px"><el-tag size="mini" type="success">Uploaded{{ corrNeedsAi(corrUpload.item) ? ' · AI Verified' : '' }}</el-tag></div>
+            </div>
+          </div>
+          <div class="corr-dn-field">
+            <label>Document Number <span class="dn-req">*</span> <span style="font-weight:400;color:#909399">(read from the new file by OCR — edit if wrong)</span></label>
+            <el-input v-model="corrUpload.docNumber" size="mini" placeholder="Required — enter the document number"
+              :class="{ 'dn-missing': !corrUpload.docNumber.trim() }" />
+            <div v-if="!corrUpload.docNumber.trim()" class="corr-dn-warn"><i class="el-icon-warning-outline"></i> Document Number is required before saving.</div>
+            <div v-else class="corr-dn-hint">
+              <i class="el-icon-info"></i>
+              Same number as <strong>{{ corrUpload.item.doc.docNumber }}</strong> → saved as a new <strong>version</strong>.
+              A different number → saved as a <strong>replacement</strong> document.
+            </div>
+          </div>
+          <el-tooltip :disabled="!!corrUpload.docNumber.trim()" content="Enter the Document Number first" placement="top">
+            <span>
+              <el-button type="primary" size="small" :disabled="!corrUpload.docNumber.trim()" @click="finishCorrUpload">Save</el-button>
+            </span>
+          </el-tooltip>
+        </div>
+
         <!-- DONE -->
         <div v-if="corrUpload.state === 'done'" style="margin-top:12px">
           <el-alert type="success" :closable="false" show-icon
-            :title="`Re-uploaded as v${corrUpload.item.doc.version}`">
+            :title="corrUpload.replaced ? `Saved as a new document (${corrUpload.docNumber}) — replaces the rejected one` : `Re-uploaded as v${corrUpload.item.doc.version}`">
             <div style="font-size:12px;margin-top:2px">
-              <template v-if="corrUpload.resetTriggered">
+              <template v-if="corrUpload.replaced">
+                The rejected document <strong>{{ corrUpload.item.doc.docNumber }}</strong> is kept for audit and tagged <strong>Replaced</strong>; the new document takes its place.
+              </template>
+              <template v-else-if="corrUpload.resetTriggered">
                 All rejected documents of {{ corrUpload.item.hbl.hblNo }} are corrected —
                 <strong>review flow restarted at PGS Check (re-check)</strong>, PGS team notified.
               </template>
@@ -1013,8 +1058,8 @@ const DN_PREFIX = { ci: 'INV', pl: 'PL' }
 let OCR_SEQ = 880600
 
 // PO mock data — each PO carries its own uploaded-document history
-const mkPo = (orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs = [], confirmed = false) => ({
-  orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs, confirmed,
+const mkPo = (orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs = [], confirmed = false, locked = false) => ({
+  orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs, confirmed, locked,
 })
 
 let DOC_NO = 4567890
@@ -1044,9 +1089,16 @@ export default {
         mkPo('ORD01711696_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836054','2026-05-20','2026-05-22','overdue'),
         mkPo('ORD01711684_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836055','2026-05-17','2026-05-19','overdue'),
         mkPo('ORD01694507_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836056','2026-05-23','2026-05-26','overdue'),
-        mkPo('ORD01694382_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811021','2026-05-16','2026-05-19','possible'),
+        mkPo('ORD01694382_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811021','2026-05-16','2026-05-19','possible', [
+          // Seeded demo of the "replaced" state — persists across refreshes.
+          { docNumber:'INV-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED', replaced:true, replacedBy:'INV-880357' },
+          { docNumber:'INV-880357', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880357.pdf', uploadDate:'2026-05-18', version:1, status:'VERIFIED', replacesDocNumber:'INV-880301' },
+          { docNumber:'PLR-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Packing List', blType:'', fileName:'PL-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED' },
+        ], false, true),
         mkPo('ORD01694101_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811022','2026-05-20','2026-05-22','possible'),
-        mkPo('ORD01694098_01','DHAKA GARMENTS LTD',          'CGP26040899011','2026-05-17','2026-05-19','possible'),
+        mkPo('ORD01694098_01','Guangzhou Clothing Co.',      'CGP26040899011','2026-05-17','2026-05-19','possible', [
+          { docNumber:'SC-2401-6634', poNumber:'ORD01694098_01', soRef:'CGP26040899011', docTypeLabel:'Sanitary Certificate', blType:'', fileName:'SAN-240006.pdf', uploadDate:'2026-05-13', version:1, status:'VERIFIED' },
+        ]),
         mkPo('ORD01687130_01','DHAKA GARMENTS LTD',          'CGP26040899012','2026-05-20','2026-05-22','urgent'),
         mkPo('ORD01687127_01','HO CHI MINH APPAREL',         'SGN26040877001','2026-05-17','2026-05-19','urgent'),
         mkPo('ORD01671737_01','HO CHI MINH APPAREL',         'SGN26040877002','2026-05-02','2026-05-05','finished', [
@@ -1143,7 +1195,9 @@ export default {
       return [...this.taskRows.slice(0, idx + 1), verifyRow, corrRow, corrRowOha]
     },
 
-    // Supplier correction work queue — OHA-returned + Pepco-rejected documents
+    // Outstanding correction to-do list — still-rejected documents only.
+    // Once re-uploaded/replaced they drop off; the outcome (Active/Replaced)
+    // shows in the Upload Shipping Documents PO history.
     correctionQueue() {
       return [...ohaRejectedDocs(), ...rejectedDocs()]
     },
@@ -1487,20 +1541,26 @@ export default {
     },
 
     openCorrReupload(item) {
+      // docNumber is filled by OCR after the file is uploaded (not before)
       this.corrUpload = {
-        visible: true, item,
-        state: 'idle', fileName: '', steps: [], progress: 0, resetTriggered: false,
+        visible: true, item, docNumber: '',
+        state: 'idle', fileName: '', steps: [], progress: 0, resetTriggered: false, replaced: false, demo: '',
       }
     },
     corrNeedsAi(item) {
       return ['Commercial Invoice', 'Packing List'].includes(item.doc.docType)
     },
-    startCorrUpload(file) {
+    startCorrUpload(file, demo) {
       const c = this.corrUpload
-      c.fileName = file ? file.name : `${c.item.doc.docType.replace(/\s+/g, '').toUpperCase()}-FIXED.pdf`
+      c.demo = demo || ''
+      c.fileName = file ? file.name
+        : demo === 'different' ? `${c.item.doc.docType.replace(/\s+/g, '').toUpperCase()}-NEW.pdf`
+        : `${c.item.doc.docType.replace(/\s+/g, '').toUpperCase()}-FIXED.pdf`
 
+      // Non-AI types: no verification step → straight to the Document Number confirm step
       if (!this.corrNeedsAi(c.item)) {
-        this.finishCorrUpload()
+        this.captureCorrDocNumber()
+        c.state = 'confirm'
         return
       }
       c.state = 'verifying'; c.progress = 0
@@ -1517,26 +1577,65 @@ export default {
           c.steps[step].status = 'done'
           c.progress = progress
           if (nextStep !== undefined) c.steps[nextStep].status = 'running'
-          if (step === 3) setTimeout(() => this.finishCorrUpload(), 400)
+          // After AI verify, OCR reads the Document Number → confirm step
+          if (step === 3) setTimeout(() => { this.captureCorrDocNumber(); c.state = 'confirm' }, 400)
         }, delay)
       })
     },
-    finishCorrUpload() {
+    // Simulate OCR reading the Document Number from the re-uploaded file.
+    // Defaults to the original number (the common "corrected same document" case);
+    // the supplier edits it if the new file is actually a different document.
+    captureCorrDocNumber() {
+      const c = this.corrUpload
+      const orig = c.item.doc.docNumber || ''
+      if (c.demo === 'different') {
+        // simulate OCR reading a different invoice number off a genuinely different file
+        c.docNumber = /\d{3,}$/.test(orig)
+          ? orig.replace(/\d{3,}$/, String(Math.floor(1000 + Math.random() * 9000)))
+          : `${orig}-ALT`
+        if (c.docNumber === orig) c.docNumber = `${orig}-ALT`
+      } else {
+        c.docNumber = orig
+      }
+    },
+    async finishCorrUpload() {
       const c = this.corrUpload
       const { hbl, doc, source } = c.item
+
+      // Compare the new file's Document Number against the original: same → new
+      // version; different → replacement (confirm with the supplier first).
+      const newDN = (c.docNumber || '').trim()
+      const isReplacement = !!newDN && newDN !== doc.docNumber
+      if (isReplacement) {
+        try {
+          await this.$confirm(
+            `The Document Number (${newDN}) differs from the original (${doc.docNumber}). This will be saved as a NEW document that replaces the rejected one — not as a new version of it.`,
+            'Different document number',
+            { confirmButtonText: 'Save as replacement', cancelButtonText: 'Cancel', type: 'warning' }
+          )
+        } catch (e) {
+          c.state = 'idle'   // let the supplier fix the number or re-pick the file
+          return
+        }
+      }
+      c.replaced = isReplacement
+      const newDocNumber = isReplacement ? newDN : undefined
+
+      // Mirror the re-upload into the Upload Shipping Documents PO history (if linked)
+      this.reflectReuploadToPoList(doc, c.fileName, newDocNumber, isReplacement)
 
       // OHA-returned documents re-pass AI and go back to the OHA verify queue —
       // they do NOT touch the downstream PGS/Finance/Customs flow.
       if (source === 'OHA') {
         const shipment = ohaShipments().find(s => s.id === hbl.shipmentId)
-        if (shipment) ohaResubmitDoc(shipment, doc, c.fileName, `${hbl.supplier} (Supplier)`)
+        if (shipment) ohaResubmitDoc(shipment, doc, c.fileName, `${hbl.supplier} (Supplier)`, newDocNumber)
         c.state = 'done'
         c.resetTriggered = false
         this.$notify({
-          title: 'Re-uploaded — awaiting OHA re-review',
+          title: isReplacement ? 'Replacement saved — awaiting OHA re-review' : 'Re-uploaded — awaiting OHA re-review',
           dangerouslyUseHTMLString: true,
           message: `<div style="font-size:12px;line-height:1.7">
-            <div><b>${hbl.hblNo}</b> — ${doc.docType} re-uploaded and passed AI re-check.</div>
+            <div><b>${hbl.hblNo}</b> — ${doc.docType} ${isReplacement ? `replaced by <b>${newDN}</b>` : 're-uploaded'} and passed AI re-check.</div>
             <div style="color:#e6a817">⏳ OHA will re-review the new file before it is cleared.</div>
           </div>`,
           type: 'success', duration: 6000,
@@ -1544,7 +1643,7 @@ export default {
         return
       }
 
-      const result = resubmitDocument(hbl, doc, c.fileName, `${hbl.supplier} (Supplier)`)
+      const result = resubmitDocument(hbl, doc, c.fileName, `${hbl.supplier} (Supplier)`, newDocNumber)
       c.state = 'done'
       c.resetTriggered = result.reset
       if (result.reset) {
@@ -1552,15 +1651,71 @@ export default {
           title: 'Review flow restarted',
           dangerouslyUseHTMLString: true,
           message: `<div style="font-size:12px;line-height:1.7">
-            <div><b>${hbl.hblNo}</b> — all rejected documents corrected.</div>
+            <div><b>${hbl.hblNo}</b> — all returned documents resolved${isReplacement ? ` (${doc.docNumber} replaced by ${newDN})` : ''}.</div>
             <div style="color:#13ce66">✔ Milestones reset — flow restarts at <b>PGS Check (Re-check)</b></div>
             <div style="color:#999">✉ PGS team notified for re-review</div>
           </div>`,
           type: 'success', duration: 6000,
         })
       } else {
-        this.$message.success(`${doc.docType} re-uploaded (v${doc.version}) — ${result.remaining} rejected document(s) still pending on ${hbl.hblNo}`)
+        this.$message.success(isReplacement
+          ? `${doc.docType} replaced by ${newDN} — ${result.remaining} document(s) still pending on ${hbl.hblNo}`
+          : `${doc.docType} re-uploaded (v${doc.version}) — ${result.remaining} rejected document(s) still pending on ${hbl.hblNo}`)
       }
+    },
+
+    // Reflect a correction re-upload back into the linked Upload Shipping
+    // Documents PO history: same doc number → new version; different → the old
+    // document is kept (tagged Replaced) and the new one is added alongside it.
+    reflectReuploadToPoList(srcDoc, fileName, newDocNumber, isReplacement) {
+      const poRef = srcDoc && srcDoc.poRef
+      if (!poRef) return
+      const po = this.poList.find(p => p.orderNo === poRef)
+      if (!po) return
+      const today = new Date().toISOString().slice(0, 10)
+      const origDN = srcDoc.docNumber
+      const existing = po.docs.find(d => d.docNumber === origDN)
+
+      if (isReplacement) {
+        if (existing) { this.$set(existing, 'replaced', true); this.$set(existing, 'replacedBy', newDocNumber) }
+        po.docs.push({
+          docNumber: newDocNumber, poNumber: po.orderNo, soRef: po.soRef,
+          docTypeLabel: srcDoc.docType, blType: '', fileName, uploadDate: today,
+          version: 1, status: 'VERIFIED', replacesDocNumber: origDN,
+        })
+      } else if (existing) {
+        this.$set(existing, 'versionHistory', [
+          { version: existing.version, fileName: existing.fileName, uploadDate: existing.uploadDate, status: existing.status },
+          ...(existing.versionHistory || []),
+        ])
+        existing.fileName = fileName
+        existing.version = existing.version + 1
+        existing.uploadDate = today
+        existing.status = 'VERIFIED'
+      } else {
+        po.docs.push({
+          docNumber: origDN, poNumber: po.orderNo, soRef: po.soRef,
+          docTypeLabel: srcDoc.docType, blType: '', fileName, uploadDate: today,
+          version: 1, status: 'VERIFIED',
+        })
+      }
+    },
+
+    // A PO document's Update/Delete is locked when the PO is confirmed or
+    // locked (finalized), or when the document itself was replaced (audit record).
+    docActionLocked(row) {
+      return !!(this.currentPo && (this.currentPo.confirmed || this.currentPo.locked)) || !!row.replaced
+    },
+    updateLockReason(row) {
+      if (row.replaced) return 'Replaced document — kept as a record, cannot be updated'
+      if (this.currentPo && this.currentPo.locked) return 'This PO is locked — documents cannot be updated'
+      if (this.currentPo && this.currentPo.confirmed) return 'Locked — documents cannot be updated after Confirm'
+      return 'Update — upload a new version of this document'
+    },
+    deleteLockReason(row) {
+      if (row.replaced) return 'Replaced document — kept as a record, cannot be deleted'
+      if (this.currentPo && this.currentPo.locked) return 'This PO is locked — documents cannot be deleted'
+      return 'Locked — documents cannot be deleted after Confirm'
     },
 
     // ── Dialog 2: PO docs history ────────────────────────────────────────
@@ -1936,6 +2091,7 @@ export default {
   &.finished { color:#13ce66; }
 }
 ::v-deep .upload-docs-row { background:#f0f7ff !important; }
+::v-deep .po-doc-replaced td { color:#c0c4cc; }
 
 .po-link { color:$primary; font-weight:600; text-decoration:underline; }
 
@@ -2129,5 +2285,14 @@ export default {
   font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; display:inline-flex; align-items:center; gap:3px;
   &.ai-ok  { background:#e6f9ef; color:#0d9b50; }
   &.ai-bad { background:#fff8e0; color:#e6a817; }
+}
+
+.corr-dn-field {
+  margin-bottom:12px;
+  label { display:block; font-size:12px; color:#606266; margin-bottom:4px; font-weight:600;
+    .dn-req { color:#ff4949; }
+  }
+  .corr-dn-hint { font-size:11px; color:#909399; margin-top:5px; line-height:1.6; strong { color:#004F7C; } }
+  .corr-dn-warn { font-size:11px; color:#E6A817; margin-top:5px; i { margin-right:2px; } }
 }
 </style>
