@@ -128,16 +128,16 @@
         </el-table-column>
         <el-table-column label="Action" width="220" align="center">
           <template #default="{row}">
-            <el-tooltip :content="row.replaced ? 'Replaced document — kept as a record, cannot be updated' : currentPo.confirmed ? 'Locked — documents cannot be updated after Confirm' : 'Update — upload a new version of this document'" placement="top">
+            <el-tooltip :content="updateLockReason(row)" placement="top">
               <span>
-                <el-button type="warning" size="mini" icon="el-icon-refresh-left" :disabled="currentPo.confirmed || row.replaced" @click="openUpdateDialog(row)" />
+                <el-button type="warning" size="mini" icon="el-icon-refresh-left" :disabled="docActionLocked(row)" @click="openUpdateDialog(row)" />
               </span>
             </el-tooltip>
             <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
             <el-button type="primary" size="mini" icon="el-icon-view" @click="previewPoDoc(row)" />
-            <el-tooltip :content="row.replaced ? 'Replaced document — kept as a record, cannot be deleted' : 'Locked — documents cannot be deleted after Confirm'" :disabled="!currentPo.confirmed && !row.replaced" placement="top">
+            <el-tooltip :content="deleteLockReason(row)" :disabled="!docActionLocked(row)" placement="top">
               <span>
-                <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="currentPo.confirmed || row.replaced" @click="deletePoDoc(row)" />
+                <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="docActionLocked(row)" @click="deletePoDoc(row)" />
               </span>
             </el-tooltip>
           </template>
@@ -1058,8 +1058,8 @@ const DN_PREFIX = { ci: 'INV', pl: 'PL' }
 let OCR_SEQ = 880600
 
 // PO mock data — each PO carries its own uploaded-document history
-const mkPo = (orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs = [], confirmed = false) => ({
-  orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs, confirmed,
+const mkPo = (orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs = [], confirmed = false, locked = false) => ({
+  orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs, confirmed, locked,
 })
 
 let DOC_NO = 4567890
@@ -1094,7 +1094,7 @@ export default {
           { docNumber:'INV-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED', replaced:true, replacedBy:'INV-880357' },
           { docNumber:'INV-880357', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880357.pdf', uploadDate:'2026-05-18', version:1, status:'VERIFIED', replacesDocNumber:'INV-880301' },
           { docNumber:'PLR-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Packing List', blType:'', fileName:'PL-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED' },
-        ]),
+        ], false, true),
         mkPo('ORD01694101_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811022','2026-05-20','2026-05-22','possible'),
         mkPo('ORD01694098_01','Guangzhou Clothing Co.',      'CGP26040899011','2026-05-17','2026-05-19','possible', [
           { docNumber:'SC-2401-6634', poNumber:'ORD01694098_01', soRef:'CGP26040899011', docTypeLabel:'Sanitary Certificate', blType:'', fileName:'SAN-240006.pdf', uploadDate:'2026-05-13', version:1, status:'VERIFIED' },
@@ -1699,6 +1699,23 @@ export default {
           version: 1, status: 'VERIFIED',
         })
       }
+    },
+
+    // A PO document's Update/Delete is locked when the PO is confirmed or
+    // locked (finalized), or when the document itself was replaced (audit record).
+    docActionLocked(row) {
+      return !!(this.currentPo && (this.currentPo.confirmed || this.currentPo.locked)) || !!row.replaced
+    },
+    updateLockReason(row) {
+      if (row.replaced) return 'Replaced document — kept as a record, cannot be updated'
+      if (this.currentPo && this.currentPo.locked) return 'This PO is locked — documents cannot be updated'
+      if (this.currentPo && this.currentPo.confirmed) return 'Locked — documents cannot be updated after Confirm'
+      return 'Update — upload a new version of this document'
+    },
+    deleteLockReason(row) {
+      if (row.replaced) return 'Replaced document — kept as a record, cannot be deleted'
+      if (this.currentPo && this.currentPo.locked) return 'This PO is locked — documents cannot be deleted'
+      return 'Locked — documents cannot be deleted after Confirm'
     },
 
     // ── Dialog 2: PO docs history ────────────────────────────────────────
