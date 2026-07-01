@@ -128,16 +128,16 @@
         </el-table-column>
         <el-table-column label="Action" width="220" align="center">
           <template #default="{row}">
-            <el-tooltip :content="currentPo.confirmed ? 'Locked — documents cannot be updated after Confirm' : 'Update — upload a new version of this document'" placement="top">
+            <el-tooltip :content="row.replaced ? 'Replaced document — kept as a record, cannot be updated' : currentPo.confirmed ? 'Locked — documents cannot be updated after Confirm' : 'Update — upload a new version of this document'" placement="top">
               <span>
-                <el-button type="warning" size="mini" icon="el-icon-refresh-left" :disabled="currentPo.confirmed" @click="openUpdateDialog(row)" />
+                <el-button type="warning" size="mini" icon="el-icon-refresh-left" :disabled="currentPo.confirmed || row.replaced" @click="openUpdateDialog(row)" />
               </span>
             </el-tooltip>
             <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
             <el-button type="primary" size="mini" icon="el-icon-view" @click="previewPoDoc(row)" />
-            <el-tooltip :disabled="!currentPo.confirmed" content="Locked — documents cannot be deleted after Confirm" placement="top">
+            <el-tooltip :content="row.replaced ? 'Replaced document — kept as a record, cannot be deleted' : 'Locked — documents cannot be deleted after Confirm'" :disabled="!currentPo.confirmed && !row.replaced" placement="top">
               <span>
-                <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="currentPo.confirmed" @click="deletePoDoc(row)" />
+                <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="currentPo.confirmed || row.replaced" @click="deletePoDoc(row)" />
               </span>
             </el-tooltip>
           </template>
