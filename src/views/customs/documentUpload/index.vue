@@ -1093,7 +1093,12 @@ export default {
         mkPo('ORD01711696_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836054','2026-05-20','2026-05-22','overdue'),
         mkPo('ORD01711684_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836055','2026-05-17','2026-05-19','overdue'),
         mkPo('ORD01694507_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836056','2026-05-23','2026-05-26','overdue'),
-        mkPo('ORD01694382_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811021','2026-05-16','2026-05-19','possible'),
+        mkPo('ORD01694382_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811021','2026-05-16','2026-05-19','possible', [
+          // Seeded demo of the "replaced" state — persists across refreshes.
+          { docNumber:'INV-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED', replaced:true, replacedBy:'INV-880357' },
+          { docNumber:'INV-880357', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880357.pdf', uploadDate:'2026-05-18', version:1, status:'VERIFIED', replacesDocNumber:'INV-880301' },
+          { docNumber:'PLR-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Packing List', blType:'', fileName:'PL-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED' },
+        ]),
         mkPo('ORD01694101_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811022','2026-05-20','2026-05-22','possible'),
         mkPo('ORD01694098_01','Guangzhou Clothing Co.',      'CGP26040899011','2026-05-17','2026-05-19','possible', [
           { docNumber:'SC-2401-6634', poNumber:'ORD01694098_01', soRef:'CGP26040899011', docTypeLabel:'Sanitary Certificate', blType:'', fileName:'SAN-240006.pdf', uploadDate:'2026-05-13', version:1, status:'VERIFIED' },
