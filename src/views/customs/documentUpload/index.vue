@@ -91,8 +91,14 @@
           PO <strong style="color:#004F7C">{{ currentPo.orderNo }}</strong> · {{ currentPo.supplier }} · SO Ref {{ currentPo.soRef }}
         </span>
       </div>
-      <el-table v-if="currentPo" :data="currentPo.docs" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
-        <el-table-column label="Document Number" width="130" prop="docNumber" align="center" />
+      <el-table v-if="currentPo" :data="currentPo.docs" size="mini" stripe border :header-cell-style="{background:'#fafafa'}"
+        :row-class-name="({row}) => row.replaced ? 'po-doc-replaced' : ''">
+        <el-table-column label="Document Number" width="150" align="center">
+          <template #default="{row}">
+            <span>{{ row.docNumber }}</span>
+            <el-tag v-if="row.replaced" size="mini" type="info" style="margin-left:4px">Replaced</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="PO Number" width="140" prop="poNumber" align="center" />
         <el-table-column label="SO Ref" width="140" prop="soRef" align="center" />
         <el-table-column label="Document Type" width="150" align="center">
@@ -1089,7 +1095,9 @@ export default {
         mkPo('ORD01694507_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836056','2026-05-23','2026-05-26','overdue'),
         mkPo('ORD01694382_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811021','2026-05-16','2026-05-19','possible'),
         mkPo('ORD01694101_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811022','2026-05-20','2026-05-22','possible'),
-        mkPo('ORD01694098_01','DHAKA GARMENTS LTD',          'CGP26040899011','2026-05-17','2026-05-19','possible'),
+        mkPo('ORD01694098_01','Guangzhou Clothing Co.',      'CGP26040899011','2026-05-17','2026-05-19','possible', [
+          { docNumber:'SC-2401-6634', poNumber:'ORD01694098_01', soRef:'CGP26040899011', docTypeLabel:'Sanitary Certificate', blType:'', fileName:'SAN-240006.pdf', uploadDate:'2026-05-13', version:1, status:'VERIFIED' },
+        ]),
         mkPo('ORD01687130_01','DHAKA GARMENTS LTD',          'CGP26040899012','2026-05-20','2026-05-22','urgent'),
         mkPo('ORD01687127_01','HO CHI MINH APPAREL',         'SGN26040877001','2026-05-17','2026-05-19','urgent'),
         mkPo('ORD01671737_01','HO CHI MINH APPAREL',         'SGN26040877002','2026-05-02','2026-05-05','finished', [
@@ -1628,6 +1636,9 @@ export default {
       c.replaced = isReplacement
       const newDocNumber = isReplacement ? newDN : undefined
 
+      // Mirror the re-upload into the Upload Shipping Documents PO history (if linked)
+      this.reflectReuploadToPoList(doc, c.fileName, newDocNumber, isReplacement)
+
       // OHA-returned documents re-pass AI and go back to the OHA verify queue —
       // they do NOT touch the downstream PGS/Finance/Customs flow.
       if (source === 'OHA') {
@@ -1665,6 +1676,43 @@ export default {
         this.$message.success(isReplacement
           ? `${doc.docType} replaced by ${newDN} — ${result.remaining} document(s) still pending on ${hbl.hblNo}`
           : `${doc.docType} re-uploaded (v${doc.version}) — ${result.remaining} rejected document(s) still pending on ${hbl.hblNo}`)
+      }
+    },
+
+    // Reflect a correction re-upload back into the linked Upload Shipping
+    // Documents PO history: same doc number → new version; different → the old
+    // document is kept (tagged Replaced) and the new one is added alongside it.
+    reflectReuploadToPoList(srcDoc, fileName, newDocNumber, isReplacement) {
+      const poRef = srcDoc && srcDoc.poRef
+      if (!poRef) return
+      const po = this.poList.find(p => p.orderNo === poRef)
+      if (!po) return
+      const today = new Date().toISOString().slice(0, 10)
+      const origDN = srcDoc.docNumber
+      const existing = po.docs.find(d => d.docNumber === origDN)
+
+      if (isReplacement) {
+        if (existing) { this.$set(existing, 'replaced', true); this.$set(existing, 'replacedBy', newDocNumber) }
+        po.docs.push({
+          docNumber: newDocNumber, poNumber: po.orderNo, soRef: po.soRef,
+          docTypeLabel: srcDoc.docType, blType: '', fileName, uploadDate: today,
+          version: 1, status: 'VERIFIED', replacesDocNumber: origDN,
+        })
+      } else if (existing) {
+        this.$set(existing, 'versionHistory', [
+          { version: existing.version, fileName: existing.fileName, uploadDate: existing.uploadDate, status: existing.status },
+          ...(existing.versionHistory || []),
+        ])
+        existing.fileName = fileName
+        existing.version = existing.version + 1
+        existing.uploadDate = today
+        existing.status = 'VERIFIED'
+      } else {
+        po.docs.push({
+          docNumber: origDN, poNumber: po.orderNo, soRef: po.soRef,
+          docTypeLabel: srcDoc.docType, blType: '', fileName, uploadDate: today,
+          version: 1, status: 'VERIFIED',
+        })
       }
     },
 
@@ -2041,6 +2089,7 @@ export default {
   &.finished { color:#13ce66; }
 }
 ::v-deep .upload-docs-row { background:#f0f7ff !important; }
+::v-deep .po-doc-replaced td { color:#c0c4cc; }
 
 .po-link { color:$primary; font-weight:600; text-decoration:underline; }
 

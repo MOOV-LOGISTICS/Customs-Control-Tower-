@@ -169,6 +169,9 @@ if (_h6) {
         at: '2024-11-18 02:10' },
     ]
     _san.awaitingReviewer = true
+    // Link this returned document back to its Upload Shipping Documents PO so a
+    // supplier re-upload also shows under that milestone's document history.
+    _san.poRef = 'ORD01694098_01'
   }
 }
 
