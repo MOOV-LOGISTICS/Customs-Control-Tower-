@@ -590,6 +590,11 @@
               {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
             </el-button>
           </el-upload>
+          <div class="demo-btns" style="margin-top:10px">
+            <span class="demo-label">Demo:</span>
+            <el-button size="mini" type="text" @click="startCorrUpload(null, 'same')">Same doc No. → new version</el-button>
+            <el-button size="mini" type="text" @click="startCorrUpload(null, 'different')">Different doc No. → replacement</el-button>
+          </div>
         </div>
 
         <!-- VERIFYING -->
@@ -1540,15 +1545,18 @@ export default {
       // docNumber is filled by OCR after the file is uploaded (not before)
       this.corrUpload = {
         visible: true, item, docNumber: '',
-        state: 'idle', fileName: '', steps: [], progress: 0, resetTriggered: false, replaced: false,
+        state: 'idle', fileName: '', steps: [], progress: 0, resetTriggered: false, replaced: false, demo: '',
       }
     },
     corrNeedsAi(item) {
       return ['Commercial Invoice', 'Packing List'].includes(item.doc.docType)
     },
-    startCorrUpload(file) {
+    startCorrUpload(file, demo) {
       const c = this.corrUpload
-      c.fileName = file ? file.name : `${c.item.doc.docType.replace(/\s+/g, '').toUpperCase()}-FIXED.pdf`
+      c.demo = demo || ''
+      c.fileName = file ? file.name
+        : demo === 'different' ? `${c.item.doc.docType.replace(/\s+/g, '').toUpperCase()}-NEW.pdf`
+        : `${c.item.doc.docType.replace(/\s+/g, '').toUpperCase()}-FIXED.pdf`
 
       // Non-AI types: no verification step → straight to the Document Number confirm step
       if (!this.corrNeedsAi(c.item)) {
@@ -1579,7 +1587,17 @@ export default {
     // Defaults to the original number (the common "corrected same document" case);
     // the supplier edits it if the new file is actually a different document.
     captureCorrDocNumber() {
-      this.corrUpload.docNumber = this.corrUpload.item.doc.docNumber || ''
+      const c = this.corrUpload
+      const orig = c.item.doc.docNumber || ''
+      if (c.demo === 'different') {
+        // simulate OCR reading a different invoice number off a genuinely different file
+        c.docNumber = /\d{3,}$/.test(orig)
+          ? orig.replace(/\d{3,}$/, String(Math.floor(1000 + Math.random() * 9000)))
+          : `${orig}-ALT`
+        if (c.docNumber === orig) c.docNumber = `${orig}-ALT`
+      } else {
+        c.docNumber = orig
+      }
     },
     async finishCorrUpload() {
       const c = this.corrUpload
