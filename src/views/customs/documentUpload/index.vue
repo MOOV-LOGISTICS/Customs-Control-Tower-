@@ -620,15 +620,21 @@
             </div>
           </div>
           <div class="corr-dn-field">
-            <label>Document Number <span style="font-weight:400;color:#909399">(read from the new file by OCR — edit if wrong)</span></label>
-            <el-input v-model="corrUpload.docNumber" size="mini" placeholder="Document number" />
-            <div class="corr-dn-hint">
+            <label>Document Number <span class="dn-req">*</span> <span style="font-weight:400;color:#909399">(read from the new file by OCR — edit if wrong)</span></label>
+            <el-input v-model="corrUpload.docNumber" size="mini" placeholder="Required — enter the document number"
+              :class="{ 'dn-missing': !corrUpload.docNumber.trim() }" />
+            <div v-if="!corrUpload.docNumber.trim()" class="corr-dn-warn"><i class="el-icon-warning-outline"></i> Document Number is required before saving.</div>
+            <div v-else class="corr-dn-hint">
               <i class="el-icon-info"></i>
               Same number as <strong>{{ corrUpload.item.doc.docNumber }}</strong> → saved as a new <strong>version</strong>.
               A different number → saved as a <strong>replacement</strong> document.
             </div>
           </div>
-          <el-button type="primary" size="small" :disabled="!corrUpload.docNumber.trim()" @click="finishCorrUpload">Save</el-button>
+          <el-tooltip :disabled="!!corrUpload.docNumber.trim()" content="Enter the Document Number first" placement="top">
+            <span>
+              <el-button type="primary" size="small" :disabled="!corrUpload.docNumber.trim()" @click="finishCorrUpload">Save</el-button>
+            </span>
+          </el-tooltip>
         </div>
 
         <!-- DONE -->
@@ -2232,7 +2238,10 @@ export default {
 
 .corr-dn-field {
   margin-bottom:12px;
-  label { display:block; font-size:12px; color:#606266; margin-bottom:4px; font-weight:600; }
+  label { display:block; font-size:12px; color:#606266; margin-bottom:4px; font-weight:600;
+    .dn-req { color:#ff4949; }
+  }
   .corr-dn-hint { font-size:11px; color:#909399; margin-top:5px; line-height:1.6; strong { color:#004F7C; } }
+  .corr-dn-warn { font-size:11px; color:#E6A817; margin-top:5px; i { margin-right:2px; } }
 }
 </style>
