@@ -473,22 +473,6 @@ export function ohaRejectedDocs() {
     })))
 }
 
-// Full Document Correction table rows: every returned document of the current
-// round — pending AND resolved (re-uploaded / replaced) — so the table can show
-// a Status column and keep a Replaced document visible with its tag.
-// (Board counts still use the REJECTED-only queries above.)
-export function correctionRows() {
-  const pepco = reviewStore.hbls.flatMap(h =>
-    h.documents
-      .filter(d => d.reject && d.reject.round === h.correctionRound)
-      .map(d => ({ hbl: h, doc: d, source: 'PEPCO' })))
-  const oha = ohaStore.shipments.flatMap(s =>
-    s.documents
-      .filter(d => d.reject && ['REJECTED', 'RESUBMITTED', 'REPLACED'].includes(d.ohaStatus))
-      .map(d => ({ hbl: { hblNo: s.bookingRef, supplier: s.supplier, shipmentId: s.id }, doc: d, source: 'OHA' })))
-  return [...oha, ...pepco]
-}
-
 // ── OHA mutations ────────────────────────────────────────────────────────────────
 // OHA returns an AI-Unverified file to the supplier (→ Document Correction queue)
 export function ohaRejectDoc(shipment, doc, { reason, remark, user }) {

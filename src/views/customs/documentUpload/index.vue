@@ -482,10 +482,10 @@
       title="Document Correction — Rejected by Pepco Review"
       width="1080px" top="6vh" custom-class="brand-dialog"
     >
-      <el-alert v-if="correctionTableRows.length" type="warning" :closable="false" show-icon style="margin-bottom:10px"
-        title="Documents returned during review. Re-upload each one (same document no. = new version; a different document no. = a replacement). Once all are corrected, the review flow restarts.">
+      <el-alert v-if="correctionQueue.length" type="warning" :closable="false" show-icon style="margin-bottom:10px"
+        title="Documents returned during review — this is the outstanding to-do list. Re-upload each one (same document no. = new version; a different document no. = a replacement). Corrected items drop off this list; their status shows in Upload Shipping Documents.">
       </el-alert>
-      <el-table :data="correctionTableRows" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
+      <el-table :data="correctionQueue" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
         <el-table-column label="HBL" width="110">
           <template #default="{row}"><span style="font-weight:600;color:#004F7C">{{ row.hbl.hblNo }}</span></template>
         </el-table-column>
@@ -523,19 +523,10 @@
             <span v-else style="color:#c0c4cc">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="Status" width="150" align="center">
-          <template #default="{row}">
-            <el-tag size="mini" :type="corrStatus(row).type">{{ corrStatus(row).label }}</el-tag>
-            <div v-if="row.doc.replacedBy" style="font-size:10px;color:#909399;margin-top:2px">→ {{ row.doc.replacedBy }}</div>
-          </template>
-        </el-table-column>
         <el-table-column label="Action" width="240" align="center">
           <template #default="{row}">
-            <!-- Actions only while the document is still returned (pending correction) -->
-            <template v-if="corrIsPending(row)">
-              <el-button v-if="correctionDialog.role === 'oha'" type="success" size="mini" icon="el-icon-message" @click="resendSupplierEmail(row)">Re-send email</el-button>
-              <el-button v-else type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
-            </template>
+            <el-button v-if="correctionDialog.role === 'oha'" type="success" size="mini" icon="el-icon-message" @click="resendSupplierEmail(row)">Re-send email</el-button>
+            <el-button v-else type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
             <el-badge :is-dot="!row.doc.awaitingReviewer && (row.doc.thread || []).some(m => m.role === 'reviewer')" class="comment-badge" style="margin-left:8px">
               <el-button size="mini" icon="el-icon-chat-dot-round" @click="openComment(row)">
                 Comment<span v-if="(row.doc.thread || []).length"> ({{ row.doc.thread.length }})</span>
@@ -544,7 +535,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div v-if="!correctionTableRows.length" style="text-align:center;padding:28px;color:#13ce66;font-size:13px">
+      <div v-if="!correctionQueue.length" style="text-align:center;padding:28px;color:#13ce66;font-size:13px">
         <i class="el-icon-circle-check" style="font-size:20px"></i><br>
         No rejected documents — all corrections are done
       </div>
@@ -1040,7 +1031,7 @@
 
 <script>
 import {
-  rejectedDocs, resubmittedCount, resubmitDocument, correctionRows,
+  rejectedDocs, resubmittedCount, resubmitDocument,
   ohaShipments, ohaUnverifiedDocs, ohaCanConfirm, ohaRejectedDocs,
   ohaRejectDoc, ohaApproveDoc, ohaResubmitDoc, ohaConfirmShipment,
 } from '@/store/reviewFlow'
@@ -1204,13 +1195,11 @@ export default {
       return [...this.taskRows.slice(0, idx + 1), verifyRow, corrRow, corrRowOha]
     },
 
-    // Pending (still-rejected) documents — drives the board counts
+    // Outstanding correction to-do list — still-rejected documents only.
+    // Once re-uploaded/replaced they drop off; the outcome (Active/Replaced)
+    // shows in the Upload Shipping Documents PO history.
     correctionQueue() {
       return [...ohaRejectedDocs(), ...rejectedDocs()]
-    },
-    // Full table rows for the correction dialog — pending + resolved of the round
-    correctionTableRows() {
-      return correctionRows()
     },
 
     poListFiltered() {
@@ -1549,20 +1538,6 @@ export default {
         </div>`,
         type: 'success', duration: 5000,
       })
-    },
-
-    // Workflow status of a correction row (source-aware) for the Status column
-    corrStatus(row) {
-      const s = row.source === 'OHA' ? row.doc.ohaStatus : row.doc.reviewStatus
-      return {
-        REJECTED:    { label: 'Returned',    type: 'danger'  },
-        RESUBMITTED: { label: 'Re-uploaded', type: 'warning' },
-        REPLACED:    { label: 'Replaced',    type: 'info'    },
-        APPROVED:    { label: 'Approved',    type: 'success' },
-      }[s] || { label: s || '—', type: 'info' }
-    },
-    corrIsPending(row) {
-      return (row.source === 'OHA' ? row.doc.ohaStatus : row.doc.reviewStatus) === 'REJECTED'
     },
 
     openCorrReupload(item) {
