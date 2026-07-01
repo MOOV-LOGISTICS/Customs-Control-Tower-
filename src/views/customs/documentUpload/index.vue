@@ -585,15 +585,6 @@
           <div v-else style="font-size:12px;color:#666;margin-bottom:10px">
             This document type does not require AI verification — the new version is saved directly.
           </div>
-          <div class="corr-dn-field">
-            <label>Document Number of the new file</label>
-            <el-input v-model="corrUpload.docNumber" size="mini" placeholder="Document number" />
-            <div class="corr-dn-hint">
-              <i class="el-icon-info"></i>
-              Same number as <strong>{{ corrUpload.item.doc.docNumber }}</strong> → saved as a new <strong>version</strong>.
-              A different number → saved as a <strong>replacement</strong> document.
-            </div>
-          </div>
           <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startCorrUpload(f)">
             <el-button type="primary" size="small" icon="el-icon-upload2">
               {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
@@ -612,6 +603,27 @@
             </div>
           </div>
           <el-progress :percentage="corrUpload.progress" :stroke-width="4" :show-text="false" color="#004F7C" style="margin-top:8px" />
+        </div>
+
+        <!-- CONFIRM — OCR read the Document Number from the new file; confirm or edit it -->
+        <div v-if="corrUpload.state === 'confirm'" style="margin-top:12px">
+          <div class="update-current" style="margin-bottom:12px">
+            <i class="el-icon-document" style="color:#0d9b50;font-size:18px"></i>
+            <div style="flex:1">
+              <div style="font-size:12px;font-weight:600">{{ corrUpload.fileName }}</div>
+              <div style="margin-top:3px"><el-tag size="mini" type="success">Uploaded{{ corrNeedsAi(corrUpload.item) ? ' · AI Verified' : '' }}</el-tag></div>
+            </div>
+          </div>
+          <div class="corr-dn-field">
+            <label>Document Number <span style="font-weight:400;color:#909399">(read from the new file by OCR — edit if wrong)</span></label>
+            <el-input v-model="corrUpload.docNumber" size="mini" placeholder="Document number" />
+            <div class="corr-dn-hint">
+              <i class="el-icon-info"></i>
+              Same number as <strong>{{ corrUpload.item.doc.docNumber }}</strong> → saved as a new <strong>version</strong>.
+              A different number → saved as a <strong>replacement</strong> document.
+            </div>
+          </div>
+          <el-button type="primary" size="small" :disabled="!corrUpload.docNumber.trim()" @click="finishCorrUpload">Save</el-button>
         </div>
 
         <!-- DONE -->
@@ -1525,8 +1537,9 @@ export default {
     },
 
     openCorrReupload(item) {
+      // docNumber is filled by OCR after the file is uploaded (not before)
       this.corrUpload = {
-        visible: true, item, docNumber: item.doc.docNumber || '',
+        visible: true, item, docNumber: '',
         state: 'idle', fileName: '', steps: [], progress: 0, resetTriggered: false, replaced: false,
       }
     },
@@ -1537,8 +1550,10 @@ export default {
       const c = this.corrUpload
       c.fileName = file ? file.name : `${c.item.doc.docType.replace(/\s+/g, '').toUpperCase()}-FIXED.pdf`
 
+      // Non-AI types: no verification step → straight to the Document Number confirm step
       if (!this.corrNeedsAi(c.item)) {
-        this.finishCorrUpload()
+        this.captureCorrDocNumber()
+        c.state = 'confirm'
         return
       }
       c.state = 'verifying'; c.progress = 0
@@ -1555,9 +1570,16 @@ export default {
           c.steps[step].status = 'done'
           c.progress = progress
           if (nextStep !== undefined) c.steps[nextStep].status = 'running'
-          if (step === 3) setTimeout(() => this.finishCorrUpload(), 400)
+          // After AI verify, OCR reads the Document Number → confirm step
+          if (step === 3) setTimeout(() => { this.captureCorrDocNumber(); c.state = 'confirm' }, 400)
         }, delay)
       })
+    },
+    // Simulate OCR reading the Document Number from the re-uploaded file.
+    // Defaults to the original number (the common "corrected same document" case);
+    // the supplier edits it if the new file is actually a different document.
+    captureCorrDocNumber() {
+      this.corrUpload.docNumber = this.corrUpload.item.doc.docNumber || ''
     },
     async finishCorrUpload() {
       const c = this.corrUpload
