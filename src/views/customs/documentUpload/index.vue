@@ -219,6 +219,8 @@
                     <el-button size="mini" type="text" @click="startUpload(slot, null, 'type_error')">Wrong doc type</el-button>
                     <el-button size="mini" type="text" @click="startUpload(slot, null, 'po_mismatch')">PO mismatch</el-button>
                     <el-button size="mini" type="text" @click="startUpload(slot, null, 'ocr_fail')">OCR can't read No.</el-button>
+                    <el-button size="mini" type="text" @click="startUpload(slot, null, 'dn_exists_active')">Doc No. exists (Active)</el-button>
+                    <el-button size="mini" type="text" @click="startUpload(slot, null, 'dn_exists_replaced')">Doc No. exists (Replaced)</el-button>
                   </div>
                 </div>
               </div>
@@ -261,9 +263,11 @@
                   <div class="docnum-field">
                     <label>Document Number <span class="dn-req">*</span></label>
                     <el-input v-model="slot.docNumber" size="mini" placeholder="Enter document number"
+                      :disabled="!!slot.mergedInto"
                       :class="{ 'dn-missing': !slot.docNumber }" @input="onDocNumEdit(slot)" />
                     <div class="dn-hint" :class="{ warn: !slot.docNumber }">
-                      <template v-if="slot.docNumberSource === 'ai'"><i class="el-icon-cpu"></i> Auto-filled by OCR — editable</template>
+                      <template v-if="slot.mergedInto"><i class="el-icon-connection"></i> Folded into existing document {{ slot.mergedInto }} — saved as a new version</template>
+                      <template v-else-if="slot.docNumberSource === 'ai'"><i class="el-icon-cpu"></i> Auto-filled by OCR — editable</template>
                       <template v-else-if="slot.docNumberSource === 'edited'"><i class="el-icon-edit"></i> Edited by you</template>
                       <template v-else-if="slot.docNumberSource === 'manual'"><i class="el-icon-check"></i> Entered manually</template>
                       <template v-else><i class="el-icon-warning-outline"></i> OCR could not read it — manual input required</template>
@@ -596,6 +600,7 @@
             <span class="demo-label">Demo:</span>
             <el-button size="mini" type="text" @click="startCorrUpload(null, 'same')">Same doc No. → new version</el-button>
             <el-button size="mini" type="text" @click="startCorrUpload(null, 'different')">Different doc No. → replacement</el-button>
+            <el-button size="mini" type="text" @click="startCorrUpload(null, 'exists')">No. of another doc → intercept</el-button>
           </div>
         </div>
 
@@ -641,10 +646,14 @@
 
         <!-- DONE -->
         <div v-if="corrUpload.state === 'done'" style="margin-top:12px">
-          <el-alert type="success" :closable="false" show-icon
-            :title="corrUpload.replaced ? `Saved as a new document (${corrUpload.docNumber}) — replaces the rejected one` : `Re-uploaded as v${corrUpload.item.doc.version}`">
+          <el-alert :type="corrUpload.foldedInto ? 'warning' : 'success'" :closable="false" show-icon
+            :title="corrUpload.foldedInto ? `Saved as ${corrUpload.foldedInto} v${corrUpload.foldedVersion} — correction still pending` : corrUpload.replaced ? `Saved as a new document (${corrUpload.docNumber}) — replaces the rejected one` : `Re-uploaded as v${corrUpload.item.doc.version}`">
             <div style="font-size:12px;margin-top:2px">
-              <template v-if="corrUpload.replaced">
+              <template v-if="corrUpload.foldedInto">
+                The file was folded into existing document <strong>{{ corrUpload.foldedInto }}</strong> as a new version.
+                The returned document <strong>{{ corrUpload.item.doc.docNumber }}</strong> was NOT corrected — it remains in the Document Correction queue.
+              </template>
+              <template v-else-if="corrUpload.replaced">
                 The rejected document <strong>{{ corrUpload.item.doc.docNumber }}</strong> is kept for audit and tagged <strong>Replaced</strong>; the new document takes its place.
               </template>
               <template v-else-if="corrUpload.resetTriggered">
@@ -1051,6 +1060,8 @@ const mkSlot = (key, label) => ({
   // Document Number captured via OCR (auto-fill) or manual input.
   // docNumberSource: '' (none/required) | 'ai' | 'edited' | 'manual'
   docNumber: '', docNumberSource: '',
+  // set when the file was folded into an existing document's version chain
+  mergedInto: '',
 })
 
 // OCR document-number prefix per mandatory slot (mock extraction)
@@ -1545,6 +1556,7 @@ export default {
       this.corrUpload = {
         visible: true, item, docNumber: '',
         state: 'idle', fileName: '', steps: [], progress: 0, resetTriggered: false, replaced: false, demo: '',
+        foldedInto: '', foldedVersion: 0,
       }
     },
     corrNeedsAi(item) {
@@ -1594,9 +1606,24 @@ export default {
           ? orig.replace(/\d{3,}$/, String(Math.floor(1000 + Math.random() * 9000)))
           : `${orig}-ALT`
         if (c.docNumber === orig) c.docNumber = `${orig}-ALT`
+      } else if (c.demo === 'exists') {
+        // simulate OCR reading a number that belongs to ANOTHER existing document
+        const other = this.corrSiblingDocs(c.item).find(d => !this.isRetiredDoc(d))
+        c.docNumber = other ? other.docNumber : `${orig}-ALT`
+        if (!other) this.$message.info('No sibling document found — falling back to a plain different number')
       } else {
         c.docNumber = orig
       }
+    },
+    // Other documents on the same HBL/shipment as the one being corrected
+    corrSiblingDocs(item) {
+      const docs = item.source === 'OHA'
+        ? ((ohaShipments().find(s => s.id === item.hbl.shipmentId) || {}).documents || [])
+        : (item.hbl.documents || [])
+      return docs.filter(d => d !== item.doc)
+    },
+    isRetiredDoc(d) {
+      return !!d.replaced || d.ohaStatus === 'REPLACED' || d.reviewStatus === 'REPLACED'
     },
     async finishCorrUpload() {
       const c = this.corrUpload
@@ -1607,6 +1634,44 @@ export default {
       const newDN = (c.docNumber || '').trim()
       const isReplacement = !!newDN && newDN !== doc.docNumber
       if (isReplacement) {
+        // Uniqueness guard: does the new number already belong to another document?
+        const clash = this.corrSiblingDocs(c.item).find(d => d.docNumber === newDN)
+        if (clash && this.isRetiredDoc(clash)) {
+          await this.$alert(
+            `Document Number ${newDN} was replaced and is retired — a retired number cannot be reused. Please check the file or correct the number.`,
+            'Document Number retired',
+            { type: 'error', confirmButtonText: 'OK' }
+          ).catch(() => {})
+          c.state = 'confirm'
+          return
+        }
+        if (clash) {
+          // Replacing DN1 with a number that exists would create a duplicate → intercept.
+          try {
+            await this.$confirm(
+              `Document Number ${newDN} already belongs to another document on this shipment (${clash.docType} · ${clash.fileName}, v${clash.version || 1}). Using it to replace ${doc.docNumber} is blocked — that would create two documents with the same number. Save this file as a new version of ${newDN} instead? (${doc.docNumber} will remain in the correction queue.)`,
+              'Number belongs to another document',
+              { confirmButtonText: `Add as new version of ${newDN}`, cancelButtonText: 'Cancel', type: 'warning' }
+            )
+          } catch (e) {
+            c.state = 'confirm'
+            return
+          }
+          // Fold into the clashing document's version chain; DN1 stays pending.
+          clash.versionHistory = [
+            { version: clash.version || 1, fileName: clash.fileName, uploadedAt: clash.uploadedAt || clash.uploadDate || '', status: clash.status || clash.aiStatus || 'VERIFIED' },
+            ...(clash.versionHistory || []),
+          ]
+          clash.fileName = c.fileName
+          clash.version = (clash.version || 1) + 1
+          if ('aiStatus' in clash) clash.aiStatus = 'VERIFIED'
+          c.foldedInto = clash.docNumber
+          c.foldedVersion = clash.version
+          c.replaced = false
+          c.state = 'done'
+          this.$message.warning(`Saved as ${clash.docNumber} v${clash.version} — ${doc.docNumber} is still pending correction`)
+          return
+        }
         try {
           await this.$confirm(
             `The Document Number (${newDN}) differs from the original (${doc.docNumber}). This will be saved as a NEW document that replaces the rejected one — not as a new version of it.`,
@@ -1614,7 +1679,7 @@ export default {
             { confirmButtonText: 'Save as replacement', cancelButtonText: 'Cancel', type: 'warning' }
           )
         } catch (e) {
-          c.state = 'idle'   // let the supplier fix the number or re-pick the file
+          c.state = 'confirm'   // let the supplier fix the number or re-pick the file
           return
         }
       }
@@ -1790,6 +1855,9 @@ export default {
       let saved = 0
 
       this.mandatorySlots.forEach(slot => {
+        // Slots folded into an existing document's version chain were already
+        // applied at confirm time — don't create a duplicate document.
+        if (slot.mergedInto) { saved++; return }
         if (slot.state === 'verified' || slot.state === 'force_saved') {
           this.currentPo.docs.push({
             docNumber: slot.docNumber,
@@ -1977,6 +2045,49 @@ export default {
         slot.steps[3].status = 'error'; slot.state = 'po_mismatch'
         slot.foundPO = 'ORD09999999_01'
         this.$message.warning(`${slot.label}: PO number does not match`)
+      } else if (scenario === 'dn_exists_active') {
+        // OCR reads a Document Number that already belongs to an ACTIVE document
+        // on this PO → offer to fold the file into that document's version chain.
+        const target = (this.currentPo.docs || []).find(d => !d.replaced)
+        if (!target) {
+          slot.state = 'idle'
+          this.$message.info('Demo needs a PO that already has documents — try ORD01671737_01 or ORD01694098_01')
+          return
+        }
+        slot.state = 'verified'; slot.uploadedAt = new Date().toLocaleTimeString()
+        slot.docNumber = target.docNumber; slot.docNumberSource = 'ai'
+        this.$confirm(
+          `OCR read Document Number ${target.docNumber}, which already exists on this PO (${target.docTypeLabel} · ${target.fileName}, v${target.version}, Active). A number can only belong to one document — save this file as a new version (v${target.version + 1}) of that document instead?`,
+          'Document Number already exists',
+          { confirmButtonText: 'Add as new version', cancelButtonText: 'Cancel upload', type: 'warning' }
+        ).then(() => {
+          this.$set(target, 'versionHistory', [
+            { version: target.version, fileName: target.fileName, uploadDate: target.uploadDate, status: target.status },
+            ...(target.versionHistory || []),
+          ])
+          target.fileName = slot.fileName
+          target.version += 1
+          target.uploadDate = new Date().toISOString().slice(0, 10)
+          target.status = 'VERIFIED'
+          slot.mergedInto = target.docNumber
+          this.poNewUpload = true
+          this.$message.success(`Folded into ${target.docNumber} as v${target.version} — no duplicate document created`)
+        }).catch(() => {
+          slot.state = 'idle'; slot.docNumber = ''; slot.docNumberSource = ''
+        })
+      } else if (scenario === 'dn_exists_replaced') {
+        // OCR reads a Document Number that was replaced and retired → hard reject.
+        const target = (this.currentPo.docs || []).find(d => d.replaced)
+        if (!target) {
+          slot.state = 'idle'
+          this.$message.info('Demo needs a PO with a replaced document — try ORD01694382_01')
+          return
+        }
+        this.$alert(
+          `OCR read Document Number ${target.docNumber}, but that number was replaced by ${target.replacedBy} and is retired. A retired number cannot be reused — please check that you picked the right file.`,
+          'Document Number retired',
+          { type: 'error', confirmButtonText: 'OK' }
+        ).finally(() => { slot.state = 'idle' })
       }
     },
 
@@ -2157,7 +2268,9 @@ export default {
 .hint-title  { font-size:11px; font-weight:600; color:$text-secondary; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.4px; }
 .hint-item   { font-size:12px; color:$text-secondary; padding:2px 0; i { color:$primary; margin-right:4px; } strong { color:$primary; } }
 .upload-actions { display:flex; flex-direction:column; gap:8px; }
-.demo-btns  { display:flex; align-items:center; }
+.demo-btns  { display:flex; align-items:center; flex-wrap:wrap; column-gap:2px;
+  .el-button { margin-left:4px; }
+}
 .demo-label { font-size:11px; color:#999; margin-right:4px; }
 
 // Verifying
