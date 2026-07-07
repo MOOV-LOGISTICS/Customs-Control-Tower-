@@ -62,7 +62,18 @@ export const reviewStore = Vue.observable({
       ms('IN_PROGRESS'),
       ms('LOCKED', null, null, false, 'Waiting for Finance Check'),
       [
-        doc('Commercial Invoice', 'INV-240002.pdf', 1, 'PO-2401-2001', '2024-11-10 11:02', 'OK', null, [], 'INV-2401-2210'),
+        // Seeded reinstatement demo: INV-2401-2209 was replaced by INV-2401-2210
+        // and the supplier has requested reinstatement (pending reviewer decision).
+        Object.assign(doc('Commercial Invoice', 'INV-240002-old.pdf', 1, 'PO-2401-2001', '2024-11-08 15:40', 'REPLACED', null, [], 'INV-2401-2209'), {
+          replacedBy: 'INV-2401-2210', reinstateRequested: true,
+          thread: [{ by: 'Dhaka Garments Ltd. (Supplier)', role: 'supplier',
+            text: '[Reinstatement request] INV-2401-2209 covers the first partial delivery and is still valid — it was replaced by mistake. Please restore it.',
+            at: '2024-11-18 10:05' }],
+          awaitingReviewer: true,
+        }),
+        Object.assign(doc('Commercial Invoice', 'INV-240002.pdf', 1, 'PO-2401-2001', '2024-11-10 11:02', 'OK', null, [], 'INV-2401-2210'), {
+          replacesDocNumber: 'INV-2401-2209',
+        }),
         doc('Packing List',       'PL-240002.pdf',  1, 'PO-2401-2001', '2024-11-10 11:05', 'OK', null, [], 'PLR-2401-2210'),
         doc('Bill of Lading',     'HBL-240002.pdf', 1, 'PO-2401-2001', '2024-11-11 09:40', 'OK', null, [], 'MAEU240002'),
       ],
@@ -290,6 +301,37 @@ export function acceptDocumentAsIs(hbl, document, user) {
   return finalizeIfDone(hbl, user)
 }
 
+// Supplier withdraws a returned document instead of re-uploading:
+//   coveredBy set  → "the correct file is already in the system" (Link intent)
+//   note set       → "this document is no longer needed" (Delete intent)
+// Zero upload, zero new version. The withdrawal is a supplier CLAIM — the
+// reviewer sees it tagged in the document list and can dispute via Discuss.
+export function withdrawDocument(hbl, document, { coveredBy, note, user }) {
+  document.reviewStatus = 'WITHDRAWN'
+  document.resolution = 'WITHDRAWN'
+  document.awaitingReviewer = false
+  Vue.set(document, 'coveredBy', coveredBy || null)
+  Vue.set(document, 'withdrawNote', note || '')
+  if (Array.isArray(document.thread)) {
+    document.thread.push({
+      by: user, role: 'supplier', system: true,
+      text: coveredBy
+        ? `Withdrawn — the correct document is already in the system: ${coveredBy}.`
+        : `Withdrawn — no longer needed. Reason: ${note}`,
+      at: nowStr().replace(' CET (UTC+1)', ''),
+    })
+  }
+  hbl.verifyHistory.unshift({
+    milestone: 'Supplier Note', status: 'Correction',
+    user, time: nowStr(), reason: '',
+    remark: coveredBy
+      ? `${document.docNumber} withdrawn — covered by existing document ${coveredBy}.`
+      : `${document.docNumber} withdrawn — not needed: ${note}`,
+    isRecheck: false,
+  })
+  return finalizeIfDone(hbl, user)
+}
+
 // Append a message to a document's discussion thread. Pure communication:
 // milestones are NOT touched, so the document stays at the same review stage.
 export function postComment(hbl, document, { text, role, user }) {
@@ -421,7 +463,18 @@ export const ohaStore = Vue.observable({
         ohaDoc('INV-880910', 'NGB26041788037', 'Commercial Invoice', 'INV-880910-v2.pdf', 'VERIFIED', 2, '2026-05-22', [
           { version: 1, fileName: 'INV-880910.pdf', uploadedAt: '2026-05-20', status: 'VERIFIED' },
         ]),
-        ohaDoc('PL-880910', 'NGB26041788037', 'Packing List', 'PL-880910.pdf', 'VERIFIED'),
+        // Seeded reinstatement demo: PL-880900 was replaced by PL-880910 and the
+        // supplier has requested reinstatement (pending the OHA's decision).
+        Object.assign(ohaDoc('PL-880900', 'NGB26041788037', 'Packing List', 'PL-880900.pdf', 'VERIFIED', 1, '2026-05-19'), {
+          ohaStatus: 'REPLACED', replacedBy: 'PL-880910', reinstateRequested: true,
+          thread: [{ by: 'NINGBO GENERAL UNION CO.,LTD (Supplier)', role: 'supplier',
+            text: '[Reinstatement request] PL-880900 is a valid packing list for the first partial shipment — the replacement was made by mistake. Please restore it.',
+            at: '2026-06-19 09:12' }],
+          awaitingReviewer: true,
+        }),
+        Object.assign(ohaDoc('PL-880910', 'NGB26041788037', 'Packing List', 'PL-880910.pdf', 'VERIFIED'), {
+          replacesDocNumber: 'PL-880900',
+        }),
         ohaDoc('HBL-880910', 'NGB26041788037', 'Bill of Lading', 'HBL-880910.pdf', 'VERIFIED'),
       ],
     },
@@ -456,7 +509,12 @@ export function ohaUnverifiedDocs(shipment) {
 // Returned (REJECTED) and re-uploaded-pending (RESUBMITTED) files are NOT cleared —
 // a re-upload must be re-reviewed and approved by OHA.
 export function ohaDocCleared(d) {
-  return d.ohaStatus === 'APPROVED' || (d.aiStatus === 'VERIFIED' && d.ohaStatus === 'PENDING')
+  // REPLACED documents are retired audit records — they no longer gate Confirm.
+  // A WITHDRAWN document is a supplier CLAIM: it clears only after the OHA
+  // acknowledges it (otherwise withdrawal would be a way to skip review).
+  return d.ohaStatus === 'APPROVED' || d.ohaStatus === 'REPLACED'
+    || (d.ohaStatus === 'WITHDRAWN' && d.withdrawAcked)
+    || (d.aiStatus === 'VERIFIED' && d.ohaStatus === 'PENDING')
 }
 export function ohaCanConfirm(shipment) {
   return shipment.ohaStatus !== 'CONFIRMED' && shipment.documents.every(ohaDocCleared)
@@ -556,6 +614,76 @@ export function ohaResubmitDoc(shipment, doc, fileName, user, newDocNumber) {
   return { awaitingOhaReview: true }
 }
 
+// Supplier withdraws an OHA-returned document (Link / Delete intents) — zero
+// upload. The claim goes back to OHA tagged Withdrawn; OHA can dispute in Discuss.
+export function ohaWithdrawDoc(shipment, doc, { coveredBy, note, user }) {
+  doc.ohaStatus = 'WITHDRAWN'
+  doc.awaitingReviewer = true   // OHA should acknowledge the claim
+  Vue.set(doc, 'withdrawAcked', false)
+  Vue.set(doc, 'coveredBy', coveredBy || null)
+  Vue.set(doc, 'withdrawNote', note || '')
+  if (Array.isArray(doc.thread)) {
+    doc.thread.push({
+      by: user, role: 'supplier', system: true,
+      text: coveredBy
+        ? `Withdrawn — the correct document is already in the system: ${coveredBy}.`
+        : `Withdrawn — no longer needed. Reason: ${note}`,
+      at: nowStr().replace(' CET (UTC+1)', ''),
+    })
+  }
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Correction',
+    user, time: nowStr(), reason: '',
+    remark: coveredBy
+      ? `${doc.docNumber} withdrawn by supplier — covered by ${coveredBy}.`
+      : `${doc.docNumber} withdrawn by supplier — not needed: ${note}`,
+    isRecheck: false,
+  })
+}
+
+// OHA acknowledges a supplier withdrawal claim — the withdrawal becomes final
+// and the document stops gating Confirm.
+export function ohaAckWithdraw(shipment, doc, user) {
+  Vue.set(doc, 'withdrawAcked', true)
+  doc.awaitingReviewer = false
+  if (Array.isArray(doc.thread)) {
+    doc.thread.push({
+      by: user, role: 'reviewer', system: true,
+      text: 'Withdrawal acknowledged by OHA — the claim is accepted.',
+      at: nowStr().replace(' CET (UTC+1)', ''),
+    })
+  }
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Complete',
+    user, time: nowStr(), reason: '',
+    remark: `Withdrawal of ${doc.docNumber} acknowledged${doc.coveredBy ? ` (covered by ${doc.coveredBy})` : ''}.`,
+    isRecheck: false,
+  })
+}
+
+// OHA disputes a withdrawal claim — the document goes back to REJECTED and
+// returns to the supplier's correction queue with the reviewer's comment.
+export function ohaReopenWithdraw(shipment, doc, comment, user) {
+  doc.ohaStatus = 'REJECTED'
+  doc.awaitingReviewer = false
+  Vue.set(doc, 'withdrawAcked', false)
+  Vue.set(doc, 'coveredBy', null)
+  Vue.set(doc, 'withdrawNote', '')
+  if (Array.isArray(doc.thread)) {
+    doc.thread.push({
+      by: user, role: 'reviewer',
+      text: `Withdrawal declined — ${comment}`,
+      at: nowStr().replace(' CET (UTC+1)', ''),
+    })
+  }
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Incomplete',
+    user, time: nowStr(), reason: 'Withdrawal declined',
+    remark: `${doc.docNumber}: ${comment} — returned to the supplier's correction queue.`,
+    isRecheck: false,
+  })
+}
+
 // OHA confirms the shipment's "Verify Shipping Documents" milestone (hands over downstream)
 export function ohaConfirmShipment(shipment, user) {
   if (!ohaCanConfirm(shipment)) return { ok: false }
@@ -565,4 +693,122 @@ export function ohaConfirmShipment(shipment, user) {
     user, time: nowStr(), reason: '', remark: 'All documents AI-verified — shipment handed over to downstream review.', isRecheck: false,
   })
   return { ok: true }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Reinstatement — a retired (Replaced) Document Number can come back to life,
+// but only through an explicit, audited flow:
+//   V1  — the supplier REQUESTS reinstatement (comment thread, ball → reviewer)
+//   V1.5 — the reviewer REINSTATES, choosing what happens to the replacing doc:
+//     mode 'keep'    → both documents stay active; the replace link is removed
+//                      (the original replacement was really two separate docs)
+//     mode 'reverse' → the replacing document is retired instead
+//                      (the replacement went the wrong way)
+// The invariant "one Document Number = at most one active document" holds at all
+// times: reinstating never creates a duplicate number.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Supplier asks the reviewer to bring a retired document back (V1).
+export function requestReinstate(hbl, doc, reason, user) {
+  Vue.set(doc, 'reinstateRequested', true)
+  if (Array.isArray(doc.thread)) {
+    doc.thread.push({
+      by: user, role: 'supplier',
+      text: `[Reinstatement request] ${reason}`,
+      at: nowStr().replace(' CET (UTC+1)', ''),
+    })
+    doc.awaitingReviewer = true
+  }
+  if (hbl && Array.isArray(hbl.verifyHistory)) {
+    hbl.verifyHistory.unshift({
+      milestone: 'Discussion', status: 'Supplier Note',
+      user, time: nowStr(), reason: '',
+      remark: `Reinstatement requested for ${doc.docNumber}: ${reason}`, isRecheck: false,
+    })
+  }
+}
+
+// Reviewer reinstates a replaced document in the Pepco review store (V1.5).
+export function reinstateDocument(hbl, doc, mode, user) {
+  const replacement = hbl.documents.find(d => d.docNumber === doc.replacedBy)
+  doc.reviewStatus = 'OK'
+  Vue.set(doc, 'replacedBy', null)
+  Vue.set(doc, 'reinstateRequested', false)
+  if (Array.isArray(doc.thread)) {
+    doc.thread.push({
+      by: user, role: 'reviewer', system: true,
+      text: mode === 'reverse'
+        ? `Reinstated — the replacement was reversed; ${replacement ? replacement.docNumber : 'the replacing document'} is now retired.`
+        : 'Reinstated — both documents remain active as separate documents.',
+      at: nowStr().replace(' CET (UTC+1)', ''),
+    })
+  }
+  if (replacement) {
+    if (mode === 'reverse') {
+      replacement.reviewStatus = 'REPLACED'
+      Vue.set(replacement, 'replacedBy', doc.docNumber)
+      Vue.set(replacement, 'replacesDocNumber', null)
+    } else {
+      Vue.set(replacement, 'replacesDocNumber', null)
+    }
+  }
+  hbl.verifyHistory.unshift({
+    milestone: 'Discussion', status: 'Reviewer Note',
+    user, time: nowStr(), reason: '',
+    remark: `${doc.docNumber} reinstated (${mode === 'reverse' ? 'replacement reversed' : 'both documents kept'}).`,
+    isRecheck: false,
+  })
+}
+
+// Reviewer reinstates a replaced document in the OHA store (V1.5).
+// Also handles an acked-WITHDRAWN document (no replacement to resolve).
+export function ohaReinstateDoc(shipment, doc, mode, user) {
+  if (doc.ohaStatus === 'WITHDRAWN') {
+    doc.ohaStatus = 'APPROVED'
+    Vue.set(doc, 'withdrawAcked', false)
+    Vue.set(doc, 'coveredBy', null)
+    Vue.set(doc, 'withdrawNote', '')
+    Vue.set(doc, 'reinstateRequested', false)
+    if (Array.isArray(doc.thread)) {
+      doc.thread.push({
+        by: user, role: 'reviewer', system: true,
+        text: 'Reinstated — the withdrawal was undone; the document is active again.',
+        at: nowStr().replace(' CET (UTC+1)', ''),
+      })
+    }
+    shipment.verifyHistory.unshift({
+      milestone: 'Verify Shipping Documents', status: 'Reviewer Note',
+      user, time: nowStr(), reason: '',
+      remark: `${doc.docNumber} reinstated (withdrawal undone).`, isRecheck: false,
+    })
+    return
+  }
+  const replacement = shipment.documents.find(d => d.docNumber === doc.replacedBy)
+  doc.ohaStatus = 'APPROVED'    // the reviewer vouches for it — cleared
+  Vue.set(doc, 'replacedBy', null)
+  Vue.set(doc, 'reinstateRequested', false)
+  if (Array.isArray(doc.thread)) {
+    doc.thread.push({
+      by: user, role: 'reviewer', system: true,
+      text: mode === 'reverse'
+        ? `Reinstated — the replacement was reversed; ${replacement ? replacement.docNumber : 'the replacing document'} is now retired.`
+        : 'Reinstated — both documents remain active as separate documents.',
+      at: nowStr().replace(' CET (UTC+1)', ''),
+    })
+  }
+  if (replacement) {
+    if (mode === 'reverse') {
+      replacement.ohaStatus = 'REPLACED'
+      Vue.set(replacement, 'replacedBy', doc.docNumber)
+      Vue.set(replacement, 'replacesDocNumber', null)
+    } else {
+      Vue.set(replacement, 'replacesDocNumber', null)
+    }
+  }
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Reviewer Note',
+    user, time: nowStr(), reason: '',
+    remark: `${doc.docNumber} reinstated (${mode === 'reverse' ? 'replacement reversed' : 'both documents kept'}).`,
+    isRecheck: false,
+  })
 }

@@ -201,6 +201,7 @@
                       <template #default="{row}">
                         <span v-if="row.docNumber" style="font-family:monospace;font-size:11px;color:#004F7C;font-weight:600">{{ row.docNumber }}</span>
                         <span v-else style="color:#c0c4cc">—</span>
+                        <div v-if="row.replacesDocNumber" style="font-size:10px;color:#909399;margin-top:2px">replaces {{ row.replacesDocNumber }}</div>
                       </template>
                     </el-table-column>
                     <el-table-column label="PO Number" width="120" prop="poNo" />
@@ -231,16 +232,27 @@
                           <span class="status-badge rejected">Rejected</span>
                         </el-tooltip>
                         <el-tooltip v-else-if="row.reviewStatus==='RESUBMITTED'" placement="top"
-                          :content="`Re-uploaded after rejection: ${row.reject.reason}`">
+                          :content="row.reject ? `Re-uploaded after rejection: ${row.reject.reason}` : `Replacement document${row.replacesDocNumber ? ` — replaces ${row.replacesDocNumber}` : ''}`">
                           <span class="status-badge resubmitted">Resubmitted v{{ row.version }}</span>
+                        </el-tooltip>
+                        <template v-else-if="row.reviewStatus==='REPLACED'">
+                          <el-tag size="mini" type="info">Replaced → {{ row.replacedBy }}</el-tag>
+                          <el-tag v-if="row.reinstateRequested" size="mini" type="warning" style="margin-top:2px">Reinstate requested</el-tag>
+                        </template>
+                        <el-tooltip v-else-if="row.reviewStatus==='WITHDRAWN'" placement="top"
+                          :content="row.coveredBy ? `Withdrawn by supplier — covered by ${row.coveredBy}` : `Withdrawn by supplier — ${row.withdrawNote}`">
+                          <el-tag size="mini" type="info">Withdrawn{{ row.coveredBy ? ` → ${row.coveredBy}` : '' }}</el-tag>
                         </el-tooltip>
                         <span v-else style="color:#c0c4cc">—</span>
                       </template>
                     </el-table-column>
                     <el-table-column label="Uploaded" width="130" prop="uploadedAt" />
-                    <el-table-column label="" width="70" align="center">
+                    <el-table-column label="" width="150" align="center">
                       <template #default="scope">
                         <el-button type="text" size="mini" icon="el-icon-view" @click="openDocPreview(row, scope.row)">Preview</el-button>
+                        <el-button v-if="scope.row.reviewStatus==='REPLACED' && canVerify" type="text" size="mini"
+                          icon="el-icon-refresh-left" style="color:#e6a817"
+                          @click="openReinstate(row, scope.row)">Reinstate</el-button>
                       </template>
                     </el-table-column>
                   </el-table>
@@ -575,6 +587,38 @@
       </div>
     </el-dialog>
 
+    <!-- ── Reinstate a replaced document (V1.5) ──────────────────────────── -->
+    <el-dialog
+      :visible.sync="reinstateDialog.visible"
+      :title="reinstateDialog.doc ? `Reinstate — ${reinstateDialog.doc.docNumber}` : 'Reinstate'"
+      width="520px" custom-class="brand-dialog"
+    >
+      <template v-if="reinstateDialog.doc">
+        <div style="font-size:12px;color:#666;margin-bottom:10px;line-height:1.7">
+          <strong style="color:#004F7C">{{ reinstateDialog.doc.docNumber }}</strong>
+          ({{ reinstateDialog.doc.docType }} · {{ reinstateDialog.doc.fileName }})
+          was replaced by <strong>{{ reinstateDialog.doc.replacedBy }}</strong>.
+          Reinstating restores it as an active document. Choose what happens to the replacing document:
+        </div>
+        <div v-if="reinstateDialog.doc.reinstateRequested" style="background:#fff8e0;border:1px solid #f5dca6;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:11px;color:#876800">
+          <i class="el-icon-chat-dot-round"></i>
+          The supplier has requested this reinstatement — see the discussion thread for their reason.
+        </div>
+        <el-radio-group v-model="reinstateDialog.mode" style="display:flex;flex-direction:column;gap:10px">
+          <el-radio label="keep">
+            <strong>Keep both</strong> — the replacement was a mistake; they are two separate valid documents
+          </el-radio>
+          <el-radio label="reverse">
+            <strong>Reverse the replacement</strong> — retire {{ reinstateDialog.doc.replacedBy }} instead
+          </el-radio>
+        </el-radio-group>
+      </template>
+      <div slot="footer">
+        <el-button size="small" @click="reinstateDialog.visible=false">Cancel</el-button>
+        <el-button size="small" type="primary" @click="submitReinstate">Reinstate</el-button>
+      </div>
+    </el-dialog>
+
   </div>
 </template>
 
@@ -582,7 +626,7 @@
 import { roleStore, ROLE_MILESTONE } from '@/store/role'
 // Shared with the Document Upload tab: HBL/milestone/document state lives in
 // one store so PEPCO rejections and supplier re-uploads stay in sync.
-import { reviewStore, rejectDocuments, correctionProgress, acceptDocumentAsIs } from '@/store/reviewFlow'
+import { reviewStore, rejectDocuments, correctionProgress, acceptDocumentAsIs, reinstateDocument } from '@/store/reviewFlow'
 import CommentThread from '@/components/CommentThread.vue'
 
 export default {
@@ -642,6 +686,9 @@ export default {
 
       // Discussion thread with the supplier (per returned document)
       commentDialog: { visible: false, hbl: null, doc: null },
+
+      // Reinstate a replaced document (V1.5)
+      reinstateDialog: { visible: false, hbl: null, doc: null, mode: 'keep' },
     }
   },
 
@@ -813,6 +860,26 @@ export default {
     // ── Discussion + accept-as-is (no re-upload) ──────────────────────────
     openReviewerComment(hbl, doc) {
       this.commentDialog = { visible: true, hbl, doc }
+    },
+
+    // ── Reinstate a replaced document (V1.5) ─────────────────────────────
+    openReinstate(hbl, doc) {
+      this.reinstateDialog = { visible: true, hbl, doc, mode: 'keep' }
+    },
+    submitReinstate() {
+      const { hbl, doc, mode } = this.reinstateDialog
+      reinstateDocument(hbl, doc, mode, 'Demo User')
+      this.reinstateDialog.visible = false
+      this.$notify({
+        title: 'Document reinstated',
+        dangerouslyUseHTMLString: true,
+        message: `<div style="font-size:12px;line-height:1.7">
+          <div><b>${doc.docNumber}</b> is active again on ${hbl.hblNo}.</div>
+          <div style="color:#999">${mode === 'reverse' ? 'The replacing document was retired instead.' : 'Both documents remain active as separate documents.'}</div>
+          <div style="color:#13ce66">✉ Supplier notified — they can now upload new versions against it.</div>
+        </div>`,
+        type: 'success', duration: 6000,
+      })
     },
     // Only the reviewer who returned the document (its milestone role) — or Ops —
     // may accept it as-is. Front-end mirror of the backend RBAC check.
