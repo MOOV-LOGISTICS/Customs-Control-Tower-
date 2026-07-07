@@ -749,9 +749,8 @@
             Select the document that correctly covers <strong>{{ corrUpload.item.doc.docNumber }}</strong>.
             The returned document will be withdrawn — nothing is uploaded.
           </div>
-          <el-checkbox v-model="corrUpload.sameTypeOnly" style="margin-bottom:8px;font-size:12px">Only show {{ corrUpload.item.doc.docType }}</el-checkbox>
           <div v-if="!corrLinkCandidates.length" style="font-size:12px;color:#c0c4cc;padding:12px;text-align:center">
-            No other active documents on this shipment{{ corrUpload.sameTypeOnly ? ' of this type — untick the filter' : '' }}.
+            No other active documents on this shipment.
           </div>
           <el-radio-group v-model="corrUpload.linkChoice" style="display:flex;flex-direction:column;gap:6px">
             <el-radio v-for="d in corrLinkCandidates" :key="d.docNumber" :label="d.docNumber" class="ci-link-row">
@@ -1461,12 +1460,16 @@ export default {
       if (sib) return this.isRetiredDoc(sib) ? { code: 'COLLIDE_RETIRED', target: sib } : { code: 'COLLIDE_ACTIVE', target: sib }
       return { code: 'OK' }
     },
-    // Active sibling documents selectable for the Link intent
+    // Active sibling documents selectable for the Link intent — all of them,
+    // same-type candidates listed first (no filter: the list is short and a
+    // covering document is not necessarily the same type)
     corrLinkCandidates() {
       const c = this.corrUpload
       if (!c.item) return []
-      return this.corrSiblingDocs(c.item).filter(d =>
-        !this.isRetiredDoc(d) && (!c.sameTypeOnly || d.docType === c.item.doc.docType))
+      const sameType = d => d.docType === c.item.doc.docType ? 0 : 1
+      return this.corrSiblingDocs(c.item)
+        .filter(d => !this.isRetiredDoc(d))
+        .sort((a, b) => sameType(a) - sameType(b))
     },
     corrRetiredSibling() {
       const c = this.corrUpload
@@ -1818,7 +1821,7 @@ export default {
         visible: true, item, docNumber: '',
         state: 'intent', intent: '', fileName: '', steps: [], progress: 0,
         resetTriggered: false, replaced: false, demo: '',
-        linkChoice: '', deleteReason: '', sameTypeOnly: true, resolution: '',
+        linkChoice: '', deleteReason: '', resolution: '',
       }
     },
 
@@ -1845,7 +1848,6 @@ export default {
     switchToLink(target) {
       const c = this.corrUpload
       c.intent = 'link'; c.state = 'link'
-      c.sameTypeOnly = false
       c.linkChoice = target.docNumber
     },
     corrRequestReinstate(target) {
