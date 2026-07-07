@@ -141,6 +141,15 @@
                 <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="docActionLocked(row)" @click="deletePoDoc(row)" />
               </span>
             </el-tooltip>
+            <!-- Proactive reinstatement request — only on replaced (retired) documents -->
+            <el-tooltip v-if="row.replaced"
+              :content="row.reinstateRequested ? 'Reinstatement already requested — waiting for the reviewer' : 'This document was replaced. If you believe it is still valid, ask the reviewer to reinstate it.'"
+              placement="top">
+              <span>
+                <el-button type="warning" size="mini" plain icon="el-icon-refresh-right"
+                  :disabled="!!row.reinstateRequested" @click="requestPoReinstate(row)" />
+              </span>
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
@@ -1459,6 +1468,29 @@ export default {
     },
     openOhaReinstate(shipment, doc) {
       this.ohaReinstateDialog = { visible: true, shipment, doc, mode: 'keep' }
+    },
+    // Supplier proactively asks to reinstate a replaced document from the PO history (V1)
+    requestPoReinstate(row) {
+      this.$prompt(
+        `${row.docNumber} was replaced by ${row.replacedBy}. Explain to the reviewer why this document should be reinstated:`,
+        'Reinstatement request',
+        {
+          confirmButtonText: 'Send request', cancelButtonText: 'Cancel',
+          inputType: 'textarea', inputValidator: v => !!(v && v.trim()) || 'Please give a reason',
+        }
+      ).then(({ value }) => {
+        this.$set(row, 'reinstateRequested', true)
+        this.$notify({
+          title: 'Reinstatement requested',
+          dangerouslyUseHTMLString: true,
+          message: `<div style="font-size:12px;line-height:1.7">
+            <div><b>${row.docNumber}</b> — request sent to the reviewer.</div>
+            <div style="color:#999">${value.trim()}</div>
+            <div style="color:#e6a817">⏳ You can upload new versions once the document is reinstated.</div>
+          </div>`,
+          type: 'success', duration: 6000,
+        })
+      }).catch(() => {})
     },
     submitOhaReinstate() {
       const { shipment, doc, mode } = this.ohaReinstateDialog
