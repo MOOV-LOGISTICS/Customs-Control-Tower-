@@ -201,6 +201,7 @@
                       <template #default="{row}">
                         <span v-if="row.docNumber" style="font-family:monospace;font-size:11px;color:#004F7C;font-weight:600">{{ row.docNumber }}</span>
                         <span v-else style="color:#c0c4cc">—</span>
+                        <div v-if="row.replacesDocNumber" style="font-size:10px;color:#909399;margin-top:2px">replaces {{ row.replacesDocNumber }}</div>
                       </template>
                     </el-table-column>
                     <el-table-column label="PO Number" width="120" prop="poNo" />
@@ -231,7 +232,7 @@
                           <span class="status-badge rejected">Rejected</span>
                         </el-tooltip>
                         <el-tooltip v-else-if="row.reviewStatus==='RESUBMITTED'" placement="top"
-                          :content="`Re-uploaded after rejection: ${row.reject.reason}`">
+                          :content="row.reject ? `Re-uploaded after rejection: ${row.reject.reason}` : `Replacement document${row.replacesDocNumber ? ` — replaces ${row.replacesDocNumber}` : ''}`">
                           <span class="status-badge resubmitted">Resubmitted v{{ row.version }}</span>
                         </el-tooltip>
                         <template v-else-if="row.reviewStatus==='REPLACED'">
