@@ -124,6 +124,12 @@
               <div style="font-size:10px;color:#909399;margin-top:2px">replaced by {{ row.replacedBy }}</div>
               <el-tag v-if="row.reinstateRequested" size="mini" type="warning" style="margin-top:2px">Reinstate requested</el-tag>
             </template>
+            <template v-else-if="row.withdrawn">
+              <el-tag size="mini" type="info">Withdrawn</el-tag>
+              <div style="font-size:10px;color:#909399;margin-top:2px">
+                {{ row.withdrawnCoveredBy ? `covered by ${row.withdrawnCoveredBy}` : 'no longer needed' }}
+              </div>
+            </template>
             <el-tag v-else size="mini" type="success">Active</el-tag>
           </template>
         </el-table-column>
@@ -558,7 +564,7 @@
     <!-- ── Correction re-upload dialog (AI-checked for CI / PL) ──────────── -->
     <el-dialog
       :visible.sync="corrUpload.visible"
-      :title="corrUpload.item ? `Re-upload — ${corrUpload.item.doc.docType} (${corrUpload.item.hbl.hblNo})` : 'Re-upload'"
+      :title="corrUpload.item ? `Resolve — ${corrUpload.item.doc.docType} (${corrUpload.item.hbl.hblNo})` : 'Resolve returned document'"
       width="540px" custom-class="brand-dialog" append-to-body
       :close-on-click-modal="false"
     >
@@ -590,27 +596,68 @@
           </el-tooltip>
         </div>
 
-        <!-- IDLE -->
-        <div v-if="corrUpload.state === 'idle'" style="margin-top:12px">
-          <div v-if="corrNeedsAi(corrUpload.item)" class="upload-hint" style="margin-bottom:10px">
-            <div class="hint-title">AI will verify the new version:</div>
+        <!-- STEP 1 · INTENT — the supplier declares what they want to do -->
+        <div v-if="corrUpload.state === 'intent'" style="margin-top:12px">
+          <div style="font-size:12px;font-weight:600;color:#303133;margin-bottom:8px">How do you want to resolve this returned document?</div>
+          <div class="ci-card" @click="chooseCorrIntent('update')">
+            <i class="el-icon-refresh-left ci-ic"></i>
+            <div><div class="ci-t">Upload a corrected file</div>
+            <div class="ci-d">Same document, content fixed — number stays {{ corrUpload.item.doc.docNumber }}</div></div>
+          </div>
+          <div class="ci-card" @click="chooseCorrIntent('replace')">
+            <i class="el-icon-document-add ci-ic"></i>
+            <div><div class="ci-t">Upload a different document</div>
+            <div class="ci-d">The wrong paper was uploaded — the new file has a different number</div></div>
+          </div>
+          <div class="ci-card" @click="chooseCorrIntent('link')">
+            <i class="el-icon-connection ci-ic"></i>
+            <div><div class="ci-t">The correct file is already in the system</div>
+            <div class="ci-d">Point to an existing document — nothing new to upload</div></div>
+          </div>
+          <div class="ci-card" @click="chooseCorrIntent('delete')">
+            <i class="el-icon-delete ci-ic"></i>
+            <div><div class="ci-t">This document is no longer needed</div>
+            <div class="ci-d">Withdraw it with a reason — the reviewer will confirm</div></div>
+          </div>
+          <div class="ci-card" @click="chooseCorrIntent('noop')">
+            <i class="el-icon-chat-dot-round ci-ic"></i>
+            <div><div class="ci-t">The document is correct as-is</div>
+            <div class="ci-d">Explain to the reviewer in the discussion thread</div></div>
+          </div>
+        </div>
+
+        <!-- STEP 2a · UPLOAD (intents: update / replace) -->
+        <div v-if="corrUpload.state === 'upload'" style="margin-top:12px">
+          <el-button type="text" size="mini" icon="el-icon-arrow-left" @click="corrBackToIntent">Change action</el-button>
+          <div v-if="corrNeedsAi(corrUpload.item)" class="upload-hint" style="margin:6px 0 10px">
+            <div class="hint-title">AI will verify the new file:</div>
             <div class="hint-item"><i class="el-icon-check"></i> Document is a {{ corrUpload.item.doc.docType }}</div>
             <div class="hint-item"><i class="el-icon-check"></i> PO Number matches <strong>{{ corrUpload.item.doc.poNo }}</strong></div>
             <div class="hint-item"><i class="el-icon-check"></i> Supplier matches <strong>{{ corrUpload.item.hbl.supplier }}</strong></div>
+            <div class="hint-item"><i class="el-icon-check"></i>
+              {{ corrUpload.intent === 'update' ? `Document Number should remain ${corrUpload.item.doc.docNumber}` : 'Document Number should be a NEW number' }}
+            </div>
           </div>
-          <div v-else style="font-size:12px;color:#666;margin-bottom:10px">
-            This document type does not require AI verification — the new version is saved directly.
+          <div v-else style="font-size:12px;color:#666;margin:6px 0 10px">
+            This document type does not require AI verification — the file is saved after you confirm its number.
           </div>
           <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startCorrUpload(f)">
             <el-button type="primary" size="small" icon="el-icon-upload2">
-              {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload New Version' }}
+              {{ corrNeedsAi(corrUpload.item) ? 'Upload & AI Verify' : 'Upload File' }}
             </el-button>
           </el-upload>
           <div class="demo-btns" style="margin-top:10px">
             <span class="demo-label">Demo:</span>
-            <el-button size="mini" type="text" @click="startCorrUpload(null, 'same')">Same doc No. → new version</el-button>
-            <el-button size="mini" type="text" @click="startCorrUpload(null, 'different')">Different doc No. → replacement</el-button>
-            <el-button size="mini" type="text" @click="startCorrUpload(null, 'exists')">No. of another doc → intercept</el-button>
+            <template v-if="corrUpload.intent === 'update'">
+              <el-button size="mini" type="text" @click="startCorrUpload(null, 'same')">OCR reads same No.</el-button>
+              <el-button size="mini" type="text" @click="startCorrUpload(null, 'different')">OCR reads different No. → warning</el-button>
+            </template>
+            <template v-else>
+              <el-button size="mini" type="text" @click="startCorrUpload(null, 'different')">OCR reads a new No.</el-button>
+              <el-button size="mini" type="text" @click="startCorrUpload(null, 'same')">OCR reads the original No. → warning</el-button>
+              <el-button size="mini" type="text" @click="startCorrUpload(null, 'collide')">No. of another active doc → warning</el-button>
+              <el-button v-if="corrRetiredSibling" size="mini" type="text" @click="startCorrUpload(null, 'retired')">Retired No. → blocked</el-button>
+            </template>
           </div>
         </div>
 
@@ -627,7 +674,7 @@
           <el-progress :percentage="corrUpload.progress" :stroke-width="4" :show-text="false" color="#004F7C" style="margin-top:8px" />
         </div>
 
-        <!-- CONFIRM — OCR read the Document Number from the new file; confirm or edit it -->
+        <!-- STEP 3 · CONFIRM — OCR-read Document Number + intent-consistency check -->
         <div v-if="corrUpload.state === 'confirm'" style="margin-top:12px">
           <div class="update-current" style="margin-bottom:12px">
             <i class="el-icon-document" style="color:#0d9b50;font-size:18px"></i>
@@ -640,28 +687,110 @@
             <label>Document Number <span class="dn-req">*</span> <span style="font-weight:400;color:#909399">(read from the new file by OCR — edit if wrong)</span></label>
             <el-input v-model="corrUpload.docNumber" size="mini" placeholder="Required — enter the document number"
               :class="{ 'dn-missing': !corrUpload.docNumber.trim() }" />
+
             <div v-if="!corrUpload.docNumber.trim()" class="corr-dn-warn"><i class="el-icon-warning-outline"></i> Document Number is required before saving.</div>
-            <div v-else class="corr-dn-hint">
-              <i class="el-icon-info"></i>
-              Same number as <strong>{{ corrUpload.item.doc.docNumber }}</strong> → saved as a new <strong>version</strong>.
-              A different number → saved as a <strong>replacement</strong> document.
+
+            <template v-else-if="corrDnCheck.code === 'OK'">
+              <div class="corr-dn-hint"><i class="el-icon-info"></i>
+                {{ corrUpload.intent === 'update'
+                  ? `Will be saved as version v${corrUpload.item.doc.version + 1} of ${corrUpload.item.doc.docNumber}.`
+                  : `Will be saved as a NEW document ${corrUpload.docNumber.trim()}; ${corrUpload.item.doc.docNumber} will be tagged Replaced.` }}
+              </div>
+            </template>
+
+            <div v-else-if="corrDnCheck.code === 'MISMATCH'" class="corr-dn-warn">
+              <i class="el-icon-warning-outline"></i>
+              The number differs from the original ({{ corrUpload.item.doc.docNumber }}) — this may not be the same document.
+              <div style="margin-top:4px">
+                <el-button size="mini" type="warning" plain @click="switchCorrIntent('replace')">It IS a different document — switch action</el-button>
+                <el-button size="mini" @click="corrBackToIntent">Re-pick file</el-button>
+              </div>
+            </div>
+
+            <div v-else-if="corrDnCheck.code === 'SAME'" class="corr-dn-warn">
+              <i class="el-icon-warning-outline"></i>
+              The number equals the original — this looks like a corrected version, not a different document.
+              <div style="margin-top:4px">
+                <el-button size="mini" type="warning" plain @click="switchCorrIntent('update')">It is the same document — switch action</el-button>
+                <el-button size="mini" @click="corrBackToIntent">Re-pick file</el-button>
+              </div>
+            </div>
+
+            <div v-else-if="corrDnCheck.code === 'COLLIDE_ACTIVE'" class="corr-dn-warn">
+              <i class="el-icon-warning-outline"></i>
+              This number already belongs to <strong>{{ corrDnCheck.target.docType }} · {{ corrDnCheck.target.fileName }}</strong> in the system.
+              If that existing document is the correct one, do not upload it again.
+              <div style="margin-top:4px">
+                <el-button size="mini" type="warning" plain @click="switchToLink(corrDnCheck.target)">Use the existing document instead</el-button>
+                <el-button size="mini" @click="corrBackToIntent">Re-pick file</el-button>
+              </div>
+            </div>
+
+            <div v-else-if="corrDnCheck.code === 'COLLIDE_RETIRED'" class="corr-dn-warn">
+              <i class="el-icon-warning-outline"></i>
+              This number was replaced and is retired — it cannot be reused directly.
+              <div style="margin-top:4px">
+                <el-button size="mini" type="warning" plain @click="corrRequestReinstate(corrDnCheck.target)">Request reinstatement</el-button>
+                <el-button size="mini" @click="corrBackToIntent">Re-pick file</el-button>
+              </div>
             </div>
           </div>
-          <el-tooltip :disabled="!!corrUpload.docNumber.trim()" content="Enter the Document Number first" placement="top">
+          <el-tooltip :disabled="corrDnCheck.code === 'OK'" content="Resolve the number issue above first" placement="top">
             <span>
-              <el-button type="primary" size="small" :disabled="!corrUpload.docNumber.trim()" @click="finishCorrUpload">Save</el-button>
+              <el-button type="primary" size="small" :disabled="corrDnCheck.code !== 'OK'" @click="finishCorrUpload">Save</el-button>
             </span>
           </el-tooltip>
         </div>
 
+        <!-- STEP 2b · LINK — pick the existing document that covers this one -->
+        <div v-if="corrUpload.state === 'link'" style="margin-top:12px">
+          <el-button type="text" size="mini" icon="el-icon-arrow-left" @click="corrBackToIntent">Change action</el-button>
+          <div style="font-size:12px;color:#666;margin:6px 0 8px">
+            Select the document that correctly covers <strong>{{ corrUpload.item.doc.docNumber }}</strong>.
+            The returned document will be withdrawn — nothing is uploaded.
+          </div>
+          <el-checkbox v-model="corrUpload.sameTypeOnly" style="margin-bottom:8px;font-size:12px">Only show {{ corrUpload.item.doc.docType }}</el-checkbox>
+          <div v-if="!corrLinkCandidates.length" style="font-size:12px;color:#c0c4cc;padding:12px;text-align:center">
+            No other active documents on this shipment{{ corrUpload.sameTypeOnly ? ' of this type — untick the filter' : '' }}.
+          </div>
+          <el-radio-group v-model="corrUpload.linkChoice" style="display:flex;flex-direction:column;gap:6px">
+            <el-radio v-for="d in corrLinkCandidates" :key="d.docNumber" :label="d.docNumber" class="ci-link-row">
+              <span style="font-family:Consolas,monospace;color:#004F7C;font-weight:600">{{ d.docNumber }}</span>
+              <span style="color:#666;margin-left:6px">{{ d.docType }}</span>
+              <span style="color:#999;margin-left:6px;font-size:11px">{{ d.fileName }} (v{{ d.version || 1 }})</span>
+            </el-radio>
+          </el-radio-group>
+          <div style="margin-top:12px">
+            <el-button type="primary" size="small" :disabled="!corrUpload.linkChoice" @click="confirmCorrLink">Withdraw {{ corrUpload.item.doc.docNumber }} — covered by selected</el-button>
+          </div>
+        </div>
+
+        <!-- STEP 2c · DELETE — withdraw with a reason -->
+        <div v-if="corrUpload.state === 'delete'" style="margin-top:12px">
+          <el-button type="text" size="mini" icon="el-icon-arrow-left" @click="corrBackToIntent">Change action</el-button>
+          <div style="font-size:12px;color:#666;margin:6px 0 8px">
+            Withdraw <strong>{{ corrUpload.item.doc.docNumber }}</strong> — it will be kept as an audit record and the reviewer will confirm your reason.
+          </div>
+          <el-input v-model="corrUpload.deleteReason" type="textarea" :rows="3"
+            placeholder="Why is this document no longer needed? (required)" />
+          <div style="margin-top:12px">
+            <el-button type="danger" size="small" plain :disabled="!corrUpload.deleteReason.trim()" @click="confirmCorrDelete">Withdraw document</el-button>
+          </div>
+        </div>
+
         <!-- DONE -->
         <div v-if="corrUpload.state === 'done'" style="margin-top:12px">
-          <el-alert :type="corrUpload.foldedInto ? 'warning' : 'success'" :closable="false" show-icon
-            :title="corrUpload.foldedInto ? `Saved as ${corrUpload.foldedInto} v${corrUpload.foldedVersion} — correction still pending` : corrUpload.replaced ? `Saved as a new document (${corrUpload.docNumber}) — replaces the rejected one` : `Re-uploaded as v${corrUpload.item.doc.version}`">
+          <el-alert type="success" :closable="false" show-icon
+            :title="corrUpload.resolution === 'withdraw_covered' ? `${corrUpload.item.doc.docNumber} withdrawn — covered by ${corrUpload.linkChoice}`
+              : corrUpload.resolution === 'withdraw_na' ? `${corrUpload.item.doc.docNumber} withdrawn — no longer needed`
+              : corrUpload.replaced ? `Saved as a new document (${corrUpload.docNumber}) — replaces the rejected one`
+              : `Re-uploaded as v${corrUpload.item.doc.version}`">
             <div style="font-size:12px;margin-top:2px">
-              <template v-if="corrUpload.foldedInto">
-                The file was folded into existing document <strong>{{ corrUpload.foldedInto }}</strong> as a new version.
-                The returned document <strong>{{ corrUpload.item.doc.docNumber }}</strong> was NOT corrected — it remains in the Document Correction queue.
+              <template v-if="corrUpload.resolution === 'withdraw_covered'">
+                Nothing was uploaded. The reviewer will see the withdrawal claim and can confirm or dispute it.
+              </template>
+              <template v-else-if="corrUpload.resolution === 'withdraw_na'">
+                The document is kept as an audit record. The reviewer will confirm your reason.
               </template>
               <template v-else-if="corrUpload.replaced">
                 The rejected document <strong>{{ corrUpload.item.doc.docNumber }}</strong> is kept for audit and tagged <strong>Replaced</strong>; the new document takes its place.
@@ -787,6 +916,10 @@
                 <el-tag size="mini" type="info" style="margin-left:4px">Replaced → {{ row.replacedBy }}</el-tag>
                 <el-tag v-if="row.reinstateRequested" size="mini" type="warning" style="margin-left:4px">Reinstate requested</el-tag>
               </template>
+              <el-tooltip v-else-if="row.ohaStatus==='WITHDRAWN'" placement="top"
+                :content="row.coveredBy ? `Withdrawn by supplier — covered by ${row.coveredBy}` : `Withdrawn by supplier — ${row.withdrawNote}`">
+                <el-tag size="mini" type="info" style="margin-left:4px">Withdrawn{{ row.coveredBy ? ` → ${row.coveredBy}` : '' }}</el-tag>
+              </el-tooltip>
             </template>
           </el-table-column>
           <el-table-column label="SO Ref" prop="soRef" min-width="150" />
@@ -1093,9 +1226,9 @@
 
 <script>
 import {
-  rejectedDocs, resubmittedCount, resubmitDocument,
+  rejectedDocs, resubmittedCount, resubmitDocument, withdrawDocument,
   ohaShipments, ohaUnverifiedDocs, ohaCanConfirm, ohaRejectedDocs,
-  ohaRejectDoc, ohaApproveDoc, ohaResubmitDoc, ohaConfirmShipment,
+  ohaRejectDoc, ohaApproveDoc, ohaResubmitDoc, ohaConfirmShipment, ohaWithdrawDoc,
   requestReinstate, ohaReinstateDoc,
 } from '@/store/reviewFlow'
 import CommentThread from '@/components/CommentThread.vue'
@@ -1307,6 +1440,38 @@ export default {
     // Document Number is mandatory on every uploaded document
     docNumbersComplete() {
       return this.sessionDocs.every(d => (d.docNumber || '').toString().trim())
+    },
+
+    // ── Correction dialog: intent-consistency check on the confirm step ──
+    // The supplier declared an intent; the OCR-read number must agree with it.
+    corrDnCheck() {
+      const c = this.corrUpload
+      if (!c.item || c.state !== 'confirm') return { code: 'OK' }
+      const dn = (c.docNumber || '').trim()
+      if (!dn) return { code: 'EMPTY' }
+      const orig = c.item.doc.docNumber
+      const sib = this.corrSiblingDocs(c.item).find(d => d.docNumber === dn)
+      if (c.intent === 'update') {
+        if (dn === orig) return { code: 'OK' }
+        if (sib) return this.isRetiredDoc(sib) ? { code: 'COLLIDE_RETIRED', target: sib } : { code: 'COLLIDE_ACTIVE', target: sib }
+        return { code: 'MISMATCH' }
+      }
+      // intent === 'replace'
+      if (dn === orig) return { code: 'SAME' }
+      if (sib) return this.isRetiredDoc(sib) ? { code: 'COLLIDE_RETIRED', target: sib } : { code: 'COLLIDE_ACTIVE', target: sib }
+      return { code: 'OK' }
+    },
+    // Active sibling documents selectable for the Link intent
+    corrLinkCandidates() {
+      const c = this.corrUpload
+      if (!c.item) return []
+      return this.corrSiblingDocs(c.item).filter(d =>
+        !this.isRetiredDoc(d) && (!c.sameTypeOnly || d.docType === c.item.doc.docType))
+    },
+    corrRetiredSibling() {
+      const c = this.corrUpload
+      if (!c.item) return null
+      return this.corrSiblingDocs(c.item).find(d => this.isRetiredDoc(d)) || null
     },
     saveBlockReason() {
       if (!this.hasSessionUploads) return 'Nothing to save yet — upload at least one document'
@@ -1648,12 +1813,50 @@ export default {
     },
 
     openCorrReupload(item) {
-      // docNumber is filled by OCR after the file is uploaded (not before)
+      // Step 1 is always the intent choice; docNumber is OCR-filled after upload
       this.corrUpload = {
         visible: true, item, docNumber: '',
-        state: 'idle', fileName: '', steps: [], progress: 0, resetTriggered: false, replaced: false, demo: '',
-        foldedInto: '', foldedVersion: 0,
+        state: 'intent', intent: '', fileName: '', steps: [], progress: 0,
+        resetTriggered: false, replaced: false, demo: '',
+        linkChoice: '', deleteReason: '', sameTypeOnly: true, resolution: '',
       }
+    },
+
+    // ── Intent routing (Update / Replace / Link / Delete / No-op) ────────
+    chooseCorrIntent(intent) {
+      const c = this.corrUpload
+      if (intent === 'noop') {
+        c.visible = false
+        this.openComment(c.item)
+        return
+      }
+      c.intent = intent
+      c.state = (intent === 'link') ? 'link' : (intent === 'delete') ? 'delete' : 'upload'
+    },
+    corrBackToIntent() {
+      const c = this.corrUpload
+      c.state = 'intent'; c.intent = ''; c.fileName = ''; c.docNumber = ''
+      c.demo = ''; c.linkChoice = ''
+    },
+    // Switch action while staying on the confirm step (validation re-runs)
+    switchCorrIntent(intent) {
+      this.corrUpload.intent = intent
+    },
+    switchToLink(target) {
+      const c = this.corrUpload
+      c.intent = 'link'; c.state = 'link'
+      c.sameTypeOnly = false
+      c.linkChoice = target.docNumber
+    },
+    corrRequestReinstate(target) {
+      const c = this.corrUpload
+      this.$prompt('Explain to the reviewer why this document should be reinstated:', 'Reinstatement request', {
+        confirmButtonText: 'Send request', cancelButtonText: 'Cancel',
+        inputType: 'textarea', inputValidator: v => !!(v && v.trim()) || 'Please give a reason',
+      }).then(({ value }) => {
+        requestReinstate(c.item.hbl, target, value.trim(), `${c.item.hbl.supplier} (Supplier)`)
+        this.$message.success(`Reinstatement of ${target.docNumber} requested — the reviewer has been notified`)
+      }).catch(() => {})
     },
     corrNeedsAi(item) {
       return ['Commercial Invoice', 'Packing List'].includes(item.doc.docType)
@@ -1662,7 +1865,7 @@ export default {
       const c = this.corrUpload
       c.demo = demo || ''
       c.fileName = file ? file.name
-        : demo === 'different' ? `${c.item.doc.docType.replace(/\s+/g, '').toUpperCase()}-NEW.pdf`
+        : c.intent === 'replace' ? `${c.item.doc.docType.replace(/\s+/g, '').toUpperCase()}-NEW.pdf`
         : `${c.item.doc.docType.replace(/\s+/g, '').toUpperCase()}-FIXED.pdf`
 
       // Non-AI types: no verification step → straight to the Document Number confirm step
@@ -1691,24 +1894,26 @@ export default {
       })
     },
     // Simulate OCR reading the Document Number from the re-uploaded file.
-    // Defaults to the original number (the common "corrected same document" case);
-    // the supplier edits it if the new file is actually a different document.
+    // Demos force a specific outcome; a real file defaults to what the declared
+    // intent expects (update → original number, replace → a new number).
     captureCorrDocNumber() {
       const c = this.corrUpload
       const orig = c.item.doc.docNumber || ''
-      if (c.demo === 'different') {
-        // simulate OCR reading a different invoice number off a genuinely different file
-        c.docNumber = /\d{3,}$/.test(orig)
+      const different = () => {
+        let dn = /\d{3,}$/.test(orig)
           ? orig.replace(/\d{3,}$/, String(Math.floor(1000 + Math.random() * 9000)))
           : `${orig}-ALT`
-        if (c.docNumber === orig) c.docNumber = `${orig}-ALT`
-      } else if (c.demo === 'exists') {
-        // simulate OCR reading a number that belongs to ANOTHER existing document
+        return dn === orig ? `${orig}-ALT` : dn
+      }
+      if (c.demo === 'same') c.docNumber = orig
+      else if (c.demo === 'different') c.docNumber = different()
+      else if (c.demo === 'collide') {
         const other = this.corrSiblingDocs(c.item).find(d => !this.isRetiredDoc(d))
-        c.docNumber = other ? other.docNumber : `${orig}-ALT`
-        if (!other) this.$message.info('No sibling document found — falling back to a plain different number')
+        c.docNumber = other ? other.docNumber : different()
+      } else if (c.demo === 'retired') {
+        c.docNumber = this.corrRetiredSibling ? this.corrRetiredSibling.docNumber : different()
       } else {
-        c.docNumber = orig
+        c.docNumber = c.intent === 'replace' ? different() : orig
       }
     },
     // Other documents on the same HBL/shipment as the one being corrected
@@ -1721,74 +1926,17 @@ export default {
     isRetiredDoc(d) {
       return !!d.replaced || d.ohaStatus === 'REPLACED' || d.reviewStatus === 'REPLACED'
     },
-    async finishCorrUpload() {
+    // Save for the Update / Replace intents. All number consistency issues were
+    // surfaced inline on the confirm step (Save is disabled until they clear),
+    // so this just executes the declared intent — no surprise modals.
+    finishCorrUpload() {
       const c = this.corrUpload
       const { hbl, doc, source } = c.item
-
-      // Compare the new file's Document Number against the original: same → new
-      // version; different → replacement (confirm with the supplier first).
-      const newDN = (c.docNumber || '').trim()
-      const isReplacement = !!newDN && newDN !== doc.docNumber
-      if (isReplacement) {
-        // Uniqueness guard: does the new number already belong to another document?
-        const clash = this.corrSiblingDocs(c.item).find(d => d.docNumber === newDN)
-        if (clash && this.isRetiredDoc(clash)) {
-          try {
-            await this.$confirm(
-              `Document Number ${newDN} was replaced and is retired — it cannot be reused directly. If this document is actually valid, you can request reinstatement; the reviewer will restore it and you can then upload against it.`,
-              'Document Number retired',
-              { confirmButtonText: 'Request reinstatement', cancelButtonText: 'Cancel', type: 'warning' }
-            )
-            const { value } = await this.$prompt('Explain to the reviewer why this document should be reinstated:', 'Reinstatement request', {
-              confirmButtonText: 'Send request', cancelButtonText: 'Cancel',
-              inputType: 'textarea', inputValidator: v => !!(v && v.trim()) || 'Please give a reason',
-            })
-            requestReinstate(c.item.hbl, clash, value.trim(), `${hbl.supplier} (Supplier)`)
-            this.$message.success(`Reinstatement of ${newDN} requested — the reviewer has been notified`)
-          } catch (e) { /* cancelled */ }
-          c.state = 'confirm'
-          return
-        }
-        if (clash) {
-          // Replacing DN1 with a number that exists would create a duplicate → intercept.
-          try {
-            await this.$confirm(
-              `Document Number ${newDN} already belongs to another document on this shipment (${clash.docType} · ${clash.fileName}, v${clash.version || 1}). Using it to replace ${doc.docNumber} is blocked — that would create two documents with the same number. Save this file as a new version of ${newDN} instead? (${doc.docNumber} will remain in the correction queue.)`,
-              'Number belongs to another document',
-              { confirmButtonText: `Add as new version of ${newDN}`, cancelButtonText: 'Cancel', type: 'warning' }
-            )
-          } catch (e) {
-            c.state = 'confirm'
-            return
-          }
-          // Fold into the clashing document's version chain; DN1 stays pending.
-          clash.versionHistory = [
-            { version: clash.version || 1, fileName: clash.fileName, uploadedAt: clash.uploadedAt || clash.uploadDate || '', status: clash.status || clash.aiStatus || 'VERIFIED' },
-            ...(clash.versionHistory || []),
-          ]
-          clash.fileName = c.fileName
-          clash.version = (clash.version || 1) + 1
-          if ('aiStatus' in clash) clash.aiStatus = 'VERIFIED'
-          c.foldedInto = clash.docNumber
-          c.foldedVersion = clash.version
-          c.replaced = false
-          c.state = 'done'
-          this.$message.warning(`Saved as ${clash.docNumber} v${clash.version} — ${doc.docNumber} is still pending correction`)
-          return
-        }
-        try {
-          await this.$confirm(
-            `The Document Number (${newDN}) differs from the original (${doc.docNumber}). This will be saved as a NEW document that replaces the rejected one — not as a new version of it.`,
-            'Different document number',
-            { confirmButtonText: 'Save as replacement', cancelButtonText: 'Cancel', type: 'warning' }
-          )
-        } catch (e) {
-          c.state = 'confirm'   // let the supplier fix the number or re-pick the file
-          return
-        }
-      }
+      const isReplacement = c.intent === 'replace'
+      const newDN = isReplacement ? c.docNumber.trim() : undefined
       c.replaced = isReplacement
-      const newDocNumber = isReplacement ? newDN : undefined
+      c.resolution = isReplacement ? 'replaced' : 'version'
+      const newDocNumber = newDN
 
       // Mirror the re-upload into the Upload Shipping Documents PO history (if linked)
       this.reflectReuploadToPoList(doc, c.fileName, newDocNumber, isReplacement)
@@ -1831,6 +1979,53 @@ export default {
           ? `${doc.docType} replaced by ${newDN} — ${result.remaining} document(s) still pending on ${hbl.hblNo}`
           : `${doc.docType} re-uploaded (v${doc.version}) — ${result.remaining} rejected document(s) still pending on ${hbl.hblNo}`)
       }
+    },
+
+    // Link intent: withdraw the returned document, covered by an existing one
+    confirmCorrLink() {
+      const c = this.corrUpload
+      const { hbl, doc, source } = c.item
+      const user = `${hbl.supplier} (Supplier)`
+      this.reflectWithdrawToPoList(doc, c.linkChoice, '')
+      if (source === 'OHA') {
+        const shipment = ohaShipments().find(s => s.id === hbl.shipmentId)
+        if (shipment) ohaWithdrawDoc(shipment, doc, { coveredBy: c.linkChoice, user })
+      } else {
+        const r = withdrawDocument(hbl, doc, { coveredBy: c.linkChoice, user })
+        c.resetTriggered = !!r.reset
+      }
+      c.resolution = 'withdraw_covered'
+      c.state = 'done'
+      this.$message.success(`${doc.docNumber} withdrawn — covered by ${c.linkChoice}. Nothing was uploaded.`)
+    },
+    // Delete intent: withdraw the returned document with a reason
+    confirmCorrDelete() {
+      const c = this.corrUpload
+      const { hbl, doc, source } = c.item
+      const user = `${hbl.supplier} (Supplier)`
+      const note = c.deleteReason.trim()
+      this.reflectWithdrawToPoList(doc, '', note)
+      if (source === 'OHA') {
+        const shipment = ohaShipments().find(s => s.id === hbl.shipmentId)
+        if (shipment) ohaWithdrawDoc(shipment, doc, { note, user })
+      } else {
+        const r = withdrawDocument(hbl, doc, { note, user })
+        c.resetTriggered = !!r.reset
+      }
+      c.resolution = 'withdraw_na'
+      c.state = 'done'
+      this.$message.success(`${doc.docNumber} withdrawn — the reviewer will confirm your reason.`)
+    },
+    // Mirror a withdrawal into the linked Upload Shipping Documents PO history
+    reflectWithdrawToPoList(srcDoc, coveredBy, note) {
+      const poRef = srcDoc && srcDoc.poRef
+      if (!poRef) return
+      const po = this.poList.find(p => p.orderNo === poRef)
+      const target = po && po.docs.find(d => d.docNumber === srcDoc.docNumber)
+      if (!target) return
+      this.$set(target, 'withdrawn', true)
+      this.$set(target, 'withdrawnCoveredBy', coveredBy || null)
+      this.$set(target, 'withdrawNote', note || '')
     },
 
     // Reflect a correction re-upload back into the linked Upload Shipping
@@ -2519,6 +2714,20 @@ export default {
   font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; display:inline-flex; align-items:center; gap:3px;
   &.ai-ok  { background:#e6f9ef; color:#0d9b50; }
   &.ai-bad { background:#fff8e0; color:#e6a817; }
+}
+
+// Intent cards (correction dialog step 1)
+.ci-card {
+  display:flex; align-items:flex-start; gap:10px;
+  border:1px solid #dce3ea; border-radius:8px; padding:10px 12px; margin-bottom:8px;
+  cursor:pointer; transition:all .15s;
+  &:hover { border-color:$primary; background:#f6fafd; }
+  .ci-ic { color:$primary; font-size:16px; margin-top:2px; flex-shrink:0; }
+  .ci-t { font-size:12px; font-weight:600; color:#303133; }
+  .ci-d { font-size:11px; color:#909399; margin-top:2px; line-height:1.5; }
+}
+.ci-link-row { margin:0; padding:6px 10px; border:1px solid #eef1f5; border-radius:6px;
+  ::v-deep .el-radio__label { font-size:12px; }
 }
 
 .corr-dn-field {

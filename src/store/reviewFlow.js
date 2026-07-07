@@ -301,6 +301,37 @@ export function acceptDocumentAsIs(hbl, document, user) {
   return finalizeIfDone(hbl, user)
 }
 
+// Supplier withdraws a returned document instead of re-uploading:
+//   coveredBy set  → "the correct file is already in the system" (Link intent)
+//   note set       → "this document is no longer needed" (Delete intent)
+// Zero upload, zero new version. The withdrawal is a supplier CLAIM — the
+// reviewer sees it tagged in the document list and can dispute via Discuss.
+export function withdrawDocument(hbl, document, { coveredBy, note, user }) {
+  document.reviewStatus = 'WITHDRAWN'
+  document.resolution = 'WITHDRAWN'
+  document.awaitingReviewer = false
+  Vue.set(document, 'coveredBy', coveredBy || null)
+  Vue.set(document, 'withdrawNote', note || '')
+  if (Array.isArray(document.thread)) {
+    document.thread.push({
+      by: user, role: 'supplier', system: true,
+      text: coveredBy
+        ? `Withdrawn — the correct document is already in the system: ${coveredBy}.`
+        : `Withdrawn — no longer needed. Reason: ${note}`,
+      at: nowStr().replace(' CET (UTC+1)', ''),
+    })
+  }
+  hbl.verifyHistory.unshift({
+    milestone: 'Supplier Note', status: 'Correction',
+    user, time: nowStr(), reason: '',
+    remark: coveredBy
+      ? `${document.docNumber} withdrawn — covered by existing document ${coveredBy}.`
+      : `${document.docNumber} withdrawn — not needed: ${note}`,
+    isRecheck: false,
+  })
+  return finalizeIfDone(hbl, user)
+}
+
 // Append a message to a document's discussion thread. Pure communication:
 // milestones are NOT touched, so the document stays at the same review stage.
 export function postComment(hbl, document, { text, role, user }) {
@@ -478,8 +509,8 @@ export function ohaUnverifiedDocs(shipment) {
 // Returned (REJECTED) and re-uploaded-pending (RESUBMITTED) files are NOT cleared —
 // a re-upload must be re-reviewed and approved by OHA.
 export function ohaDocCleared(d) {
-  // REPLACED documents are retired audit records — they no longer gate Confirm.
-  return d.ohaStatus === 'APPROVED' || d.ohaStatus === 'REPLACED'
+  // REPLACED / WITHDRAWN documents are retired audit records — they no longer gate Confirm.
+  return d.ohaStatus === 'APPROVED' || d.ohaStatus === 'REPLACED' || d.ohaStatus === 'WITHDRAWN'
     || (d.aiStatus === 'VERIFIED' && d.ohaStatus === 'PENDING')
 }
 export function ohaCanConfirm(shipment) {
@@ -578,6 +609,32 @@ export function ohaResubmitDoc(shipment, doc, fileName, user, newDocNumber) {
     remark: `${target.docType} re-uploaded by supplier — awaiting OHA re-review.`, isRecheck: false,
   })
   return { awaitingOhaReview: true }
+}
+
+// Supplier withdraws an OHA-returned document (Link / Delete intents) — zero
+// upload. The claim goes back to OHA tagged Withdrawn; OHA can dispute in Discuss.
+export function ohaWithdrawDoc(shipment, doc, { coveredBy, note, user }) {
+  doc.ohaStatus = 'WITHDRAWN'
+  doc.awaitingReviewer = true   // OHA should acknowledge the claim
+  Vue.set(doc, 'coveredBy', coveredBy || null)
+  Vue.set(doc, 'withdrawNote', note || '')
+  if (Array.isArray(doc.thread)) {
+    doc.thread.push({
+      by: user, role: 'supplier', system: true,
+      text: coveredBy
+        ? `Withdrawn — the correct document is already in the system: ${coveredBy}.`
+        : `Withdrawn — no longer needed. Reason: ${note}`,
+      at: nowStr().replace(' CET (UTC+1)', ''),
+    })
+  }
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Correction',
+    user, time: nowStr(), reason: '',
+    remark: coveredBy
+      ? `${doc.docNumber} withdrawn by supplier — covered by ${coveredBy}.`
+      : `${doc.docNumber} withdrawn by supplier — not needed: ${note}`,
+    isRecheck: false,
+  })
 }
 
 // OHA confirms the shipment's "Verify Shipping Documents" milestone (hands over downstream)

@@ -238,6 +238,10 @@
                           <el-tag size="mini" type="info">Replaced → {{ row.replacedBy }}</el-tag>
                           <el-tag v-if="row.reinstateRequested" size="mini" type="warning" style="margin-top:2px">Reinstate requested</el-tag>
                         </template>
+                        <el-tooltip v-else-if="row.reviewStatus==='WITHDRAWN'" placement="top"
+                          :content="row.coveredBy ? `Withdrawn by supplier — covered by ${row.coveredBy}` : `Withdrawn by supplier — ${row.withdrawNote}`">
+                          <el-tag size="mini" type="info">Withdrawn{{ row.coveredBy ? ` → ${row.coveredBy}` : '' }}</el-tag>
+                        </el-tooltip>
                         <span v-else style="color:#c0c4cc">—</span>
                       </template>
                     </el-table-column>
