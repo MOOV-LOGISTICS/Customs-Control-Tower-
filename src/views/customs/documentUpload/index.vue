@@ -621,7 +621,7 @@
           </div>
           <div class="ci-card" @click="chooseCorrIntent('noop')">
             <i class="el-icon-chat-dot-round ci-ic"></i>
-            <div><div class="ci-t">The document is correct as-is</div>
+            <div><div class="ci-t">The document is correct, no need to re-upload</div>
             <div class="ci-d">Explain to the reviewer in the discussion thread</div></div>
           </div>
         </div>
