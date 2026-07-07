@@ -546,8 +546,11 @@
         <el-table-column label="Action" width="240" align="center">
           <template #default="{row}">
             <el-button v-if="correctionDialog.role === 'oha'" type="success" size="mini" icon="el-icon-message" @click="resendSupplierEmail(row)">Re-send email</el-button>
-            <el-button v-else type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Re-upload</el-button>
-            <el-badge :is-dot="!row.doc.awaitingReviewer && (row.doc.thread || []).some(m => m.role === 'reviewer')" class="comment-badge" style="margin-left:8px">
+            <el-button v-else type="warning" size="mini" icon="el-icon-refresh-left" @click="openCorrReupload(row)">Resolve</el-button>
+            <!-- Conversation entry: OHA always; supplier only once a thread exists
+                 (starting an explanation goes through Resolve → "no need to re-upload") -->
+            <el-badge v-if="correctionDialog.role === 'oha' || (row.doc.thread || []).length"
+              :is-dot="!row.doc.awaitingReviewer && (row.doc.thread || []).some(m => m.role === 'reviewer')" class="comment-badge" style="margin-left:8px">
               <el-button size="mini" icon="el-icon-chat-dot-round" @click="openComment(row)">
                 Comment<span v-if="(row.doc.thread || []).length"> ({{ row.doc.thread.length }})</span>
               </el-button>
