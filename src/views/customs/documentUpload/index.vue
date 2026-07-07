@@ -944,25 +944,19 @@
             <template #default="{row}">
               <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
               <el-button type="primary" size="mini" icon="el-icon-view" @click="previewOhaDoc(ohaVerifyDialog.shipment, row)" />
-              <!-- Initial AI-Unverified, not yet actioned: Approve (override) or Return -->
-              <template v-if="row.aiStatus === 'UNVERIFIED' && row.ohaStatus === 'PENDING'">
-                <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Approve</el-button>
-                <el-button type="danger" size="mini" plain icon="el-icon-close" @click="openOhaReject(ohaVerifyDialog.shipment, row)">Return</el-button>
-              </template>
+              <!-- Approve / Return decisions are made via the Confirm → Verify Confirm dialog -->
               <!-- Returned, waiting on supplier (re-upload or explain): discuss / accept the explanation -->
-              <template v-else-if="row.ohaStatus === 'REJECTED'">
+              <template v-if="row.ohaStatus === 'REJECTED'">
                 <el-badge :is-dot="row.awaitingReviewer" class="oha-discuss-badge">
                   <el-button size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
                 </el-badge>
                 <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Accept</el-button>
               </template>
-              <!-- Re-uploaded, waiting on OHA re-review: approve the new file or return again -->
+              <!-- Re-uploaded, waiting on OHA re-review (decision via Verify Confirm) -->
               <template v-else-if="row.ohaStatus === 'RESUBMITTED'">
                 <el-badge :is-dot="row.awaitingReviewer" class="oha-discuss-badge">
                   <el-button size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
                 </el-badge>
-                <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Approve</el-button>
-                <el-button type="danger" size="mini" plain icon="el-icon-close" @click="openOhaReject(ohaVerifyDialog.shipment, row)">Return</el-button>
               </template>
               <!-- Replaced (retired): reviewer can reinstate it -->
               <template v-else-if="row.ohaStatus === 'REPLACED'">
@@ -993,14 +987,9 @@
 
       <div slot="footer">
         <el-button size="small" @click="ohaVerifyDialog.visible=false">Cancel</el-button>
-        <el-tooltip :disabled="ohaVerifyDialog.shipment && ohaCanConfirm(ohaVerifyDialog.shipment)"
-          content="Confirm is blocked until every AI-Unverified document is handled (Approve or Return) and every withdrawal claim is acknowledged" placement="top">
-          <span style="margin-left:10px">
-            <el-button size="small" type="primary"
-              :disabled="!ohaVerifyDialog.shipment || !ohaCanConfirm(ohaVerifyDialog.shipment)"
-              @click="confirmOhaShipment">Confirm</el-button>
-          </span>
-        </el-tooltip>
+        <el-button size="small" type="primary" style="margin-left:10px"
+          :disabled="!ohaVerifyDialog.shipment || ohaVerifyDialog.shipment.ohaStatus === 'CONFIRMED'"
+          @click="openOhaVerifyConfirm">Confirm</el-button>
       </div>
     </el-dialog>
 
@@ -1117,46 +1106,44 @@
       </div>
     </el-dialog>
 
-    <!-- OHA batch verify — Pepco-style: Complete / Not Complete + comment + tick documents -->
-    <el-dialog :visible.sync="ohaBatchDialog.visible" title="Document Verification — Verify Shipping Documents" width="520px" append-to-body custom-class="brand-dialog">
+    <!-- Verify Confirm — opened by the detail footer Confirm button.
+         Pass = shipment verification complete; Reject = tick documents to return. -->
+    <el-dialog :visible.sync="ohaBatchDialog.visible" title="Verify Confirm" width="620px" append-to-body custom-class="brand-dialog">
       <template v-if="ohaBatchDialog.shipment">
-        <div class="verify-hbl-info" style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:#004F7C">
-          <i class="el-icon-ship"></i>
-          <span>{{ ohaBatchDialog.shipment.bookingRef }}</span>
-          <span style="font-weight:400;color:#909399;font-size:12px">{{ ohaBatchDialog.shipment.supplier }}</span>
-          <el-tag size="mini" type="info">Verify Shipping Documents</el-tag>
-        </div>
-        <el-divider style="margin:12px 0" />
-        <el-radio-group v-model="ohaBatchDialog.result">
-          <el-radio-button label="COMPLETE"><i class="el-icon-check"></i> Complete</el-radio-button>
-          <el-radio-button label="NOT_COMPLETE"><i class="el-icon-close"></i> Not Complete</el-radio-button>
-        </el-radio-group>
-
-        <div v-if="ohaBatchDialog.result === 'NOT_COMPLETE'" style="margin-top:14px">
-          <el-form label-position="top" size="mini">
-            <el-form-item label="Comments *" required>
-              <el-input v-model="ohaBatchDialog.comment" type="textarea" :rows="2" placeholder="Tell the supplier what needs to be fixed (required)…" />
-            </el-form-item>
-          </el-form>
-          <div class="doc-sel-label" style="font-size:12px;font-weight:600;margin-bottom:6px">
-            Problem document(s) * <span style="font-weight:400;color:#909399">— returned to the supplier in one batch</span>
+        <div class="vc-row">
+          <div class="vc-label">Approval Result</div>
+          <div class="vc-field">
+            <el-radio-group v-model="ohaBatchDialog.result">
+              <el-radio label="PASS">Pass</el-radio>
+              <el-radio label="REJECT">Reject</el-radio>
+            </el-radio-group>
           </div>
-          <el-checkbox-group v-model="ohaBatchDialog.docSel" style="display:flex;flex-direction:column;gap:6px">
-            <el-checkbox v-for="(d, i) in ohaBatchCandidates" :key="i" :label="i" style="margin:0;padding:5px 10px;border:1px solid #eef1f5;border-radius:6px">
-              <span style="font-family:Consolas,monospace;color:#3A71A8;font-weight:600">{{ d.docNumber }}</span>
-              <span style="margin-left:6px">{{ d.docType }}</span>
-              <span style="margin-left:6px;color:#999;font-size:11px">{{ d.fileName }} (v{{ d.version || 1 }})</span>
-            </el-checkbox>
-          </el-checkbox-group>
         </div>
-        <el-alert v-else-if="!ohaCanConfirm(ohaBatchDialog.shipment)" type="warning" :closable="false" show-icon style="margin-top:14px"
-          title="Cannot complete yet — some documents are still unhandled (AI-Unverified, re-uploaded awaiting review, or pending withdrawal claims)." />
+        <div class="vc-row">
+          <div class="vc-label">Comment<span v-if="ohaBatchDialog.result === 'REJECT'" style="color:#ff4949"> *</span></div>
+          <div class="vc-field">
+            <el-input v-model="ohaBatchDialog.comment" type="textarea" :rows="3"
+              :placeholder="ohaBatchDialog.result === 'REJECT' ? 'Tell the supplier what needs to be fixed (required)…' : 'Optional note…'" />
+          </div>
+        </div>
+        <div v-if="ohaBatchDialog.result === 'REJECT'" class="vc-row">
+          <div class="vc-label">Reject document(s)<span style="color:#ff4949"> *</span></div>
+          <div class="vc-field">
+            <el-checkbox-group v-model="ohaBatchDialog.docSel" style="display:flex;flex-direction:column;gap:6px">
+              <el-checkbox v-for="(d, i) in ohaVerifyCandidates" :key="i" :label="i" style="margin:0;padding:5px 10px;border:1px solid #eef1f5;border-radius:6px">
+                <span style="font-family:Consolas,monospace;color:#3A71A8;font-weight:600">{{ d.docNumber }}</span>
+                <span style="margin-left:6px">{{ d.docType }}</span>
+                <span style="margin-left:6px;color:#999;font-size:11px">{{ d.fileName }} (v{{ d.version || 1 }})</span>
+              </el-checkbox>
+            </el-checkbox-group>
+          </div>
+        </div>
       </template>
       <div slot="footer">
         <el-button size="small" @click="ohaBatchDialog.visible=false">Cancel</el-button>
         <el-button size="small" type="primary"
-          :disabled="ohaBatchDialog.result === 'NOT_COMPLETE' ? (!ohaBatchDialog.comment.trim() || !ohaBatchDialog.docSel.length) : !ohaCanConfirm(ohaBatchDialog.shipment || {documents:[]})"
-          @click="submitOhaBatchVerify">Submit</el-button>
+          :disabled="ohaBatchDialog.result === 'REJECT' && (!ohaBatchDialog.comment.trim() || !ohaBatchDialog.docSel.length)"
+          @click="submitOhaVerifyConfirm">Submit</el-button>
       </div>
     </el-dialog>
 
@@ -1405,8 +1392,7 @@ export default {
       ohaCommentDialog: { visible: false, shipment: null, doc: null },
       ohaVerDialog: { visible: false, shipment: null, doc: null },
       ohaReinstateDialog: { visible: false, shipment: null, doc: null, mode: 'keep' },
-      ohaSelected: [],
-      ohaBatchDialog: { visible: false, shipment: null, result: 'COMPLETE', comment: '', docSel: [] },
+      ohaBatchDialog: { visible: false, shipment: null, result: 'PASS', comment: '', docSel: [] },
 
       // Rejected-document correction queue (shared with Pepco Review)
       correctionDialog: { visible: false, role: 'supplier' },
@@ -1536,14 +1522,12 @@ export default {
       if (!c.item) return null
       return this.corrSiblingDocs(c.item).find(d => this.isRetiredDoc(d)) || null
     },
-    // Documents the OHA may return in a batch verify: initial AI-Unverified
-    // still pending, or re-uploaded files awaiting re-review. (AI-passed
-    // initial uploads cannot be returned — decided rule.)
-    ohaBatchCandidates() {
+    // All supplier-uploaded documents selectable for rejection in Verify Confirm
+    // (retired audit records — replaced/withdrawn — are excluded)
+    ohaVerifyCandidates() {
       const s = this.ohaBatchDialog.shipment
       if (!s) return []
-      return s.documents.filter(d =>
-        (d.aiStatus === 'UNVERIFIED' && d.ohaStatus === 'PENDING') || d.ohaStatus === 'RESUBMITTED')
+      return s.documents.filter(d => d.ohaStatus !== 'REPLACED' && d.ohaStatus !== 'WITHDRAWN')
     },
     saveBlockReason() {
       if (!this.hasSessionUploads) return 'Nothing to save yet — upload at least one document'
@@ -1768,25 +1752,40 @@ export default {
         type: 'success', duration: 6000,
       })
     },
-    // ── Batch verify (Pepco-style, no reason code — comment only) ─────────
-    openOhaBatchVerify() {
-      const shipment = this.ohaSelected[0]
+    // ── Verify Confirm (opened by the detail footer Confirm button) ───────
+    openOhaVerifyConfirm() {
+      const shipment = this.ohaVerifyDialog.shipment
       if (!shipment) return
-      this.ohaBatchDialog = { visible: true, shipment, result: 'COMPLETE', comment: '', docSel: [] }
+      this.ohaBatchDialog = { visible: true, shipment, result: 'PASS', comment: '', docSel: [] }
     },
-    submitOhaBatchVerify() {
+    submitOhaVerifyConfirm() {
       const { shipment, result, comment } = this.ohaBatchDialog
-      if (result === 'COMPLETE') {
-        const r = ohaConfirmShipment(shipment, 'OHA Origin Desk')
-        if (!r.ok) { this.$message.error('Cannot complete — some documents are still unhandled'); return }
+      const user = 'OHA Origin Desk'
+      if (result === 'PASS') {
+        // Passing IS the approval: clear everything still outstanding, then confirm.
+        shipment.documents.forEach(d => {
+          if ((d.aiStatus === 'UNVERIFIED' && d.ohaStatus === 'PENDING') || d.ohaStatus === 'RESUBMITTED') {
+            ohaApproveDoc(shipment, d, user)
+          } else if (d.ohaStatus === 'WITHDRAWN' && !d.withdrawAcked) {
+            ohaAckWithdraw(shipment, d, user)
+          }
+        })
+        if (comment.trim()) {
+          shipment.verifyHistory.unshift({
+            milestone: 'Verify Shipping Documents', status: 'Reviewer Note',
+            user, time: new Date().toLocaleString(), reason: '', remark: comment.trim(), isRecheck: false,
+          })
+        }
+        ohaConfirmShipment(shipment, user)
         this.ohaBatchDialog.visible = false
+        this.ohaVerifyDialog.visible = false
         this.$message.success(`${shipment.bookingRef} — Verify Shipping Documents completed, handed over to downstream`)
         return
       }
-      const docs = this.ohaBatchDialog.docSel.map(i => this.ohaBatchCandidates[i])
-      docs.forEach(d => ohaRejectDoc(shipment, d, { reason: 'Returned by OHA Verify', remark: comment.trim(), user: 'OHA Origin Desk' }))
+      // REJECT: return the ticked documents as one batch, one summary notification
+      const docs = this.ohaBatchDialog.docSel.map(i => this.ohaVerifyCandidates[i])
+      docs.forEach(d => ohaRejectDoc(shipment, d, { reason: 'Returned by OHA Verify', remark: comment.trim(), user }))
       this.ohaBatchDialog.visible = false
-      // One correction round, one summary notification to the supplier
       this.$notify({
         title: `${docs.length} document(s) returned to supplier`,
         dangerouslyUseHTMLString: true,
@@ -1798,14 +1797,6 @@ export default {
         </div>`,
         type: 'warning', duration: 6000,
       })
-    },
-
-    confirmOhaShipment() {
-      const s = this.ohaVerifyDialog.shipment
-      const r = ohaConfirmShipment(s, 'OHA Origin Desk')
-      if (!r.ok) { this.$message.error('Cannot confirm — some documents are still AI-Unverified'); return }
-      this.ohaVerifyDialog.visible = false
-      this.$message.success(`${s.bookingRef} — Verify Shipping Documents completed, handed over to downstream review`)
     },
 
     // ── Document Correction (rejected docs re-upload) ────────────────────
@@ -2841,6 +2832,19 @@ export default {
   font-size:11px; font-weight:600; padding:2px 8px; border-radius:10px; display:inline-flex; align-items:center; gap:3px;
   &.ai-ok  { background:#e6f9ef; color:#0d9b50; }
   &.ai-bad { background:#fff8e0; color:#e6a817; }
+}
+
+// Verify Confirm dialog — system-style label/field rows
+.vc-row {
+  display:flex; border:1px solid #ebeef5; border-bottom:none;
+  &:last-of-type { border-bottom:1px solid #ebeef5; }
+  .vc-label {
+    width:150px; flex-shrink:0; background:#fafafa; padding:12px 14px;
+    font-size:13px; color:#606266; display:flex; align-items:flex-start;
+  }
+  .vc-field { flex:1; padding:10px 14px;
+    ::v-deep .el-textarea__inner { border:none; padding:0; }
+  }
 }
 
 // Intent cards (correction dialog step 1)
