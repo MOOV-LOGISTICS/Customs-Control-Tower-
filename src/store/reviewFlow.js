@@ -62,7 +62,18 @@ export const reviewStore = Vue.observable({
       ms('IN_PROGRESS'),
       ms('LOCKED', null, null, false, 'Waiting for Finance Check'),
       [
-        doc('Commercial Invoice', 'INV-240002.pdf', 1, 'PO-2401-2001', '2024-11-10 11:02', 'OK', null, [], 'INV-2401-2210'),
+        // Seeded reinstatement demo: INV-2401-2209 was replaced by INV-2401-2210
+        // and the supplier has requested reinstatement (pending reviewer decision).
+        Object.assign(doc('Commercial Invoice', 'INV-240002-old.pdf', 1, 'PO-2401-2001', '2024-11-08 15:40', 'REPLACED', null, [], 'INV-2401-2209'), {
+          replacedBy: 'INV-2401-2210', reinstateRequested: true,
+          thread: [{ by: 'Dhaka Garments Ltd. (Supplier)', role: 'supplier',
+            text: '[Reinstatement request] INV-2401-2209 covers the first partial delivery and is still valid — it was replaced by mistake. Please restore it.',
+            at: '2024-11-18 10:05' }],
+          awaitingReviewer: true,
+        }),
+        Object.assign(doc('Commercial Invoice', 'INV-240002.pdf', 1, 'PO-2401-2001', '2024-11-10 11:02', 'OK', null, [], 'INV-2401-2210'), {
+          replacesDocNumber: 'INV-2401-2209',
+        }),
         doc('Packing List',       'PL-240002.pdf',  1, 'PO-2401-2001', '2024-11-10 11:05', 'OK', null, [], 'PLR-2401-2210'),
         doc('Bill of Lading',     'HBL-240002.pdf', 1, 'PO-2401-2001', '2024-11-11 09:40', 'OK', null, [], 'MAEU240002'),
       ],
@@ -421,7 +432,18 @@ export const ohaStore = Vue.observable({
         ohaDoc('INV-880910', 'NGB26041788037', 'Commercial Invoice', 'INV-880910-v2.pdf', 'VERIFIED', 2, '2026-05-22', [
           { version: 1, fileName: 'INV-880910.pdf', uploadedAt: '2026-05-20', status: 'VERIFIED' },
         ]),
-        ohaDoc('PL-880910', 'NGB26041788037', 'Packing List', 'PL-880910.pdf', 'VERIFIED'),
+        // Seeded reinstatement demo: PL-880900 was replaced by PL-880910 and the
+        // supplier has requested reinstatement (pending the OHA's decision).
+        Object.assign(ohaDoc('PL-880900', 'NGB26041788037', 'Packing List', 'PL-880900.pdf', 'VERIFIED', 1, '2026-05-19'), {
+          ohaStatus: 'REPLACED', replacedBy: 'PL-880910', reinstateRequested: true,
+          thread: [{ by: 'NINGBO GENERAL UNION CO.,LTD (Supplier)', role: 'supplier',
+            text: '[Reinstatement request] PL-880900 is a valid packing list for the first partial shipment — the replacement was made by mistake. Please restore it.',
+            at: '2026-06-19 09:12' }],
+          awaitingReviewer: true,
+        }),
+        Object.assign(ohaDoc('PL-880910', 'NGB26041788037', 'Packing List', 'PL-880910.pdf', 'VERIFIED'), {
+          replacesDocNumber: 'PL-880900',
+        }),
         ohaDoc('HBL-880910', 'NGB26041788037', 'Bill of Lading', 'HBL-880910.pdf', 'VERIFIED'),
       ],
     },
@@ -456,7 +478,9 @@ export function ohaUnverifiedDocs(shipment) {
 // Returned (REJECTED) and re-uploaded-pending (RESUBMITTED) files are NOT cleared —
 // a re-upload must be re-reviewed and approved by OHA.
 export function ohaDocCleared(d) {
-  return d.ohaStatus === 'APPROVED' || (d.aiStatus === 'VERIFIED' && d.ohaStatus === 'PENDING')
+  // REPLACED documents are retired audit records — they no longer gate Confirm.
+  return d.ohaStatus === 'APPROVED' || d.ohaStatus === 'REPLACED'
+    || (d.aiStatus === 'VERIFIED' && d.ohaStatus === 'PENDING')
 }
 export function ohaCanConfirm(shipment) {
   return shipment.ohaStatus !== 'CONFIRMED' && shipment.documents.every(ohaDocCleared)
@@ -565,4 +589,101 @@ export function ohaConfirmShipment(shipment, user) {
     user, time: nowStr(), reason: '', remark: 'All documents AI-verified — shipment handed over to downstream review.', isRecheck: false,
   })
   return { ok: true }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Reinstatement — a retired (Replaced) Document Number can come back to life,
+// but only through an explicit, audited flow:
+//   V1  — the supplier REQUESTS reinstatement (comment thread, ball → reviewer)
+//   V1.5 — the reviewer REINSTATES, choosing what happens to the replacing doc:
+//     mode 'keep'    → both documents stay active; the replace link is removed
+//                      (the original replacement was really two separate docs)
+//     mode 'reverse' → the replacing document is retired instead
+//                      (the replacement went the wrong way)
+// The invariant "one Document Number = at most one active document" holds at all
+// times: reinstating never creates a duplicate number.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Supplier asks the reviewer to bring a retired document back (V1).
+export function requestReinstate(hbl, doc, reason, user) {
+  Vue.set(doc, 'reinstateRequested', true)
+  if (Array.isArray(doc.thread)) {
+    doc.thread.push({
+      by: user, role: 'supplier',
+      text: `[Reinstatement request] ${reason}`,
+      at: nowStr().replace(' CET (UTC+1)', ''),
+    })
+    doc.awaitingReviewer = true
+  }
+  if (hbl && Array.isArray(hbl.verifyHistory)) {
+    hbl.verifyHistory.unshift({
+      milestone: 'Discussion', status: 'Supplier Note',
+      user, time: nowStr(), reason: '',
+      remark: `Reinstatement requested for ${doc.docNumber}: ${reason}`, isRecheck: false,
+    })
+  }
+}
+
+// Reviewer reinstates a replaced document in the Pepco review store (V1.5).
+export function reinstateDocument(hbl, doc, mode, user) {
+  const replacement = hbl.documents.find(d => d.docNumber === doc.replacedBy)
+  doc.reviewStatus = 'OK'
+  Vue.set(doc, 'replacedBy', null)
+  Vue.set(doc, 'reinstateRequested', false)
+  if (Array.isArray(doc.thread)) {
+    doc.thread.push({
+      by: user, role: 'reviewer', system: true,
+      text: mode === 'reverse'
+        ? `Reinstated — the replacement was reversed; ${replacement ? replacement.docNumber : 'the replacing document'} is now retired.`
+        : 'Reinstated — both documents remain active as separate documents.',
+      at: nowStr().replace(' CET (UTC+1)', ''),
+    })
+  }
+  if (replacement) {
+    if (mode === 'reverse') {
+      replacement.reviewStatus = 'REPLACED'
+      Vue.set(replacement, 'replacedBy', doc.docNumber)
+      Vue.set(replacement, 'replacesDocNumber', null)
+    } else {
+      Vue.set(replacement, 'replacesDocNumber', null)
+    }
+  }
+  hbl.verifyHistory.unshift({
+    milestone: 'Discussion', status: 'Reviewer Note',
+    user, time: nowStr(), reason: '',
+    remark: `${doc.docNumber} reinstated (${mode === 'reverse' ? 'replacement reversed' : 'both documents kept'}).`,
+    isRecheck: false,
+  })
+}
+
+// Reviewer reinstates a replaced document in the OHA store (V1.5).
+export function ohaReinstateDoc(shipment, doc, mode, user) {
+  const replacement = shipment.documents.find(d => d.docNumber === doc.replacedBy)
+  doc.ohaStatus = 'APPROVED'    // the reviewer vouches for it — cleared
+  Vue.set(doc, 'replacedBy', null)
+  Vue.set(doc, 'reinstateRequested', false)
+  if (Array.isArray(doc.thread)) {
+    doc.thread.push({
+      by: user, role: 'reviewer', system: true,
+      text: mode === 'reverse'
+        ? `Reinstated — the replacement was reversed; ${replacement ? replacement.docNumber : 'the replacing document'} is now retired.`
+        : 'Reinstated — both documents remain active as separate documents.',
+      at: nowStr().replace(' CET (UTC+1)', ''),
+    })
+  }
+  if (replacement) {
+    if (mode === 'reverse') {
+      replacement.ohaStatus = 'REPLACED'
+      Vue.set(replacement, 'replacedBy', doc.docNumber)
+      Vue.set(replacement, 'replacesDocNumber', null)
+    } else {
+      Vue.set(replacement, 'replacesDocNumber', null)
+    }
+  }
+  shipment.verifyHistory.unshift({
+    milestone: 'Verify Shipping Documents', status: 'Reviewer Note',
+    user, time: nowStr(), reason: '',
+    remark: `${doc.docNumber} reinstated (${mode === 'reverse' ? 'replacement reversed' : 'both documents kept'}).`,
+    isRecheck: false,
+  })
 }

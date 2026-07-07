@@ -122,6 +122,7 @@
             <template v-if="row.replaced">
               <el-tag size="mini" type="info">Replaced</el-tag>
               <div style="font-size:10px;color:#909399;margin-top:2px">replaced by {{ row.replacedBy }}</div>
+              <el-tag v-if="row.reinstateRequested" size="mini" type="warning" style="margin-top:2px">Reinstate requested</el-tag>
             </template>
             <el-tag v-else size="mini" type="success">Active</el-tag>
           </template>
@@ -773,6 +774,10 @@
               <el-tag v-if="row.ohaStatus==='APPROVED'" size="mini" type="success" style="margin-left:4px">OHA approved</el-tag>
               <el-tag v-else-if="row.ohaStatus==='RESUBMITTED'" size="mini" type="warning" style="margin-left:4px">re-uploaded · review</el-tag>
               <el-tag v-else-if="row.ohaStatus==='REJECTED'" size="mini" type="danger" style="margin-left:4px">returned</el-tag>
+              <template v-else-if="row.ohaStatus==='REPLACED'">
+                <el-tag size="mini" type="info" style="margin-left:4px">Replaced → {{ row.replacedBy }}</el-tag>
+                <el-tag v-if="row.reinstateRequested" size="mini" type="warning" style="margin-left:4px">Reinstate requested</el-tag>
+              </template>
             </template>
           </el-table-column>
           <el-table-column label="SO Ref" prop="soRef" min-width="150" />
@@ -816,6 +821,13 @@
                 </el-badge>
                 <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Approve</el-button>
                 <el-button type="danger" size="mini" plain icon="el-icon-close" @click="openOhaReject(ohaVerifyDialog.shipment, row)">Return</el-button>
+              </template>
+              <!-- Replaced (retired): reviewer can reinstate it -->
+              <template v-else-if="row.ohaStatus === 'REPLACED'">
+                <el-badge :is-dot="!!row.reinstateRequested" class="oha-discuss-badge">
+                  <el-button v-if="(row.thread || []).length" size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
+                </el-badge>
+                <el-button type="warning" size="mini" plain icon="el-icon-refresh-left" @click="openOhaReinstate(ohaVerifyDialog.shipment, row)">Reinstate</el-button>
               </template>
               <!-- Approved with a conversation: view history -->
               <el-button v-else-if="(row.thread || []).length" size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
@@ -915,6 +927,38 @@
       </template>
       <div slot="footer">
         <el-button size="small" @click="ohaVerDialog.visible=false">Close</el-button>
+      </div>
+    </el-dialog>
+
+    <!-- OHA reinstate dialog: restore a replaced document (V1.5) -->
+    <el-dialog
+      :visible.sync="ohaReinstateDialog.visible"
+      :title="ohaReinstateDialog.doc ? `Reinstate — ${ohaReinstateDialog.doc.docNumber}` : 'Reinstate'"
+      width="520px" append-to-body custom-class="brand-dialog"
+    >
+      <template v-if="ohaReinstateDialog.doc">
+        <div style="font-size:12px;color:#666;margin-bottom:10px;line-height:1.7">
+          <strong style="color:#004F7C">{{ ohaReinstateDialog.doc.docNumber }}</strong>
+          ({{ ohaReinstateDialog.doc.docType }} · {{ ohaReinstateDialog.doc.fileName }})
+          was replaced by <strong>{{ ohaReinstateDialog.doc.replacedBy }}</strong>.
+          Reinstating restores it as an active document. Choose what happens to the replacing document:
+        </div>
+        <div v-if="ohaReinstateDialog.doc.reinstateRequested" class="corr-reject-banner" style="margin-bottom:10px">
+          <i class="el-icon-chat-dot-round"></i>
+          <div style="font-size:11px">The supplier has requested this reinstatement — see the Discuss thread for their reason.</div>
+        </div>
+        <el-radio-group v-model="ohaReinstateDialog.mode" style="display:flex;flex-direction:column;gap:10px">
+          <el-radio label="keep">
+            <strong>Keep both</strong> — the replacement was a mistake; they are two separate valid documents
+          </el-radio>
+          <el-radio label="reverse">
+            <strong>Reverse the replacement</strong> — retire {{ ohaReinstateDialog.doc.replacedBy }} instead
+          </el-radio>
+        </el-radio-group>
+      </template>
+      <div slot="footer">
+        <el-button size="small" @click="ohaReinstateDialog.visible=false">Cancel</el-button>
+        <el-button size="small" type="primary" @click="submitOhaReinstate">Reinstate</el-button>
       </div>
     </el-dialog>
 
@@ -1043,6 +1087,7 @@ import {
   rejectedDocs, resubmittedCount, resubmitDocument,
   ohaShipments, ohaUnverifiedDocs, ohaCanConfirm, ohaRejectedDocs,
   ohaRejectDoc, ohaApproveDoc, ohaResubmitDoc, ohaConfirmShipment,
+  requestReinstate, ohaReinstateDoc,
 } from '@/store/reviewFlow'
 import CommentThread from '@/components/CommentThread.vue'
 
@@ -1160,6 +1205,7 @@ export default {
       ohaRejectDialog: { visible: false, shipment: null, doc: null, reason: '', remark: '' },
       ohaCommentDialog: { visible: false, shipment: null, doc: null },
       ohaVerDialog: { visible: false, shipment: null, doc: null },
+      ohaReinstateDialog: { visible: false, shipment: null, doc: null, mode: 'keep' },
 
       // Rejected-document correction queue (shared with Pepco Review)
       correctionDialog: { visible: false, role: 'supplier' },
@@ -1411,6 +1457,24 @@ export default {
     openOhaComment(shipment, doc) {
       this.ohaCommentDialog = { visible: true, shipment, doc }
     },
+    openOhaReinstate(shipment, doc) {
+      this.ohaReinstateDialog = { visible: true, shipment, doc, mode: 'keep' }
+    },
+    submitOhaReinstate() {
+      const { shipment, doc, mode } = this.ohaReinstateDialog
+      ohaReinstateDoc(shipment, doc, mode, 'OHA Origin Desk')
+      this.ohaReinstateDialog.visible = false
+      this.$notify({
+        title: 'Document reinstated',
+        dangerouslyUseHTMLString: true,
+        message: `<div style="font-size:12px;line-height:1.7">
+          <div><b>${doc.docNumber}</b> is active again.</div>
+          <div style="color:#999">${mode === 'reverse' ? 'The replacing document was retired instead.' : 'Both documents remain active as separate documents.'}</div>
+          <div style="color:#13ce66">✉ Supplier notified — they can now upload new versions against it.</div>
+        </div>`,
+        type: 'success', duration: 6000,
+      })
+    },
     confirmOhaShipment() {
       const s = this.ohaVerifyDialog.shipment
       const r = ohaConfirmShipment(s, 'OHA Origin Desk')
@@ -1637,11 +1701,19 @@ export default {
         // Uniqueness guard: does the new number already belong to another document?
         const clash = this.corrSiblingDocs(c.item).find(d => d.docNumber === newDN)
         if (clash && this.isRetiredDoc(clash)) {
-          await this.$alert(
-            `Document Number ${newDN} was replaced and is retired — a retired number cannot be reused. Please check the file or correct the number.`,
-            'Document Number retired',
-            { type: 'error', confirmButtonText: 'OK' }
-          ).catch(() => {})
+          try {
+            await this.$confirm(
+              `Document Number ${newDN} was replaced and is retired — it cannot be reused directly. If this document is actually valid, you can request reinstatement; the reviewer will restore it and you can then upload against it.`,
+              'Document Number retired',
+              { confirmButtonText: 'Request reinstatement', cancelButtonText: 'Cancel', type: 'warning' }
+            )
+            const { value } = await this.$prompt('Explain to the reviewer why this document should be reinstated:', 'Reinstatement request', {
+              confirmButtonText: 'Send request', cancelButtonText: 'Cancel',
+              inputType: 'textarea', inputValidator: v => !!(v && v.trim()) || 'Please give a reason',
+            })
+            requestReinstate(c.item.hbl, clash, value.trim(), `${hbl.supplier} (Supplier)`)
+            this.$message.success(`Reinstatement of ${newDN} requested — the reviewer has been notified`)
+          } catch (e) { /* cancelled */ }
           c.state = 'confirm'
           return
         }
@@ -2076,18 +2148,35 @@ export default {
           slot.state = 'idle'; slot.docNumber = ''; slot.docNumberSource = ''
         })
       } else if (scenario === 'dn_exists_replaced') {
-        // OCR reads a Document Number that was replaced and retired → hard reject.
+        // OCR reads a Document Number that was replaced and retired.
+        // Not directly reusable — but the supplier can request reinstatement (V1).
         const target = (this.currentPo.docs || []).find(d => d.replaced)
         if (!target) {
           slot.state = 'idle'
           this.$message.info('Demo needs a PO with a replaced document — try ORD01694382_01')
           return
         }
-        this.$alert(
-          `OCR read Document Number ${target.docNumber}, but that number was replaced by ${target.replacedBy} and is retired. A retired number cannot be reused — please check that you picked the right file.`,
+        slot.state = 'idle'
+        this.$confirm(
+          `OCR read Document Number ${target.docNumber}, but that number was replaced by ${target.replacedBy} and is retired. It cannot be reused directly. If you believe this document is actually valid (the replacement was a mistake, or it was re-issued under the same number), you can request reinstatement — the reviewer will restore it, and you can then upload this file as its new version.`,
           'Document Number retired',
-          { type: 'error', confirmButtonText: 'OK' }
-        ).finally(() => { slot.state = 'idle' })
+          { confirmButtonText: 'Request reinstatement', cancelButtonText: 'Cancel', type: 'warning' }
+        ).then(() => this.$prompt('Explain to the reviewer why this document should be reinstated:', 'Reinstatement request', {
+          confirmButtonText: 'Send request', cancelButtonText: 'Cancel',
+          inputType: 'textarea', inputValidator: v => !!(v && v.trim()) || 'Please give a reason',
+        })).then(({ value }) => {
+          this.$set(target, 'reinstateRequested', true)
+          this.$notify({
+            title: 'Reinstatement requested',
+            dangerouslyUseHTMLString: true,
+            message: `<div style="font-size:12px;line-height:1.7">
+              <div><b>${target.docNumber}</b> — request sent to the reviewer.</div>
+              <div style="color:#999">${value.trim()}</div>
+              <div style="color:#e6a817">⏳ You can upload this file once the document is reinstated.</div>
+            </div>`,
+            type: 'success', duration: 6000,
+          })
+        }).catch(() => {})
       }
     },
 
