@@ -839,17 +839,7 @@
       :title="`Verify Shipping Documents ${ohaListDialog.statusLabel}`"
       width="1000px" top="6vh" custom-class="brand-dialog"
     >
-      <div style="margin-bottom:10px;text-align:right">
-        <el-tooltip :disabled="ohaSelected.length === 1" content="Select exactly one shipment to verify" placement="top">
-          <span>
-            <el-button type="primary" size="mini" icon="el-icon-finished"
-              :disabled="ohaSelected.length !== 1" @click="openOhaBatchVerify">Verify Documents ({{ ohaSelected.length }})</el-button>
-          </span>
-        </el-tooltip>
-      </div>
-      <el-table :data="ohaFilteredShipments()" size="mini" stripe border :header-cell-style="{background:'#fafafa'}"
-        @selection-change="s => ohaSelected = s">
-        <el-table-column type="selection" width="42" :selectable="row => row.ohaStatus !== 'CONFIRMED'" />
+      <el-table :data="ohaFilteredShipments()" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
         <el-table-column label="Task Name" min-width="170"><template>Verify Shipping Documents</template></el-table-column>
         <el-table-column label="Order Number" width="160">
           <template #default="{row}"><span class="po-link">{{ row.orderNo }}</span></template>
@@ -857,12 +847,6 @@
         <el-table-column label="Supplier Name" min-width="200" prop="supplier" />
         <el-table-column label="Urgent Date" width="110" prop="urgentDate" />
         <el-table-column label="Due date" width="110" prop="dueDate" sortable />
-        <el-table-column label="Document Verified Status" width="150" align="center">
-          <template #default="{row}">
-            <el-tag v-if="ohaUnverified(row).length" size="mini" type="warning">{{ ohaUnverified(row).length }} unverified</el-tag>
-            <el-tag v-else size="mini" type="success">All verified</el-tag>
-          </template>
-        </el-table-column>
         <el-table-column label="Actions" width="80" align="center">
           <template #default="{row}">
             <el-button type="text" size="mini" icon="el-icon-edit" @click="openOhaVerify(row)" />
