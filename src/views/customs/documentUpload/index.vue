@@ -944,15 +944,8 @@
               <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
               <el-button type="primary" size="mini" icon="el-icon-view" @click="previewOhaDoc(ohaVerifyDialog.shipment, row)" />
               <!-- Approve / Return decisions are made via the Confirm → Verify Confirm dialog -->
-              <!-- Returned, waiting on supplier (re-upload or explain): discuss / accept the explanation -->
-              <template v-if="row.ohaStatus === 'REJECTED'">
-                <el-badge :is-dot="row.awaitingReviewer" class="oha-discuss-badge">
-                  <el-button size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
-                </el-badge>
-                <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Accept</el-button>
-              </template>
               <!-- Re-uploaded, waiting on OHA re-review (decision via Verify Confirm) -->
-              <template v-else-if="row.ohaStatus === 'RESUBMITTED'">
+              <template v-if="row.ohaStatus === 'RESUBMITTED'">
                 <el-badge :is-dot="row.awaitingReviewer" class="oha-discuss-badge">
                   <el-button size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
                 </el-badge>
