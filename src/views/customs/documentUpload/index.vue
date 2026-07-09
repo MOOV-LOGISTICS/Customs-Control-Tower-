@@ -144,6 +144,10 @@
             </el-tooltip>
             <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
             <el-button type="primary" size="mini" icon="el-icon-view" @click="previewPoDoc(row)" />
+            <!-- Discussion history — only for documents that have a thread with a reviewer -->
+            <el-tooltip v-if="poDocThread(row)" content="View discussion with the reviewer" placement="top">
+              <el-button size="mini" icon="el-icon-chat-dot-round" @click="openPoDocThread(row)" />
+            </el-tooltip>
             <el-tooltip :content="deleteLockReason(row)" :disabled="!docActionLocked(row)" placement="top">
               <span>
                 <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="docActionLocked(row)" @click="deletePoDoc(row)" />
@@ -1266,6 +1270,7 @@
 
 <script>
 import {
+  reviewStore, ohaStore,
   rejectedDocs, resubmittedCount, resubmitDocument, withdrawDocument,
   ohaShipments, ohaUnverifiedDocs, ohaCanConfirm, ohaRejectedDocs,
   ohaRejectDoc, ohaApproveDoc, ohaResubmitDoc, ohaConfirmShipment, ohaWithdrawDoc,
@@ -2152,6 +2157,35 @@ export default {
           docTypeLabel: srcDoc.docType, blType: '', fileName, uploadDate: today,
           version: 1, status: 'VERIFIED',
         })
+      }
+    },
+
+    // Find the review-flow document (Pepco HBL or OHA shipment) linked to a PO
+    // history row via poRef, if it carries a discussion thread. This keeps the
+    // conversation reachable after the item leaves the correction queue.
+    poDocThread(row) {
+      const po = this.currentPo
+      if (!po) return null
+      for (const h of reviewStore.hbls) {
+        const d = h.documents.find(d => d.poRef === po.orderNo && (d.thread || []).length
+          && (d.docNumber === row.docNumber || d.docType === row.docTypeLabel))
+        if (d) return { hbl: h, doc: d, user: `${h.supplier} (Supplier)` }
+      }
+      for (const s of ohaStore.shipments) {
+        const d = s.documents.find(d => d.poRef === po.orderNo && (d.thread || []).length
+          && (d.docNumber === row.docNumber || d.docType === row.docTypeLabel))
+        if (d) return { hbl: { hblNo: s.bookingRef, supplier: s.supplier, shipmentId: s.id }, doc: d, user: `${s.supplier} (Supplier)` }
+      }
+      return null
+    },
+    openPoDocThread(row) {
+      const found = this.poDocThread(row)
+      if (!found) return
+      this.commentDialog = {
+        visible: true,
+        item: { hbl: found.hbl, doc: found.doc },
+        role: 'supplier',
+        user: found.user,
       }
     },
 
