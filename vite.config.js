@@ -4,6 +4,9 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [vue()],
+  server: {
+    port: process.env.PORT ? Number(process.env.PORT) : 3000
+  },
   resolve: {
     alias: { '@': resolve(__dirname, 'src') }
   },

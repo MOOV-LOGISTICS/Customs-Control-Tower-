@@ -86,6 +86,12 @@
     >
       <div v-if="currentPo" style="margin-bottom:10px;display:flex;align-items:center;gap:12px">
         <el-button type="primary" size="mini" icon="el-icon-upload2" @click="openUploadDialog">Upload</el-button>
+        <!-- PO-level discussion entry: greyed until a conversation exists on this PO -->
+        <el-tooltip :content="poThreads.length ? 'View the discussion with the reviewer on this PO' : 'No discussion on this PO yet'" placement="top">
+          <span>
+            <el-button size="mini" icon="el-icon-chat-dot-round" :disabled="!poThreads.length" @click="openPoDiscuss">Discuss</el-button>
+          </span>
+        </el-tooltip>
         <el-tag size="mini" type="danger" style="margin-left:6px;vertical-align:middle">New</el-tag>
         <span style="font-size:12px;color:#666">
           PO <strong style="color:#004F7C">{{ currentPo.orderNo }}</strong> · {{ currentPo.supplier }} · SO Ref {{ currentPo.soRef }}
@@ -93,7 +99,7 @@
       </div>
       <el-table v-if="currentPo" :data="currentPo.docs" size="mini" stripe border :header-cell-style="{background:'#fafafa'}"
         :default-sort="{ prop: 'uploadDate', order: 'ascending' }"
-        :row-class-name="({row}) => row.replaced ? 'po-doc-replaced' : ''">
+        :row-class-name="({row}) => (row.deleted || row.replaced) ? 'po-doc-inactive' : ''">
         <el-table-column label="Document Number" width="130" prop="docNumber" align="center" />
         <el-table-column label="PO Number" width="140" prop="poNumber" align="center" />
         <el-table-column label="SO Ref" width="140" prop="soRef" align="center" />
@@ -117,13 +123,9 @@
         </el-table-column>
         <el-table-column label="File Name" min-width="160" prop="fileName" />
         <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" sortable />
-        <el-table-column label="Document Status" width="170" align="center">
+        <el-table-column label="Document Status" width="120" align="center">
           <template #default="{row}">
-            <template v-if="row.replaced">
-              <el-tag size="mini" type="info">Replaced</el-tag>
-              <div style="font-size:10px;color:#909399;margin-top:2px">replaced by {{ row.replacedBy }}</div>
-              <el-tag v-if="row.reinstateRequested" size="mini" type="warning" style="margin-top:2px">Reinstate requested</el-tag>
-            </template>
+            <el-tag v-if="row.deleted" size="mini" type="info">Deleted</el-tag>
             <template v-else-if="row.withdrawn">
               <el-tag size="mini" type="info">Withdrawn</el-tag>
               <div style="font-size:10px;color:#909399;margin-top:2px">
@@ -131,6 +133,12 @@
               </div>
             </template>
             <el-tag v-else size="mini" type="success">Active</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="Comment" min-width="150">
+          <template #default="{row}">
+            <span v-if="row.deleteReason" style="font-size:12px;color:#909399">{{ row.deleteReason }}</span>
+            <span v-else style="color:#c0c4cc">/</span>
           </template>
         </el-table-column>
         <el-table-column label="Action" width="220" align="center">
@@ -145,15 +153,6 @@
             <el-tooltip :content="deleteLockReason(row)" :disabled="!docActionLocked(row)" placement="top">
               <span>
                 <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="docActionLocked(row)" @click="deletePoDoc(row)" />
-              </span>
-            </el-tooltip>
-            <!-- Proactive reinstatement request — only on replaced (retired) documents -->
-            <el-tooltip v-if="row.replaced"
-              :content="row.reinstateRequested ? 'Reinstatement already requested — waiting for the reviewer' : 'This document was replaced. If you believe it is still valid, ask the reviewer to reinstate it.'"
-              placement="top">
-              <span>
-                <el-button type="warning" size="mini" plain icon="el-icon-refresh-right"
-                  :disabled="!!row.reinstateRequested" @click="requestPoReinstate(row)" />
               </span>
             </el-tooltip>
           </template>
@@ -897,9 +896,19 @@
         </el-table>
 
         <!-- Documents — the OHA verification area -->
-        <div class="oha-sec-title">
-          Documents
-          <span class="oha-sec-hint">AI tags each file; OHA only needs to act on AI-Unverified files</span>
+        <div class="oha-sec-title oha-sec-title--row">
+          <span>
+            Documents
+            <span class="oha-sec-hint">AI tags each file; OHA only needs to act on AI-Unverified files</span>
+          </span>
+          <!-- Shipment-level discussion entry: greyed until a conversation exists -->
+          <el-tooltip :content="ohaShipmentThreads.length ? 'View the discussion with the supplier on this shipment' : 'No discussion on this shipment yet'" placement="top">
+            <span style="margin-left:auto">
+              <el-badge :is-dot="ohaShipmentThreads.some(d => d.awaitingReviewer)" class="oha-discuss-badge">
+                <el-button size="mini" icon="el-icon-chat-dot-round" :disabled="!ohaShipmentThreads.length" @click="openOhaShipmentDiscuss">Discuss</el-button>
+              </el-badge>
+            </span>
+          </el-tooltip>
         </div>
         <el-table :data="ohaVerifyDialog.shipment.documents" size="mini" border :header-cell-style="{background:'#fafafa'}">
           <el-table-column label="Document Number" min-width="150">
@@ -945,15 +954,8 @@
               <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
               <el-button type="primary" size="mini" icon="el-icon-view" @click="previewOhaDoc(ohaVerifyDialog.shipment, row)" />
               <!-- Approve / Return decisions are made via the Confirm → Verify Confirm dialog -->
-              <!-- Returned, waiting on supplier (re-upload or explain): discuss / accept the explanation -->
-              <template v-if="row.ohaStatus === 'REJECTED'">
-                <el-badge :is-dot="row.awaitingReviewer" class="oha-discuss-badge">
-                  <el-button size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
-                </el-badge>
-                <el-button type="success" size="mini" plain icon="el-icon-circle-check" @click="approveOhaDoc(ohaVerifyDialog.shipment, row)">Accept</el-button>
-              </template>
               <!-- Re-uploaded, waiting on OHA re-review (decision via Verify Confirm) -->
-              <template v-else-if="row.ohaStatus === 'RESUBMITTED'">
+              <template v-if="row.ohaStatus === 'RESUBMITTED'">
                 <el-badge :is-dot="row.awaitingReviewer" class="oha-discuss-badge">
                   <el-button size="mini" icon="el-icon-chat-dot-round" @click="openOhaComment(ohaVerifyDialog.shipment, row)">Discuss</el-button>
                 </el-badge>
@@ -1251,16 +1253,20 @@
       </div>
     </el-dialog>
 
-    <!-- Delete confirm dialog -->
-    <el-dialog :visible.sync="deleteConfirm.visible" title="Delete Document" width="400px" append-to-body>
-      <div style="font-size:13px;line-height:1.8">
-        <p>Are you sure you want to delete this document?</p>
-        <p><strong>{{ deleteConfirm.fileName }}</strong></p>
-        <p style="color:#999;font-size:12px">This action cannot be undone.</p>
+    <!-- Delete confirm dialog — reason is mandatory before Delete enables -->
+    <el-dialog :visible.sync="deleteConfirm.visible" title="Delete Reason" width="440px" append-to-body custom-class="brand-dialog">
+      <div style="font-size:13px;line-height:1.8;margin-bottom:8px">
+        <p>You are deleting <strong>{{ deleteConfirm.fileName }}</strong>. This action cannot be undone.</p>
       </div>
+      <el-form label-position="top" size="mini">
+        <el-form-item label="Delete Reason *" required>
+          <el-input v-model="deleteConfirm.reason" type="textarea" :rows="3"
+            placeholder="Explain why this document is being deleted (required)" />
+        </el-form-item>
+      </el-form>
       <div slot="footer">
         <el-button size="small" @click="deleteConfirm.visible=false">Cancel</el-button>
-        <el-button size="small" type="danger" @click="confirmDelete">Delete</el-button>
+        <el-button size="small" type="danger" :disabled="!(deleteConfirm.reason || '').trim()" @click="confirmDelete">Delete</el-button>
       </div>
     </el-dialog>
 
@@ -1269,6 +1275,7 @@
 
 <script>
 import {
+  reviewStore, ohaStore,
   rejectedDocs, resubmittedCount, resubmitDocument, withdrawDocument,
   ohaShipments, ohaUnverifiedDocs, ohaCanConfirm, ohaRejectedDocs,
   ohaRejectDoc, ohaApproveDoc, ohaResubmitDoc, ohaConfirmShipment, ohaWithdrawDoc,
@@ -1332,11 +1339,9 @@ export default {
         mkPo('ORD01711684_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836055','2026-05-17','2026-05-19','overdue'),
         mkPo('ORD01694507_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836056','2026-05-23','2026-05-26','overdue'),
         mkPo('ORD01694382_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811021','2026-05-16','2026-05-19','possible', [
-          // Seeded demo of the "replaced" state — persists across refreshes.
-          { docNumber:'INV-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED', replaced:true, replacedBy:'INV-880357' },
-          { docNumber:'INV-880357', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880357.pdf', uploadDate:'2026-05-18', version:1, status:'VERIFIED', replacesDocNumber:'INV-880301' },
+          { docNumber:'INV-880357', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880357.pdf', uploadDate:'2026-05-18', version:1, status:'VERIFIED' },
           { docNumber:'PLR-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Packing List', blType:'', fileName:'PL-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED' },
-        ], false, true),
+        ]),
         mkPo('ORD01694101_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811022','2026-05-20','2026-05-22','possible'),
         mkPo('ORD01694098_01','Guangzhou Clothing Co.',      'CGP26040899011','2026-05-17','2026-05-19','possible', [
           { docNumber:'SC-2401-6634', poNumber:'ORD01694098_01', soRef:'CGP26040899011', docTypeLabel:'Sanitary Certificate', blType:'', fileName:'SAN-240006.pdf', uploadDate:'2026-05-13', version:1, status:'VERIFIED' },
@@ -1370,7 +1375,7 @@ export default {
         status: 'VERIFIED', uploadedAt: '', poNumber: '',
       },
 
-      deleteConfirm: { visible: false, doc: null, fileName: '' },
+      deleteConfirm: { visible: false, doc: null, fileName: '', reason: '' },
 
       // Direct new-version upload for an existing document row
       updateDialog: {
@@ -1546,7 +1551,36 @@ export default {
     poHasRequired() {
       if (!this.currentPo) return false
       return ['Commercial Invoice', 'Packing List'].every(t =>
-        this.currentPo.docs.some(d => d.docTypeLabel === t))
+        this.currentPo.docs.some(d => d.docTypeLabel === t && !d.deleted && !d.replaced))
+    },
+    // Documents on the open OHA shipment that carry a conversation. Empty →
+    // the shipment-level Discuss entry stays greyed.
+    ohaShipmentThreads() {
+      const s = this.ohaVerifyDialog.shipment
+      if (!s) return []
+      return s.documents.filter(d => (d.thread || []).length)
+    },
+    // All discussion threads linked to the current PO (Pepco HBL docs and OHA
+    // shipment docs, bridged via poRef). Empty → the Discuss entry stays greyed.
+    poThreads() {
+      const po = this.currentPo
+      if (!po) return []
+      const found = []
+      for (const h of reviewStore.hbls) {
+        for (const d of h.documents) {
+          if (d.poRef === po.orderNo && (d.thread || []).length) {
+            found.push({ hbl: h, doc: d, user: `${h.supplier} (Supplier)` })
+          }
+        }
+      }
+      for (const s of ohaStore.shipments) {
+        for (const d of s.documents) {
+          if (d.poRef === po.orderNo && (d.thread || []).length) {
+            found.push({ hbl: { hblNo: s.bookingRef, supplier: s.supplier, shipmentId: s.id }, doc: d, user: `${s.supplier} (Supplier)` })
+          }
+        }
+      }
+      return found
     },
     confirmBlockReason() {
       if (!this.poNewUpload) return 'Upload a new document before confirming — nothing new has been uploaded in this session'
@@ -1687,6 +1721,14 @@ export default {
     openOhaComment(shipment, doc) {
       this.ohaCommentDialog = { visible: true, shipment, doc }
     },
+    // Shipment-level discussion entry: open the most recently active thread
+    openOhaShipmentDiscuss() {
+      const threads = this.ohaShipmentThreads
+      if (!threads.length) return
+      const lastAt = d => { const th = d.thread; return th[th.length - 1].at || '' }
+      const doc = [...threads].sort((a, b) => lastAt(b).localeCompare(lastAt(a)))[0]
+      this.openOhaComment(this.ohaVerifyDialog.shipment, doc)
+    },
     openOhaReinstate(shipment, doc) {
       this.ohaReinstateDialog = { visible: true, shipment, doc, mode: 'keep' }
     },
@@ -1712,29 +1754,6 @@ export default {
       ).then(() => {
         ohaReinstateDoc(shipment, doc, 'keep', 'OHA Origin Desk')
         this.$message.success(`${doc.docNumber} is active again`)
-      }).catch(() => {})
-    },
-    // Supplier proactively asks to reinstate a replaced document from the PO history (V1)
-    requestPoReinstate(row) {
-      this.$prompt(
-        `${row.docNumber} was replaced by ${row.replacedBy}. Explain to the reviewer why this document should be reinstated:`,
-        'Reinstatement request',
-        {
-          confirmButtonText: 'Send request', cancelButtonText: 'Cancel',
-          inputType: 'textarea', inputValidator: v => !!(v && v.trim()) || 'Please give a reason',
-        }
-      ).then(({ value }) => {
-        this.$set(row, 'reinstateRequested', true)
-        this.$notify({
-          title: 'Reinstatement requested',
-          dangerouslyUseHTMLString: true,
-          message: `<div style="font-size:12px;line-height:1.7">
-            <div><b>${row.docNumber}</b> — request sent to the reviewer.</div>
-            <div style="color:#999">${value.trim()}</div>
-            <div style="color:#e6a817">⏳ You can upload new versions once the document is reinstated.</div>
-          </div>`,
-          type: 'success', duration: 6000,
-        })
       }).catch(() => {})
     },
     submitOhaReinstate() {
@@ -2183,18 +2202,36 @@ export default {
       }
     },
 
+    // Open the PO-level discussion: the conversation lives on the review-flow
+    // document (bridged via poRef); with several threads, open the most recent.
+    openPoDiscuss() {
+      const threads = this.poThreads
+      if (!threads.length) return
+      const lastAt = t => { const th = t.doc.thread; return th[th.length - 1].at || '' }
+      const found = [...threads].sort((a, b) => lastAt(b).localeCompare(lastAt(a)))[0]
+      this.commentDialog = {
+        visible: true,
+        item: { hbl: found.hbl, doc: found.doc },
+        role: 'supplier',
+        user: found.user,
+      }
+    },
+
     // A PO document's Update/Delete is locked when the PO is confirmed or
-    // locked (finalized), or when the document itself was replaced (audit record).
+    // locked (finalized), or when the document itself is a dead record
+    // (deleted / replaced).
     docActionLocked(row) {
-      return !!(this.currentPo && (this.currentPo.confirmed || this.currentPo.locked)) || !!row.replaced
+      return !!(this.currentPo && (this.currentPo.confirmed || this.currentPo.locked)) || !!row.replaced || !!row.deleted
     },
     updateLockReason(row) {
+      if (row.deleted) return 'Deleted document — kept as a record, cannot be updated'
       if (row.replaced) return 'Replaced document — kept as a record, cannot be updated'
       if (this.currentPo && this.currentPo.locked) return 'This PO is locked — documents cannot be updated'
       if (this.currentPo && this.currentPo.confirmed) return 'Locked — documents cannot be updated after Confirm'
       return 'Update — upload a new version of this document'
     },
     deleteLockReason(row) {
+      if (row.deleted) return 'Already deleted — kept as a record'
       if (row.replaced) return 'Replaced document — kept as a record, cannot be deleted'
       if (this.currentPo && this.currentPo.locked) return 'This PO is locked — documents cannot be deleted'
       return 'Locked — documents cannot be deleted after Confirm'
@@ -2239,12 +2276,14 @@ export default {
       }
     },
     deletePoDoc(doc) {
-      this.deleteConfirm = { visible: true, doc, fileName: doc.fileName }
+      this.deleteConfirm = { visible: true, doc, fileName: doc.fileName, reason: '' }
     },
     confirmDelete() {
-      const { doc } = this.deleteConfirm
-      const idx = this.currentPo.docs.indexOf(doc)
-      if (idx > -1) this.currentPo.docs.splice(idx, 1)
+      const { doc, reason } = this.deleteConfirm
+      if (!(reason || '').trim()) return
+      // Soft delete: the record stays in the PO history, greyed out, with the reason shown
+      this.$set(doc, 'deleted', true)
+      this.$set(doc, 'deleteReason', reason.trim())
       this.$message.success(`Deleted: ${doc.fileName}`)
       this.deleteConfirm.visible = false
     },
@@ -2636,7 +2675,7 @@ export default {
   &.finished { color:#13ce66; }
 }
 ::v-deep .upload-docs-row { background:#f0f7ff !important; }
-::v-deep .po-doc-replaced td { color:#c0c4cc; }
+::v-deep .po-doc-inactive td { color:#c0c4cc; }
 
 .po-link { color:$primary; font-weight:600; text-decoration:underline; }
 
@@ -2822,6 +2861,7 @@ export default {
   padding-bottom:4px; border-bottom:1px solid #eef1f5;
   .oha-sec-hint { font-weight:400; color:#999; font-size:11px; margin-left:8px; }
 }
+.oha-sec-title--row { display:flex; align-items:center; }
 .oha-info-grid {
   display:grid; grid-template-columns:repeat(4, 1fr); gap:8px 20px; font-size:12px;
   div { display:flex; flex-direction:column; }
