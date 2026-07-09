@@ -187,16 +187,6 @@
                 <!-- Documents tab -->
                 <el-tab-pane label="Documents" name="documents">
                   <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
-                    <!-- HBL-level discussion entry: greyed until a conversation exists -->
-                    <el-tooltip :content="hblThreads(row).length ? 'View the discussion with the supplier on this HBL' : 'No discussion on this HBL yet'" placement="top">
-                      <span>
-                        <el-badge :is-dot="hblThreads(row).some(d => d.awaitingReviewer)" class="cdr-badge">
-                          <el-button size="mini" icon="el-icon-chat-dot-round" :disabled="!hblThreads(row).length" @click="openHblDiscuss(row)">
-                            Discuss<span v-if="hblThreads(row).length"> ({{ hblThreads(row).length }})</span>
-                          </el-button>
-                        </el-badge>
-                      </span>
-                    </el-tooltip>
                     <el-tooltip content="Opens each document in a new browser tab — allow popups if prompted" placement="top">
                       <el-button size="mini" icon="el-icon-view" @click="openAllDocs(row)">
                         Open All in New Tab ({{ row.documents.length }})
@@ -271,6 +261,18 @@
                 <!-- Documents Verified tab -->
                 <el-tab-pane name="verified">
                   <span slot="label"><i class="el-icon-finished"></i> Documents Verified</span>
+                  <!-- HBL-level discussion entry: greyed until a conversation exists -->
+                  <div style="display:flex;justify-content:flex-end;margin-top:8px;margin-bottom:8px">
+                    <el-tooltip :content="hblThreads(row).length ? 'View the discussion with the supplier on this HBL' : 'No discussion on this HBL yet'" placement="top">
+                      <span>
+                        <el-badge :is-dot="hblThreads(row).some(d => d.awaitingReviewer)" class="cdr-badge">
+                          <el-button size="mini" icon="el-icon-chat-dot-round" :disabled="!hblThreads(row).length" @click="openHblDiscuss(row)">
+                            Discuss<span v-if="hblThreads(row).length"> ({{ hblThreads(row).length }})</span>
+                          </el-button>
+                        </el-badge>
+                      </span>
+                    </el-tooltip>
+                  </div>
                   <!-- Pending Correction banner — live progress of the supplier's re-uploads -->
                   <div v-if="currentStage(row).cls==='stage-correction'" class="correction-banner">
                     <i class="el-icon-warning-outline"></i>
