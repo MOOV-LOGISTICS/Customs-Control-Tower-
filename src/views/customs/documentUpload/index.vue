@@ -147,15 +147,6 @@
                 <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="docActionLocked(row)" @click="deletePoDoc(row)" />
               </span>
             </el-tooltip>
-            <!-- Proactive reinstatement request — only on replaced (retired) documents -->
-            <el-tooltip v-if="row.replaced"
-              :content="row.reinstateRequested ? 'Reinstatement already requested — waiting for the reviewer' : 'This document was replaced. If you believe it is still valid, ask the reviewer to reinstate it.'"
-              placement="top">
-              <span>
-                <el-button type="warning" size="mini" plain icon="el-icon-refresh-right"
-                  :disabled="!!row.reinstateRequested" @click="requestPoReinstate(row)" />
-              </span>
-            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
@@ -1251,16 +1242,20 @@
       </div>
     </el-dialog>
 
-    <!-- Delete confirm dialog -->
-    <el-dialog :visible.sync="deleteConfirm.visible" title="Delete Document" width="400px" append-to-body>
-      <div style="font-size:13px;line-height:1.8">
-        <p>Are you sure you want to delete this document?</p>
-        <p><strong>{{ deleteConfirm.fileName }}</strong></p>
-        <p style="color:#999;font-size:12px">This action cannot be undone.</p>
+    <!-- Delete confirm dialog — reason is mandatory before Delete enables -->
+    <el-dialog :visible.sync="deleteConfirm.visible" title="Delete Reason" width="440px" append-to-body custom-class="brand-dialog">
+      <div style="font-size:13px;line-height:1.8;margin-bottom:8px">
+        <p>You are deleting <strong>{{ deleteConfirm.fileName }}</strong>. This action cannot be undone.</p>
       </div>
+      <el-form label-position="top" size="mini">
+        <el-form-item label="Delete Reason *" required>
+          <el-input v-model="deleteConfirm.reason" type="textarea" :rows="3"
+            placeholder="Explain why this document is being deleted (required)" />
+        </el-form-item>
+      </el-form>
       <div slot="footer">
         <el-button size="small" @click="deleteConfirm.visible=false">Cancel</el-button>
-        <el-button size="small" type="danger" @click="confirmDelete">Delete</el-button>
+        <el-button size="small" type="danger" :disabled="!(deleteConfirm.reason || '').trim()" @click="confirmDelete">Delete</el-button>
       </div>
     </el-dialog>
 
@@ -1336,7 +1331,7 @@ export default {
           { docNumber:'INV-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED', replaced:true, replacedBy:'INV-880357' },
           { docNumber:'INV-880357', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880357.pdf', uploadDate:'2026-05-18', version:1, status:'VERIFIED', replacesDocNumber:'INV-880301' },
           { docNumber:'PLR-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Packing List', blType:'', fileName:'PL-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED' },
-        ], false, true),
+        ]),
         mkPo('ORD01694101_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811022','2026-05-20','2026-05-22','possible'),
         mkPo('ORD01694098_01','Guangzhou Clothing Co.',      'CGP26040899011','2026-05-17','2026-05-19','possible', [
           { docNumber:'SC-2401-6634', poNumber:'ORD01694098_01', soRef:'CGP26040899011', docTypeLabel:'Sanitary Certificate', blType:'', fileName:'SAN-240006.pdf', uploadDate:'2026-05-13', version:1, status:'VERIFIED' },
@@ -1370,7 +1365,7 @@ export default {
         status: 'VERIFIED', uploadedAt: '', poNumber: '',
       },
 
-      deleteConfirm: { visible: false, doc: null, fileName: '' },
+      deleteConfirm: { visible: false, doc: null, fileName: '', reason: '' },
 
       // Direct new-version upload for an existing document row
       updateDialog: {
@@ -1712,29 +1707,6 @@ export default {
       ).then(() => {
         ohaReinstateDoc(shipment, doc, 'keep', 'OHA Origin Desk')
         this.$message.success(`${doc.docNumber} is active again`)
-      }).catch(() => {})
-    },
-    // Supplier proactively asks to reinstate a replaced document from the PO history (V1)
-    requestPoReinstate(row) {
-      this.$prompt(
-        `${row.docNumber} was replaced by ${row.replacedBy}. Explain to the reviewer why this document should be reinstated:`,
-        'Reinstatement request',
-        {
-          confirmButtonText: 'Send request', cancelButtonText: 'Cancel',
-          inputType: 'textarea', inputValidator: v => !!(v && v.trim()) || 'Please give a reason',
-        }
-      ).then(({ value }) => {
-        this.$set(row, 'reinstateRequested', true)
-        this.$notify({
-          title: 'Reinstatement requested',
-          dangerouslyUseHTMLString: true,
-          message: `<div style="font-size:12px;line-height:1.7">
-            <div><b>${row.docNumber}</b> — request sent to the reviewer.</div>
-            <div style="color:#999">${value.trim()}</div>
-            <div style="color:#e6a817">⏳ You can upload new versions once the document is reinstated.</div>
-          </div>`,
-          type: 'success', duration: 6000,
-        })
       }).catch(() => {})
     },
     submitOhaReinstate() {
@@ -2239,13 +2211,14 @@ export default {
       }
     },
     deletePoDoc(doc) {
-      this.deleteConfirm = { visible: true, doc, fileName: doc.fileName }
+      this.deleteConfirm = { visible: true, doc, fileName: doc.fileName, reason: '' }
     },
     confirmDelete() {
-      const { doc } = this.deleteConfirm
+      const { doc, reason } = this.deleteConfirm
+      if (!(reason || '').trim()) return
       const idx = this.currentPo.docs.indexOf(doc)
       if (idx > -1) this.currentPo.docs.splice(idx, 1)
-      this.$message.success(`Deleted: ${doc.fileName}`)
+      this.$message.success(`Deleted: ${doc.fileName} — ${reason.trim()}`)
       this.deleteConfirm.visible = false
     },
 
