@@ -896,9 +896,19 @@
         </el-table>
 
         <!-- Documents — the OHA verification area -->
-        <div class="oha-sec-title">
-          Documents
-          <span class="oha-sec-hint">AI tags each file; OHA only needs to act on AI-Unverified files</span>
+        <div class="oha-sec-title oha-sec-title--row">
+          <span>
+            Documents
+            <span class="oha-sec-hint">AI tags each file; OHA only needs to act on AI-Unverified files</span>
+          </span>
+          <!-- Shipment-level discussion entry: greyed until a conversation exists -->
+          <el-tooltip :content="ohaShipmentThreads.length ? 'View the discussion with the supplier on this shipment' : 'No discussion on this shipment yet'" placement="top">
+            <span style="margin-left:auto">
+              <el-badge :is-dot="ohaShipmentThreads.some(d => d.awaitingReviewer)" class="oha-discuss-badge">
+                <el-button size="mini" icon="el-icon-chat-dot-round" :disabled="!ohaShipmentThreads.length" @click="openOhaShipmentDiscuss">Discuss</el-button>
+              </el-badge>
+            </span>
+          </el-tooltip>
         </div>
         <el-table :data="ohaVerifyDialog.shipment.documents" size="mini" border :header-cell-style="{background:'#fafafa'}">
           <el-table-column label="Document Number" min-width="150">
@@ -1543,6 +1553,13 @@ export default {
       return ['Commercial Invoice', 'Packing List'].every(t =>
         this.currentPo.docs.some(d => d.docTypeLabel === t && !d.deleted && !d.replaced))
     },
+    // Documents on the open OHA shipment that carry a conversation. Empty →
+    // the shipment-level Discuss entry stays greyed.
+    ohaShipmentThreads() {
+      const s = this.ohaVerifyDialog.shipment
+      if (!s) return []
+      return s.documents.filter(d => (d.thread || []).length)
+    },
     // All discussion threads linked to the current PO (Pepco HBL docs and OHA
     // shipment docs, bridged via poRef). Empty → the Discuss entry stays greyed.
     poThreads() {
@@ -1703,6 +1720,14 @@ export default {
     },
     openOhaComment(shipment, doc) {
       this.ohaCommentDialog = { visible: true, shipment, doc }
+    },
+    // Shipment-level discussion entry: open the most recently active thread
+    openOhaShipmentDiscuss() {
+      const threads = this.ohaShipmentThreads
+      if (!threads.length) return
+      const lastAt = d => { const th = d.thread; return th[th.length - 1].at || '' }
+      const doc = [...threads].sort((a, b) => lastAt(b).localeCompare(lastAt(a)))[0]
+      this.openOhaComment(this.ohaVerifyDialog.shipment, doc)
     },
     openOhaReinstate(shipment, doc) {
       this.ohaReinstateDialog = { visible: true, shipment, doc, mode: 'keep' }
@@ -2836,6 +2861,7 @@ export default {
   padding-bottom:4px; border-bottom:1px solid #eef1f5;
   .oha-sec-hint { font-weight:400; color:#999; font-size:11px; margin-left:8px; }
 }
+.oha-sec-title--row { display:flex; align-items:center; }
 .oha-info-grid {
   display:grid; grid-template-columns:repeat(4, 1fr); gap:8px 20px; font-size:12px;
   div { display:flex; flex-direction:column; }
