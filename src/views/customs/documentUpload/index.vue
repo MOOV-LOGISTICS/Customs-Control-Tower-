@@ -93,7 +93,7 @@
       </div>
       <el-table v-if="currentPo" :data="currentPo.docs" size="mini" stripe border :header-cell-style="{background:'#fafafa'}"
         :default-sort="{ prop: 'uploadDate', order: 'ascending' }"
-        :row-class-name="({row}) => row.replaced ? 'po-doc-replaced' : ''">
+        :row-class-name="({row}) => (row.deleted || row.replaced) ? 'po-doc-inactive' : ''">
         <el-table-column label="Document Number" width="130" prop="docNumber" align="center" />
         <el-table-column label="PO Number" width="140" prop="poNumber" align="center" />
         <el-table-column label="SO Ref" width="140" prop="soRef" align="center" />
@@ -117,13 +117,9 @@
         </el-table-column>
         <el-table-column label="File Name" min-width="160" prop="fileName" />
         <el-table-column label="Upload Date" width="110" prop="uploadDate" align="center" sortable />
-        <el-table-column label="Document Status" width="170" align="center">
+        <el-table-column label="Document Status" width="120" align="center">
           <template #default="{row}">
-            <template v-if="row.replaced">
-              <el-tag size="mini" type="info">Replaced</el-tag>
-              <div style="font-size:10px;color:#909399;margin-top:2px">replaced by {{ row.replacedBy }}</div>
-              <el-tag v-if="row.reinstateRequested" size="mini" type="warning" style="margin-top:2px">Reinstate requested</el-tag>
-            </template>
+            <el-tag v-if="row.deleted" size="mini" type="info">Deleted</el-tag>
             <template v-else-if="row.withdrawn">
               <el-tag size="mini" type="info">Withdrawn</el-tag>
               <div style="font-size:10px;color:#909399;margin-top:2px">
@@ -131,6 +127,12 @@
               </div>
             </template>
             <el-tag v-else size="mini" type="success">Active</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="Comment" min-width="150">
+          <template #default="{row}">
+            <span v-if="row.deleteReason" style="font-size:12px;color:#909399">{{ row.deleteReason }}</span>
+            <span v-else style="color:#c0c4cc">/</span>
           </template>
         </el-table-column>
         <el-table-column label="Action" width="220" align="center">
@@ -1327,9 +1329,7 @@ export default {
         mkPo('ORD01711684_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836055','2026-05-17','2026-05-19','overdue'),
         mkPo('ORD01694507_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836056','2026-05-23','2026-05-26','overdue'),
         mkPo('ORD01694382_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811021','2026-05-16','2026-05-19','possible', [
-          // Seeded demo of the "replaced" state — persists across refreshes.
-          { docNumber:'INV-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED', replaced:true, replacedBy:'INV-880357' },
-          { docNumber:'INV-880357', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880357.pdf', uploadDate:'2026-05-18', version:1, status:'VERIFIED', replacesDocNumber:'INV-880301' },
+          { docNumber:'INV-880357', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880357.pdf', uploadDate:'2026-05-18', version:1, status:'VERIFIED' },
           { docNumber:'PLR-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Packing List', blType:'', fileName:'PL-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED' },
         ]),
         mkPo('ORD01694101_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811022','2026-05-20','2026-05-22','possible'),
@@ -1541,7 +1541,7 @@ export default {
     poHasRequired() {
       if (!this.currentPo) return false
       return ['Commercial Invoice', 'Packing List'].every(t =>
-        this.currentPo.docs.some(d => d.docTypeLabel === t))
+        this.currentPo.docs.some(d => d.docTypeLabel === t && !d.deleted && !d.replaced))
     },
     confirmBlockReason() {
       if (!this.poNewUpload) return 'Upload a new document before confirming — nothing new has been uploaded in this session'
@@ -2156,17 +2156,20 @@ export default {
     },
 
     // A PO document's Update/Delete is locked when the PO is confirmed or
-    // locked (finalized), or when the document itself was replaced (audit record).
+    // locked (finalized), or when the document itself is a dead record
+    // (deleted / replaced).
     docActionLocked(row) {
-      return !!(this.currentPo && (this.currentPo.confirmed || this.currentPo.locked)) || !!row.replaced
+      return !!(this.currentPo && (this.currentPo.confirmed || this.currentPo.locked)) || !!row.replaced || !!row.deleted
     },
     updateLockReason(row) {
+      if (row.deleted) return 'Deleted document — kept as a record, cannot be updated'
       if (row.replaced) return 'Replaced document — kept as a record, cannot be updated'
       if (this.currentPo && this.currentPo.locked) return 'This PO is locked — documents cannot be updated'
       if (this.currentPo && this.currentPo.confirmed) return 'Locked — documents cannot be updated after Confirm'
       return 'Update — upload a new version of this document'
     },
     deleteLockReason(row) {
+      if (row.deleted) return 'Already deleted — kept as a record'
       if (row.replaced) return 'Replaced document — kept as a record, cannot be deleted'
       if (this.currentPo && this.currentPo.locked) return 'This PO is locked — documents cannot be deleted'
       return 'Locked — documents cannot be deleted after Confirm'
@@ -2216,9 +2219,10 @@ export default {
     confirmDelete() {
       const { doc, reason } = this.deleteConfirm
       if (!(reason || '').trim()) return
-      const idx = this.currentPo.docs.indexOf(doc)
-      if (idx > -1) this.currentPo.docs.splice(idx, 1)
-      this.$message.success(`Deleted: ${doc.fileName} — ${reason.trim()}`)
+      // Soft delete: the record stays in the PO history, greyed out, with the reason shown
+      this.$set(doc, 'deleted', true)
+      this.$set(doc, 'deleteReason', reason.trim())
+      this.$message.success(`Deleted: ${doc.fileName}`)
       this.deleteConfirm.visible = false
     },
 
@@ -2609,7 +2613,7 @@ export default {
   &.finished { color:#13ce66; }
 }
 ::v-deep .upload-docs-row { background:#f0f7ff !important; }
-::v-deep .po-doc-replaced td { color:#c0c4cc; }
+::v-deep .po-doc-inactive td { color:#c0c4cc; }
 
 .po-link { color:$primary; font-weight:600; text-decoration:underline; }
 
