@@ -135,7 +135,7 @@
             <span v-else style="color:#c0c4cc">/</span>
           </template>
         </el-table-column>
-        <el-table-column label="Action" width="220" align="center">
+        <el-table-column label="Action" width="260" align="center">
           <template #default="{row}">
             <el-tooltip :content="updateLockReason(row)" placement="top">
               <span>
