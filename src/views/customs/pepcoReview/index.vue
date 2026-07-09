@@ -187,6 +187,16 @@
                 <!-- Documents tab -->
                 <el-tab-pane label="Documents" name="documents">
                   <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
+                    <!-- HBL-level discussion entry: greyed until a conversation exists -->
+                    <el-tooltip :content="hblThreads(row).length ? 'View the discussion with the supplier on this HBL' : 'No discussion on this HBL yet'" placement="top">
+                      <span>
+                        <el-badge :is-dot="hblThreads(row).some(d => d.awaitingReviewer)" class="cdr-badge">
+                          <el-button size="mini" icon="el-icon-chat-dot-round" :disabled="!hblThreads(row).length" @click="openHblDiscuss(row)">
+                            Discuss<span v-if="hblThreads(row).length"> ({{ hblThreads(row).length }})</span>
+                          </el-button>
+                        </el-badge>
+                      </span>
+                    </el-tooltip>
                     <el-tooltip content="Opens each document in a new browser tab — allow popups if prompted" placement="top">
                       <el-button size="mini" icon="el-icon-view" @click="openAllDocs(row)">
                         Open All in New Tab ({{ row.documents.length }})
@@ -278,11 +288,6 @@
                             {{ resolutionLabel(d) }}
                           </span>
                           <span class="cdr-actions" @click.stop>
-                            <el-badge :is-dot="d.awaitingReviewer" class="cdr-badge">
-                              <el-button type="text" size="mini" icon="el-icon-chat-dot-round" @click="openReviewerComment(row, d)">
-                                Discuss<span v-if="(d.thread || []).length"> ({{ d.thread.length }})</span>
-                              </el-button>
-                            </el-badge>
                             <el-tooltip v-if="d.reviewStatus === 'REJECTED'" :disabled="canResolve(d)"
                               content="Only the reviewer who returned this document can accept it" placement="top">
                               <span>
@@ -860,6 +865,19 @@ export default {
     // ── Discussion + accept-as-is (no re-upload) ──────────────────────────
     openReviewerComment(hbl, doc) {
       this.commentDialog = { visible: true, hbl, doc }
+    },
+    // Documents on this HBL that carry a conversation — drives the HBL-level
+    // Discuss entry in the Documents tab toolbar.
+    hblThreads(hbl) {
+      return hbl.documents.filter(d => (d.thread || []).length)
+    },
+    // Open the most recently active thread on the HBL
+    openHblDiscuss(hbl) {
+      const threads = this.hblThreads(hbl)
+      if (!threads.length) return
+      const lastAt = d => { const th = d.thread; return th[th.length - 1].at || '' }
+      const doc = [...threads].sort((a, b) => lastAt(b).localeCompare(lastAt(a)))[0]
+      this.openReviewerComment(hbl, doc)
     },
 
     // ── Reinstate a replaced document (V1.5) ─────────────────────────────
