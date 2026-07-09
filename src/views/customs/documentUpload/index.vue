@@ -86,6 +86,12 @@
     >
       <div v-if="currentPo" style="margin-bottom:10px;display:flex;align-items:center;gap:12px">
         <el-button type="primary" size="mini" icon="el-icon-upload2" @click="openUploadDialog">Upload</el-button>
+        <!-- PO-level discussion entry: greyed until a conversation exists on this PO -->
+        <el-tooltip :content="poThreads.length ? 'View the discussion with the reviewer on this PO' : 'No discussion on this PO yet'" placement="top">
+          <span>
+            <el-button size="mini" icon="el-icon-chat-dot-round" :disabled="!poThreads.length" @click="openPoDiscuss">Discuss</el-button>
+          </span>
+        </el-tooltip>
         <el-tag size="mini" type="danger" style="margin-left:6px;vertical-align:middle">New</el-tag>
         <span style="font-size:12px;color:#666">
           PO <strong style="color:#004F7C">{{ currentPo.orderNo }}</strong> · {{ currentPo.supplier }} · SO Ref {{ currentPo.soRef }}
@@ -135,7 +141,7 @@
             <span v-else style="color:#c0c4cc">/</span>
           </template>
         </el-table-column>
-        <el-table-column label="Action" width="260" align="center">
+        <el-table-column label="Action" width="220" align="center">
           <template #default="{row}">
             <el-tooltip :content="updateLockReason(row)" placement="top">
               <span>
@@ -144,10 +150,6 @@
             </el-tooltip>
             <el-button type="primary" size="mini" icon="el-icon-download" @click="downloadFile(row.fileName)" />
             <el-button type="primary" size="mini" icon="el-icon-view" @click="previewPoDoc(row)" />
-            <!-- Discussion history — only for documents that have a thread with a reviewer -->
-            <el-tooltip v-if="poDocThread(row)" content="View discussion with the reviewer" placement="top">
-              <el-button size="mini" icon="el-icon-chat-dot-round" @click="openPoDocThread(row)" />
-            </el-tooltip>
             <el-tooltip :content="deleteLockReason(row)" :disabled="!docActionLocked(row)" placement="top">
               <span>
                 <el-button type="danger" size="mini" icon="el-icon-delete" :disabled="docActionLocked(row)" @click="deletePoDoc(row)" />
@@ -1548,6 +1550,28 @@ export default {
       return ['Commercial Invoice', 'Packing List'].every(t =>
         this.currentPo.docs.some(d => d.docTypeLabel === t && !d.deleted && !d.replaced))
     },
+    // All discussion threads linked to the current PO (Pepco HBL docs and OHA
+    // shipment docs, bridged via poRef). Empty → the Discuss entry stays greyed.
+    poThreads() {
+      const po = this.currentPo
+      if (!po) return []
+      const found = []
+      for (const h of reviewStore.hbls) {
+        for (const d of h.documents) {
+          if (d.poRef === po.orderNo && (d.thread || []).length) {
+            found.push({ hbl: h, doc: d, user: `${h.supplier} (Supplier)` })
+          }
+        }
+      }
+      for (const s of ohaStore.shipments) {
+        for (const d of s.documents) {
+          if (d.poRef === po.orderNo && (d.thread || []).length) {
+            found.push({ hbl: { hblNo: s.bookingRef, supplier: s.supplier, shipmentId: s.id }, doc: d, user: `${s.supplier} (Supplier)` })
+          }
+        }
+      }
+      return found
+    },
     confirmBlockReason() {
       if (!this.poNewUpload) return 'Upload a new document before confirming — nothing new has been uploaded in this session'
       if (!this.poHasRequired) return 'Confirm requires Commercial Invoice and Packing List on this PO — upload and submit them first'
@@ -2160,27 +2184,13 @@ export default {
       }
     },
 
-    // Find the review-flow document (Pepco HBL or OHA shipment) linked to a PO
-    // history row via poRef, if it carries a discussion thread. This keeps the
-    // conversation reachable after the item leaves the correction queue.
-    poDocThread(row) {
-      const po = this.currentPo
-      if (!po) return null
-      for (const h of reviewStore.hbls) {
-        const d = h.documents.find(d => d.poRef === po.orderNo && (d.thread || []).length
-          && (d.docNumber === row.docNumber || d.docType === row.docTypeLabel))
-        if (d) return { hbl: h, doc: d, user: `${h.supplier} (Supplier)` }
-      }
-      for (const s of ohaStore.shipments) {
-        const d = s.documents.find(d => d.poRef === po.orderNo && (d.thread || []).length
-          && (d.docNumber === row.docNumber || d.docType === row.docTypeLabel))
-        if (d) return { hbl: { hblNo: s.bookingRef, supplier: s.supplier, shipmentId: s.id }, doc: d, user: `${s.supplier} (Supplier)` }
-      }
-      return null
-    },
-    openPoDocThread(row) {
-      const found = this.poDocThread(row)
-      if (!found) return
+    // Open the PO-level discussion: the conversation lives on the review-flow
+    // document (bridged via poRef); with several threads, open the most recent.
+    openPoDiscuss() {
+      const threads = this.poThreads
+      if (!threads.length) return
+      const lastAt = t => { const th = t.doc.thread; return th[th.length - 1].at || '' }
+      const found = [...threads].sort((a, b) => lastAt(b).localeCompare(lastAt(a)))[0]
       this.commentDialog = {
         visible: true,
         item: { hbl: found.hbl, doc: found.doc },
