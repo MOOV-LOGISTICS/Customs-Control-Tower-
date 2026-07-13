@@ -199,38 +199,40 @@
           Required Documents — both must be AI-verified before completing this milestone
         </div>
 
-        <!-- Mandatory Slots -->
+        <!-- Mandatory Slots — each slot accepts MULTIPLE files, verified independently (FR-03) -->
         <el-row :gutter="14" style="margin-bottom:14px">
           <el-col :span="12" v-for="slot in mandatorySlots" :key="slot.key">
-            <div :class="['doc-slot', `slot-${slot.state}`]">
+            <div :class="['doc-slot', `slot-${slotAggState(slot)}`]">
 
-              <!-- Slot header -->
+              <!-- Slot header: aggregate progress of all files in the slot -->
               <div class="slot-header">
                 <div class="slot-title">
                   <i class="el-icon-document"></i>
                   {{ slot.label }}
                   <el-tag size="mini" type="danger" style="margin-left:6px">Required</el-tag>
                 </div>
-                <div :class="['slot-status-badge', `badge-${slot.state}`]">
-                  <i :class="slotStateIcon(slot.state)"></i>
-                  {{ slotStateLabel(slot.state) }}
+                <div :class="['slot-status-badge', `badge-${slotAggState(slot)}`]">
+                  <i :class="slotStateIcon(slotAggState(slot))"></i>
+                  {{ slotAggLabel(slot) }}
                 </div>
               </div>
 
-              <!-- IDLE -->
-              <div v-if="slot.state === 'idle'" class="slot-body slot-idle">
+              <!-- EMPTY: hint + multi-select upload entry -->
+              <div v-if="!slot.files.length" class="slot-body slot-idle">
                 <div class="upload-hint">
-                  <div class="hint-title">AI will verify:</div>
+                  <div class="hint-title">AI will verify each file:</div>
                   <div class="hint-item"><i class="el-icon-check"></i> Document is a {{ slot.label }}</div>
                   <div class="hint-item"><i class="el-icon-check"></i> PO Number matches <strong>{{ currentPo.orderNo }}</strong></div>
                   <div class="hint-item"><i class="el-icon-check"></i> Supplier matches <strong>{{ currentPo.supplier }}</strong></div>
                 </div>
                 <div class="upload-actions">
-                  <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
+                  <el-upload action="#" multiple :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
                     <el-button type="primary" size="small" icon="el-icon-upload2">Upload &amp; AI Verify</el-button>
                   </el-upload>
+                  <div style="font-size:11px;color:#999;margin-top:4px">Select several files at once — each is verified separately</div>
                   <div class="demo-btns">
                     <span class="demo-label">Demo:</span>
+                    <el-button size="mini" type="text" @click="startBatchDemo(slot)">3 files at once (1 PO mismatch)</el-button>
                     <el-button size="mini" type="text" @click="startUpload(slot, null, 'type_error')">Wrong doc type</el-button>
                     <el-button size="mini" type="text" @click="startUpload(slot, null, 'po_mismatch')">PO mismatch</el-button>
                     <el-button size="mini" type="text" @click="startUpload(slot, null, 'ocr_fail')">OCR can't read No.</el-button>
@@ -240,141 +242,106 @@
                 </div>
               </div>
 
-              <!-- UPLOADING / VERIFYING -->
-              <div v-if="slot.state === 'uploading' || slot.state === 'verifying'" class="slot-body slot-verifying">
-                <div class="verify-filename"><i class="el-icon-document"></i> {{ slot.fileName }}</div>
-                <div class="verify-steps">
-                  <div v-for="(step, i) in slot.steps" :key="i" :class="['verify-step', stepClass(step.status)]">
-                    <i :class="stepIcon(step.status)"></i>
-                    <span>{{ step.label }}</span>
-                    <span v-if="step.status === 'running'" class="step-spinner"></span>
-                  </div>
-                </div>
-                <el-progress :percentage="slot.progress" :stroke-width="4" :show-text="false" color="#004F7C" style="margin-top:8px" />
-              </div>
+              <!-- FILE LIST: one compact row per file, each with its own state -->
+              <div v-else class="slot-body" style="padding:0">
+                <div v-for="f in slot.files" :key="f.id" :class="['sf-row', `sf-${f.state}`]">
 
-              <!-- VERIFIED -->
-              <div v-if="slot.state === 'verified'" class="slot-body">
-                <div class="current-version-block">
-                  <div class="cv-file">
-                    <i class="el-icon-document" style="color:#004F7C;font-size:18px"></i>
-                    <div class="cv-info">
-                      <div class="cv-name">{{ slot.fileName }}</div>
-                      <div class="cv-meta">
-                        <el-tag size="mini" type="success">v{{ slot.version }} Current</el-tag>
-                        <span style="margin-left:6px;color:#999;font-size:11px">Uploaded {{ slot.uploadedAt }}</span>
+                  <!-- uploading / AI verifying -->
+                  <template v-if="f.state === 'uploading' || f.state === 'verifying'">
+                    <i class="el-icon-loading sf-icon" style="color:#004F7C"></i>
+                    <div class="sf-main">
+                      <div class="sf-name">{{ f.fileName }}</div>
+                      <div class="sf-progress-row">
+                        <el-progress :percentage="f.progress" :stroke-width="4" :show-text="false" color="#004F7C" style="flex:1" />
+                        <span class="sf-step">{{ currentStepLabel(f) }}</span>
                       </div>
                     </div>
-                    <div class="cv-actions">
-                      <el-button type="text" size="mini" icon="el-icon-view" @click="openPreview(slot, slot.version)">Preview</el-button>
-                      <el-button type="text" size="mini" icon="el-icon-download" @click="downloadFile(slot.fileName)">Download</el-button>
+                  </template>
+
+                  <!-- verified (OCR may still have failed on the number → manual input) -->
+                  <template v-else-if="f.state === 'verified'">
+                    <i class="el-icon-circle-check sf-icon" style="color:#13ce66"></i>
+                    <div class="sf-main">
+                      <div class="sf-name">{{ f.fileName }}</div>
+                      <div v-if="f.mergedInto" class="sf-sub ok"><i class="el-icon-connection"></i> Folded into {{ f.mergedInto }} — saved as a new version</div>
+                      <div v-else-if="!f.docNumber && !f.docNumberSource" class="sf-sub warn"><i class="el-icon-warning-outline"></i> Verified — OCR could not read the number, enter it manually</div>
+                      <div v-else class="sf-sub ok"><i class="el-icon-check"></i> AI verified — type, PO &amp; supplier match</div>
+                      <div v-if="isDupDn(f)" class="sf-sub err"><i class="el-icon-warning-outline"></i> Same Document Number as another file in this batch</div>
                     </div>
-                  </div>
-                  <div class="check-list">
-                    <div class="check-item pass"><i class="el-icon-circle-check"></i> Document type: {{ slot.label }} ✓</div>
-                    <div class="check-item pass"><i class="el-icon-circle-check"></i> PO Number: {{ currentPo.orderNo }} ✓</div>
-                    <div class="check-item pass"><i class="el-icon-circle-check"></i> Supplier: {{ currentPo.supplier }} ✓</div>
-                  </div>
-                  <div class="docnum-field">
-                    <label>Document Number <span class="dn-req">*</span></label>
-                    <el-input v-model="slot.docNumber" size="mini" placeholder="Enter document number"
-                      :disabled="!!slot.mergedInto"
-                      :class="{ 'dn-missing': !slot.docNumber }" @input="onDocNumEdit(slot)" />
-                    <div class="dn-hint" :class="{ warn: !slot.docNumber }">
-                      <template v-if="slot.mergedInto"><i class="el-icon-connection"></i> Folded into existing document {{ slot.mergedInto }} — saved as a new version</template>
-                      <template v-else-if="slot.docNumberSource === 'ai'"><i class="el-icon-cpu"></i> Auto-filled by OCR — editable</template>
-                      <template v-else-if="slot.docNumberSource === 'edited'"><i class="el-icon-edit"></i> Edited by you</template>
-                      <template v-else-if="slot.docNumberSource === 'manual'"><i class="el-icon-check"></i> Entered manually</template>
-                      <template v-else><i class="el-icon-warning-outline"></i> OCR could not read it — manual input required</template>
+                    <div class="sf-dn">
+                      <label>Doc No. <span class="dn-req">*</span></label>
+                      <el-input v-model="f.docNumber" size="mini" :disabled="!!f.mergedInto" placeholder="required"
+                        :class="{ 'dn-missing': !f.docNumber, 'dn-dup': isDupDn(f) }" @input="onDocNumEdit(f)" />
                     </div>
-                  </div>
+                    <div class="sf-actions">
+                      <el-button type="text" size="mini" icon="el-icon-view" @click="previewSlotFile(slot, f)" />
+                      <el-button type="text" size="mini" icon="el-icon-delete" style="color:#ff4949" @click="removeSlotFile(slot, f)" />
+                    </div>
+                  </template>
+
+                  <!-- force saved (unverified, flagged for OHA) -->
+                  <template v-else-if="f.state === 'force_saved'">
+                    <i class="el-icon-warning-outline sf-icon" style="color:#E6A817"></i>
+                    <div class="sf-main">
+                      <div class="sf-name">{{ f.fileName }}</div>
+                      <div class="sf-sub warn"><i class="el-icon-warning-outline"></i> Saved as Unverified — pending OHA review</div>
+                      <div v-if="isDupDn(f)" class="sf-sub err"><i class="el-icon-warning-outline"></i> Same Document Number as another file in this batch</div>
+                    </div>
+                    <div class="sf-dn">
+                      <label>Doc No. <span class="dn-req">*</span></label>
+                      <el-input v-model="f.docNumber" size="mini" placeholder="required"
+                        :class="{ 'dn-missing': !f.docNumber, 'dn-dup': isDupDn(f) }" @input="onDocNumEdit(f)" />
+                    </div>
+                    <div class="sf-actions">
+                      <el-button type="text" size="mini" icon="el-icon-view" @click="previewSlotFile(slot, f)" />
+                      <el-button type="text" size="mini" icon="el-icon-delete" style="color:#ff4949" @click="removeSlotFile(slot, f)" />
+                    </div>
+                  </template>
+
+                  <!-- wrong document type -->
+                  <template v-else-if="f.state === 'type_error'">
+                    <i class="el-icon-circle-close sf-icon" style="color:#ff4949"></i>
+                    <div class="sf-main">
+                      <div class="sf-name">{{ f.fileName }}</div>
+                      <div class="sf-sub err"><i class="el-icon-close"></i> Wrong type — AI detected {{ f.detectedType }}, not {{ slot.label }}</div>
+                    </div>
+                    <div class="sf-actions">
+                      <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(file) => reuploadSlotFile(slot, f, file)">
+                        <el-button type="text" size="mini" icon="el-icon-refresh">Re-upload</el-button>
+                      </el-upload>
+                      <el-button type="text" size="mini" icon="el-icon-delete" style="color:#ff4949" @click="removeSlotFile(slot, f)" />
+                    </div>
+                  </template>
+
+                  <!-- PO mismatch -->
+                  <template v-else-if="f.state === 'po_mismatch'">
+                    <i class="el-icon-warning sf-icon" style="color:#E6A817"></i>
+                    <div class="sf-main">
+                      <div class="sf-name">{{ f.fileName }}</div>
+                      <div class="sf-sub err"><i class="el-icon-close"></i> PO mismatch — found {{ f.foundPO }}, expected {{ currentPo.orderNo }}</div>
+                    </div>
+                    <div class="sf-actions">
+                      <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(file) => reuploadSlotFile(slot, f, file)">
+                        <el-button type="text" size="mini" icon="el-icon-refresh">Re-upload</el-button>
+                      </el-upload>
+                      <el-button type="text" size="mini" style="color:#E6A817" icon="el-icon-warning-outline" @click="forceSave(slot, f)">Save anyway</el-button>
+                      <el-button type="text" size="mini" icon="el-icon-delete" style="color:#ff4949" @click="removeSlotFile(slot, f)" />
+                    </div>
+                  </template>
+
                 </div>
-                <div class="new-version-row">
-                  <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
-                    <el-button type="text" size="mini" icon="el-icon-refresh-left">Upload new version</el-button>
+
+                <!-- footer: append more files to this slot -->
+                <div class="sf-footer">
+                  <el-upload action="#" multiple :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
+                    <el-button type="text" size="mini" icon="el-icon-plus">Add more files</el-button>
                   </el-upload>
-                </div>
-              </div>
-
-              <!-- TYPE ERROR -->
-              <div v-if="slot.state === 'type_error'" class="slot-body slot-error">
-                <div class="error-header">
-                  <i class="el-icon-circle-close"></i>
-                  <div>
-                    <div class="error-title">Wrong document type</div>
-                    <div class="error-file">{{ slot.fileName }}</div>
+                  <div class="demo-btns" style="margin-top:0">
+                    <span class="demo-label">Demo:</span>
+                    <el-button size="mini" type="text" @click="startUpload(slot, null, 'po_mismatch')">+PO mismatch</el-button>
+                    <el-button size="mini" type="text" @click="startUpload(slot, null, 'ocr_fail')">+OCR fail</el-button>
                   </div>
                 </div>
-                <el-alert title="Document type mismatch" type="error" :closable="false" show-icon style="margin-bottom:10px">
-                  <div style="font-size:12px;margin-top:2px">
-                    AI detected this file is a <strong>{{ slot.detectedType }}</strong>, not a <strong>{{ slot.label }}</strong>.
-                  </div>
-                </el-alert>
-                <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
-                  <el-button type="danger" size="small" icon="el-icon-refresh" plain>Re-upload Correct File</el-button>
-                </el-upload>
-              </div>
-
-              <!-- PO MISMATCH -->
-              <div v-if="slot.state === 'po_mismatch'" class="slot-body slot-warning">
-                <div class="error-header warning">
-                  <i class="el-icon-warning"></i>
-                  <div>
-                    <div class="error-title">PO number mismatch</div>
-                    <div class="error-file">{{ slot.fileName }}</div>
-                  </div>
-                </div>
-                <div class="check-list">
-                  <div class="check-item pass"><i class="el-icon-circle-check"></i> Document type: {{ slot.label }} ✓</div>
-                  <div class="check-item fail">
-                    <i class="el-icon-circle-close"></i>
-                    PO Number mismatch:
-                    <span class="mismatch-detail">Found <strong>{{ slot.foundPO }}</strong> — expected <strong>{{ currentPo.orderNo }}</strong></span>
-                  </div>
-                </div>
-                <el-divider style="margin:10px 0" />
-                <div style="font-size:12px;color:#666;margin-bottom:8px">How would you like to proceed?</div>
-                <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')">
-                  <el-button size="small" type="primary" plain icon="el-icon-refresh" style="width:100%;margin-bottom:6px">Re-upload Correct File</el-button>
-                </el-upload>
-                <el-button size="small" type="warning" plain icon="el-icon-warning-outline" style="width:100%" @click="forceSave(slot)">
-                  Save Anyway — Flag for OHA Review
-                </el-button>
-              </div>
-
-              <!-- FORCE SAVED -->
-              <div v-if="slot.state === 'force_saved'" class="slot-body slot-force">
-                <div class="current-version-block">
-                  <div class="cv-file">
-                    <i class="el-icon-document" style="color:#E6A817;font-size:18px"></i>
-                    <div class="cv-info">
-                      <div class="cv-name">{{ slot.fileName }}</div>
-                      <div class="cv-meta">
-                        <el-tag size="mini" type="warning">v{{ slot.version }} · Unverified</el-tag>
-                        <span style="margin-left:6px;color:#999;font-size:11px">{{ slot.uploadedAt }}</span>
-                      </div>
-                    </div>
-                    <div class="cv-actions">
-                      <el-button type="text" size="mini" icon="el-icon-view" @click="openPreview(slot, slot.version)">Preview</el-button>
-                      <el-button type="text" size="mini" icon="el-icon-download" @click="downloadFile(slot.fileName)">Download</el-button>
-                    </div>
-                  </div>
-                </div>
-                <div class="docnum-field">
-                  <label>Document Number <span class="dn-req">*</span></label>
-                  <el-input v-model="slot.docNumber" size="mini" placeholder="Enter document number"
-                    :class="{ 'dn-missing': !slot.docNumber }" @input="onDocNumEdit(slot)" />
-                  <div class="dn-hint" :class="{ warn: !slot.docNumber }">
-                    <template v-if="slot.docNumberSource === 'ai'"><i class="el-icon-cpu"></i> Auto-filled by OCR — editable</template>
-                    <template v-else-if="slot.docNumberSource === 'edited'"><i class="el-icon-edit"></i> Edited by you</template>
-                    <template v-else-if="slot.docNumberSource === 'manual'"><i class="el-icon-check"></i> Entered manually</template>
-                    <template v-else><i class="el-icon-warning-outline"></i> OCR could not read it — manual input required</template>
-                  </div>
-                </div>
-                <el-alert title="Saved as Unverified — pending OHA review" type="warning" :closable="false" show-icon style="margin-top:8px" />
-                <el-upload action="#" :auto-upload="false" :show-file-list="false" :on-change="(f) => startUpload(slot, f, 'pass')" style="margin-top:8px">
-                  <el-button type="text" size="mini" icon="el-icon-refresh-left">Replace with correct file</el-button>
-                </el-upload>
               </div>
 
             </div>
@@ -442,14 +409,14 @@
 
       <div slot="footer">
         <el-button size="small" @click="uploadDialog.visible=false">Cancel</el-button>
-        <el-tooltip :disabled="hasSessionUploads && docNumbersComplete" :content="saveBlockReason" placement="top">
+        <el-tooltip :disabled="!saveBlockReason" :content="saveBlockReason" placement="top">
           <span style="margin-left:10px">
-            <el-button size="small" icon="el-icon-folder-checked" :disabled="!hasSessionUploads || !docNumbersComplete" @click="saveUpload">Save</el-button>
+            <el-button size="small" icon="el-icon-folder-checked" :disabled="!!saveBlockReason" @click="saveUpload">Save</el-button>
           </span>
         </el-tooltip>
-        <el-tooltip :disabled="canConfirm && docNumbersComplete" :content="submitBlockReason" placement="top">
+        <el-tooltip :disabled="!submitBlockReason" :content="submitBlockReason" placement="top">
           <span style="margin-left:10px">
-            <el-button size="small" type="primary" :disabled="!canConfirm || !docNumbersComplete" @click="submitUpload">Submit</el-button>
+            <el-button size="small" type="primary" :disabled="!!submitBlockReason" @click="submitUpload">Submit</el-button>
           </span>
         </el-tooltip>
       </div>
@@ -1291,10 +1258,18 @@ const VERIFY_STEPS = [
   { label: 'Matching PO reference numbers', status: 'pending' },
 ]
 
-const mkSlot = (key, label) => ({
-  key, label, state: 'idle',
-  fileName: '', version: 1, uploadedAt: '',
+// A mandatory slot holds MULTIPLE files (FR-03) — each verified independently.
+const mkSlot = (key, label) => ({ key, label, files: [] })
+
+// One uploaded file inside a slot — its own little AI-verify state machine.
+// state: uploading | verifying | verified | type_error | po_mismatch | force_saved
+let SLOT_FILE_SEQ = 0
+const mkSlotFile = (fileName) => ({
+  id: ++SLOT_FILE_SEQ,
+  fileName,
+  state: 'uploading',
   progress: 0, steps: [], detectedType: '', foundPO: '',
+  version: 1, uploadedAt: '',
   // Document Number captured via OCR (auto-fill) or manual input.
   // docNumberSource: '' (none/required) | 'ai' | 'edited' | 'manual'
   docNumber: '', docNumberSource: '',
@@ -1458,32 +1433,54 @@ export default {
     },
 
     milestoneComplete() {
-      return this.mandatorySlots.every(s => s.state === 'verified')
+      return this.mandatorySlots.every(s =>
+        s.files.length > 0 && s.files.every(f => f.state === 'verified'))
     },
     // Invoice / Packing List updates must pass AI verification
     updateNeedsAi() {
       const t = this.updateDialog.doc && this.updateDialog.doc.docTypeLabel
       return t === 'Commercial Invoice' || t === 'Packing List'
     },
-    // Submit enabled only when each required doc type is covered:
-    // uploaded in this session (verified / force-saved) or already on the PO
+    // Every file in every slot is at a terminal state — no in-progress
+    // verification and no unresolved failures left in the session.
+    sessionFilesResolved() {
+      return this.mandatorySlots.every(s =>
+        s.files.every(f => f.state === 'verified' || f.state === 'force_saved'))
+    },
+    // Document Numbers used more than once across this session's uploads —
+    // a number identifies exactly one document, so duplicates block Save/Submit.
+    sessionDupDns() {
+      const all = []
+      this.mandatorySlots.forEach(s => s.files.forEach(f => {
+        if ((f.state === 'verified' || f.state === 'force_saved') && !f.mergedInto && (f.docNumber || '').trim()) {
+          all.push(f.docNumber.trim())
+        }
+      }))
+      this.otherDocuments.forEach(d => { if ((d.docNumber || '').trim()) all.push(d.docNumber.trim()) })
+      const seen = new Set(), dup = new Set()
+      all.forEach(dn => { if (seen.has(dn)) dup.add(dn); seen.add(dn) })
+      return dup
+    },
+    // Submit enabled only when each required doc type is covered (at least one
+    // file this session, or already on the PO) and every file is resolved
     canConfirm() {
       if (!this.currentPo) return false
+      if (!this.sessionFilesResolved) return false
       return this.mandatorySlots.every(slot =>
-        slot.state === 'verified' || slot.state === 'force_saved'
+        slot.files.some(f => f.state === 'verified' || f.state === 'force_saved')
         || this.currentPo.docs.some(d => d.docTypeLabel === slot.label)
       )
     },
     // Save enabled as soon as anything was uploaded in this session —
     // other documents alone can be saved without meeting the CI+PL rule
     hasSessionUploads() {
-      return this.mandatorySlots.some(s => s.state === 'verified' || s.state === 'force_saved')
+      return this.mandatorySlots.some(s => s.files.some(f => f.state === 'verified' || f.state === 'force_saved'))
         || this.otherDocuments.length > 0
     },
-    // Every uploaded document this session (mandatory slots + other docs)
+    // Every uploaded document this session (all slot files + other docs)
     sessionDocs() {
       return [
-        ...this.mandatorySlots.filter(s => s.state === 'verified' || s.state === 'force_saved'),
+        ...this.mandatorySlots.flatMap(s => s.files.filter(f => f.state === 'verified' || f.state === 'force_saved')),
         ...this.otherDocuments,
       ]
     },
@@ -1536,12 +1533,16 @@ export default {
     },
     saveBlockReason() {
       if (!this.hasSessionUploads) return 'Nothing to save yet — upload at least one document'
+      if (!this.sessionFilesResolved) return 'Some files are still verifying or failed — wait, re-upload, or remove them first'
       if (!this.docNumbersComplete) return 'Each uploaded document needs a Document Number — fill the highlighted field(s)'
+      if (this.sessionDupDns.size) return 'Two files share the same Document Number — a number identifies exactly one document'
       return ''
     },
     submitBlockReason() {
+      if (!this.sessionFilesResolved) return 'Some files are still verifying or failed — wait, re-upload, or remove them first'
       if (!this.canConfirm) return 'Submit requires Commercial Invoice and Packing List — both uploaded and AI-verified'
       if (!this.docNumbersComplete) return 'Each uploaded document needs a Document Number — fill the highlighted field(s)'
+      if (this.sessionDupDns.size) return 'Two files share the same Document Number — a number identifies exactly one document'
       return ''
     },
     // PO-level gates for the document history dialog footer
@@ -1588,30 +1589,35 @@ export default {
       return ''
     },
     milestoneBarClass() {
-      const states = this.mandatorySlots.map(s => s.state)
-      if (states.every(s => s === 'verified')) return 'bar-complete'
+      const states = this.mandatorySlots.map(s => this.slotAggState(s))
+      if (this.milestoneComplete) return 'bar-complete'
       if (states.some(s => ['type_error','po_mismatch'].includes(s))) return 'bar-error'
       if (states.some(s => ['uploading','verifying'].includes(s))) return 'bar-verifying'
       return 'bar-pending'
     },
     milestoneIcon() {
       if (this.milestoneComplete) return 'el-icon-circle-check'
-      if (this.mandatorySlots.some(s => ['type_error','po_mismatch'].includes(s.state))) return 'el-icon-warning'
+      if (this.mandatorySlots.some(s => ['type_error','po_mismatch'].includes(this.slotAggState(s)))) return 'el-icon-warning'
       return 'el-icon-document'
     },
     milestoneTitle() {
       if (this.milestoneComplete) return 'All required documents verified — confirm to save'
-      const done = this.mandatorySlots.filter(s => s.state === 'verified').length
-      return done === 0 ? 'Upload Shipping Documents Milestone' : `${done}/2 required documents verified`
+      const done = this.mandatorySlots.filter(s =>
+        s.files.length && s.files.every(f => f.state === 'verified')).length
+      return done === 0 ? 'Upload Shipping Documents Milestone' : `${done}/2 required document types verified`
     },
     milestoneSub() {
-      if (this.milestoneComplete) return 'Commercial Invoice ✓  ·  Packing List ✓'
       return this.mandatorySlots.map(s => {
-        if (s.state === 'verified')    return `${s.label} ✓`
-        if (s.state === 'type_error')  return `${s.label} ✗ (wrong type)`
-        if (s.state === 'po_mismatch') return `${s.label} ✗ (PO mismatch)`
-        if (s.state === 'force_saved') return `${s.label} ⚠ (pending OHA)`
-        return `${s.label} — pending`
+        if (!s.files.length) return `${s.label} — pending`
+        const total = s.files.length
+        const ok = s.files.filter(f => f.state === 'verified').length
+        const bad = s.files.filter(f => f.state === 'type_error' || f.state === 'po_mismatch').length
+        const busy = s.files.filter(f => f.state === 'uploading' || f.state === 'verifying').length
+        const forced = s.files.filter(f => f.state === 'force_saved').length
+        if (busy) return `${s.label} — verifying ${busy} of ${total}…`
+        if (bad) return `${s.label} ✗ (${bad} of ${total} failed)`
+        if (forced) return `${s.label} ⚠ (${forced} pending OHA)`
+        return total === 1 ? `${s.label} ✓` : `${s.label} ✓ (${ok} files)`
       }).join('  ·  ')
     },
   },
@@ -2298,9 +2304,11 @@ export default {
       this.uploadDialog.visible = true
     },
 
-    // version = existing docs of same type on this PO + 1
-    nextVersion(docTypeLabel) {
-      const existing = this.currentPo.docs.filter(d => d.docTypeLabel === docTypeLabel)
+    // version = existing docs with the same Document Number + 1. The number is
+    // the document's identity — a fresh number always starts at v1, no matter
+    // how many documents of the same type the PO already has.
+    nextVersion(docNumber) {
+      const existing = this.currentPo.docs.filter(d => d.docNumber === docNumber)
       return existing.length ? Math.max(...existing.map(d => d.version)) + 1 : 1
     },
 
@@ -2311,23 +2319,25 @@ export default {
       let saved = 0
 
       this.mandatorySlots.forEach(slot => {
-        // Slots folded into an existing document's version chain were already
-        // applied at confirm time — don't create a duplicate document.
-        if (slot.mergedInto) { saved++; return }
-        if (slot.state === 'verified' || slot.state === 'force_saved') {
-          this.currentPo.docs.push({
-            docNumber: slot.docNumber,
-            poNumber: this.currentPo.orderNo,
-            soRef: this.currentPo.soRef,
-            docTypeLabel: slot.label,
-            blType: '',
-            fileName: slot.fileName,
-            uploadDate: today,
-            version: this.nextVersion(slot.label),
-            status: slot.state === 'verified' ? 'VERIFIED' : 'UNVERIFIED',
-          })
-          saved++
-        }
+        slot.files.forEach(f => {
+          // Files folded into an existing document's version chain were already
+          // applied at confirm time — don't create a duplicate document.
+          if (f.mergedInto) { saved++; return }
+          if (f.state === 'verified' || f.state === 'force_saved') {
+            this.currentPo.docs.push({
+              docNumber: f.docNumber,
+              poNumber: this.currentPo.orderNo,
+              soRef: this.currentPo.soRef,
+              docTypeLabel: slot.label,
+              blType: '',
+              fileName: f.fileName,
+              uploadDate: today,
+              version: this.nextVersion(f.docNumber),
+              status: f.state === 'verified' ? 'VERIFIED' : 'UNVERIFIED',
+            })
+            saved++
+          }
+        })
       })
       this.otherDocuments.forEach(d => {
         this.currentPo.docs.push({
@@ -2338,7 +2348,7 @@ export default {
           blType: d.docType === 'BILL_OF_LADING' ? 'HBL' : '',
           fileName: d.fileName,
           uploadDate: today,
-          version: this.nextVersion(d.docTypeLabel),
+          version: this.nextVersion(d.docNumber),
           status: d.status,
         })
         saved++
@@ -2353,9 +2363,9 @@ export default {
     // Save: store whatever was uploaded (other documents alone are fine) —
     // the milestone is NOT completed; files reappear in the PO history.
     saveUpload() {
-      // Backstop: every uploaded document must carry a Document Number (FR-04)
-      if (!this.docNumbersComplete) {
-        this.$message.error('Cannot save: each uploaded document needs a Document Number')
+      // Backstop for the disabled button — same gates as the tooltip
+      if (this.saveBlockReason) {
+        this.$message.error(this.saveBlockReason)
         return
       }
       const saved = this.persistSessionUploads()
@@ -2365,13 +2375,9 @@ export default {
 
     // Submit: completes the milestone — hard-gated on CI + PL coverage.
     submitUpload() {
-      // Backstop for the disabled button — same rule as canConfirm
-      if (!this.canConfirm) {
-        this.$message.error('Cannot submit: Commercial Invoice and Packing List are both required')
-        return
-      }
-      if (!this.docNumbersComplete) {
-        this.$message.error('Cannot submit: each uploaded document needs a Document Number')
+      // Backstop for the disabled button — same gates as the tooltip
+      if (this.submitBlockReason) {
+        this.$message.error(this.submitBlockReason)
         return
       }
       const saved = this.persistSessionUploads()
@@ -2457,11 +2463,78 @@ export default {
       return { pending:'el-icon-minus', running:'el-icon-loading', done:'el-icon-check', error:'el-icon-close' }[s] || ''
     },
 
+    // Aggregate state of a slot across all its files — reuses the existing
+    // badge/border CSS keys of the single-file design.
+    slotAggState(slot) {
+      const fs = slot.files
+      if (!fs.length) return 'idle'
+      if (fs.some(f => f.state === 'uploading')) return 'uploading'
+      if (fs.some(f => f.state === 'verifying')) return 'verifying'
+      if (fs.some(f => f.state === 'type_error')) return 'type_error'
+      if (fs.some(f => f.state === 'po_mismatch')) return 'po_mismatch'
+      if (fs.some(f => f.state === 'force_saved')) return 'force_saved'
+      return 'verified'
+    },
+    slotAggLabel(slot) {
+      const fs = slot.files
+      if (!fs.length) return 'Awaiting upload'
+      const busy = fs.filter(f => f.state === 'uploading' || f.state === 'verifying').length
+      if (busy) return `AI verifying ${busy} of ${fs.length}…`
+      const bad = fs.filter(f => f.state === 'type_error' || f.state === 'po_mismatch').length
+      if (bad) return `${bad} of ${fs.length} need${bad === 1 ? 's' : ''} attention`
+      const ok = fs.filter(f => f.state === 'verified').length
+      const forced = fs.length - ok
+      if (forced) return `${fs.length} saved · ${forced} unverified`
+      return ok === 1 ? 'Verified ✓' : `${ok} verified ✓`
+    },
+    currentStepLabel(f) {
+      const s = (f.steps || []).find(x => x.status === 'running')
+      return s ? s.label : 'Uploading…'
+    },
+    isDupDn(f) {
+      return !!(f.docNumber || '').trim() && this.sessionDupDns.has(f.docNumber.trim())
+    },
+    removeSlotFile(slot, f) {
+      const i = slot.files.indexOf(f)
+      if (i > -1) slot.files.splice(i, 1)
+    },
+    previewSlotFile(slot, f) {
+      this.preview = {
+        visible: true,
+        title: `Preview — ${slot.label} (${f.fileName})`,
+        docType: slot.label,
+        fileName: f.fileName,
+        version: f.version || 1,
+        status: f.state === 'verified' ? 'VERIFIED' : 'UNVERIFIED',
+        uploadedAt: f.uploadedAt,
+        poNumber: this.currentPo ? this.currentPo.orderNo : '—',
+      }
+    },
+    // Demo: a batch of three files hits the slot at once — two pass, one PO mismatch
+    startBatchDemo(slot) {
+      this.startUpload(slot, null, 'pass')
+      setTimeout(() => this.startUpload(slot, null, 'pass'), 300)
+      setTimeout(() => this.startUpload(slot, null, 'po_mismatch'), 600)
+    },
+
+    // Each selected file becomes its own row with an independent verify run.
+    // el-upload with `multiple` fires on-change once per file.
     startUpload(slot, file, scenario) {
-      slot.fileName = file ? file.name : `${slot.key === 'ci' ? 'INVOICE' : 'PACKLIST'}-DEMO.pdf`
-      slot.state = 'uploading'; slot.progress = 0
-      slot.steps = VERIFY_STEPS.map(s => ({ ...s }))
-      slot.steps[0].status = 'running'
+      const name = file ? file.name
+        : `${slot.key === 'ci' ? 'INVOICE' : 'PACKLIST'}-DEMO-${++SLOT_FILE_SEQ}.pdf`
+      const f = mkSlotFile(name)
+      slot.files.push(f)
+      this.runSlotVerify(slot, f, scenario)
+    },
+    // Re-run verification on an existing row (after a failed check)
+    reuploadSlotFile(slot, f, file) {
+      if (file) f.fileName = file.name
+      this.runSlotVerify(slot, f, 'pass')
+    },
+    runSlotVerify(slot, f, scenario) {
+      f.state = 'uploading'; f.progress = 0
+      f.steps = VERIFY_STEPS.map(s => ({ ...s }))
+      f.steps[0].status = 'running'
 
       const timings = [
         { delay: 600,  step: 0, status: 'done', progress: 20, nextStep: 1 },
@@ -2471,47 +2544,45 @@ export default {
       ]
       timings.forEach(({ delay, step, status, progress, nextStep, stateChange }) => {
         setTimeout(() => {
-          slot.steps[step].status = status
-          slot.progress = progress
-          if (stateChange) slot.state = stateChange
-          if (nextStep !== undefined) slot.steps[nextStep].status = 'running'
-          if (step === 3) setTimeout(() => this.applyResult(slot, scenario), 400)
+          f.steps[step].status = status
+          f.progress = progress
+          if (stateChange) f.state = stateChange
+          if (nextStep !== undefined) f.steps[nextStep].status = 'running'
+          if (step === 3) setTimeout(() => this.applyResult(slot, f, scenario), 400)
         }, delay)
       })
     },
 
-    applyResult(slot, scenario) {
+    applyResult(slot, f, scenario) {
       if (scenario === 'pass') {
-        slot.state = 'verified'; slot.uploadedAt = new Date().toLocaleTimeString()
-        slot.version = this.nextVersion(slot.label)
-        this.captureDocNumber(slot, true)   // OCR succeeds → auto-fill
-        this.$message.success(`${slot.label} verified successfully!`)
+        f.state = 'verified'; f.uploadedAt = new Date().toLocaleTimeString()
+        this.captureDocNumber(slot, f, true)   // OCR succeeds → auto-fill
+        this.$message.success(`${slot.label}: ${f.fileName} verified`)
       } else if (scenario === 'ocr_fail') {
         // Type + PO pass, but OCR cannot read the Document Number → manual input required
-        slot.state = 'verified'; slot.uploadedAt = new Date().toLocaleTimeString()
-        slot.version = this.nextVersion(slot.label)
-        this.captureDocNumber(slot, false)
-        this.$message.warning(`${slot.label} verified — but OCR could not read the Document Number. Please enter it manually.`)
+        f.state = 'verified'; f.uploadedAt = new Date().toLocaleTimeString()
+        this.captureDocNumber(slot, f, false)
+        this.$message.warning(`${f.fileName} verified — but OCR could not read the Document Number. Please enter it manually.`)
       } else if (scenario === 'type_error') {
-        slot.steps[2].status = 'error'; slot.steps[3].status = 'pending'
-        slot.state = 'type_error'
-        slot.detectedType = slot.key === 'ci' ? 'Bill of Lading' : 'Commercial Invoice'
-        this.$message.error(`${slot.label}: wrong document type detected`)
+        f.steps[2].status = 'error'; f.steps[3].status = 'pending'
+        f.state = 'type_error'
+        f.detectedType = slot.key === 'ci' ? 'Bill of Lading' : 'Commercial Invoice'
+        this.$message.error(`${f.fileName}: wrong document type detected`)
       } else if (scenario === 'po_mismatch') {
-        slot.steps[3].status = 'error'; slot.state = 'po_mismatch'
-        slot.foundPO = 'ORD09999999_01'
-        this.$message.warning(`${slot.label}: PO number does not match`)
+        f.steps[3].status = 'error'; f.state = 'po_mismatch'
+        f.foundPO = 'ORD09999999_01'
+        this.$message.warning(`${f.fileName}: PO number does not match`)
       } else if (scenario === 'dn_exists_active') {
         // OCR reads a Document Number that already belongs to an ACTIVE document
         // on this PO → offer to fold the file into that document's version chain.
-        const target = (this.currentPo.docs || []).find(d => !d.replaced)
+        const target = (this.currentPo.docs || []).find(d => !d.replaced && !d.deleted)
         if (!target) {
-          slot.state = 'idle'
+          this.removeSlotFile(slot, f)
           this.$message.info('Demo needs a PO that already has documents — try ORD01671737_01 or ORD01694098_01')
           return
         }
-        slot.state = 'verified'; slot.uploadedAt = new Date().toLocaleTimeString()
-        slot.docNumber = target.docNumber; slot.docNumberSource = 'ai'
+        f.state = 'verified'; f.uploadedAt = new Date().toLocaleTimeString()
+        f.docNumber = target.docNumber; f.docNumberSource = 'ai'
         this.$confirm(
           `OCR read Document Number ${target.docNumber}, which already exists on this PO (${target.docTypeLabel} · ${target.fileName}, v${target.version}, Active). A number can only belong to one document — save this file as a new version (v${target.version + 1}) of that document instead?`,
           'Document Number already exists',
@@ -2521,26 +2592,25 @@ export default {
             { version: target.version, fileName: target.fileName, uploadDate: target.uploadDate, status: target.status },
             ...(target.versionHistory || []),
           ])
-          target.fileName = slot.fileName
+          target.fileName = f.fileName
           target.version += 1
           target.uploadDate = new Date().toISOString().slice(0, 10)
           target.status = 'VERIFIED'
-          slot.mergedInto = target.docNumber
+          f.mergedInto = target.docNumber
           this.poNewUpload = true
           this.$message.success(`Folded into ${target.docNumber} as v${target.version} — no duplicate document created`)
         }).catch(() => {
-          slot.state = 'idle'; slot.docNumber = ''; slot.docNumberSource = ''
+          this.removeSlotFile(slot, f)
         })
       } else if (scenario === 'dn_exists_replaced') {
         // OCR reads a Document Number that was replaced and retired.
         // Not directly reusable — but the supplier can request reinstatement (V1).
         const target = (this.currentPo.docs || []).find(d => d.replaced)
+        this.removeSlotFile(slot, f)
         if (!target) {
-          slot.state = 'idle'
           this.$message.info('Demo needs a PO with a replaced document — try ORD01694382_01')
           return
         }
-        slot.state = 'idle'
         this.$confirm(
           `OCR read Document Number ${target.docNumber}, but that number was replaced by ${target.replacedBy} and is retired. It cannot be reused directly. If you believe this document is actually valid (the replacement was a mistake, or it was re-issued under the same number), you can request reinstatement — the reviewer will restore it, and you can then upload this file as its new version.`,
           'Document Number retired',
@@ -2564,23 +2634,22 @@ export default {
       }
     },
 
-    forceSave(slot) {
-      slot.state = 'force_saved'; slot.uploadedAt = new Date().toLocaleTimeString()
-      slot.version = this.nextVersion(slot.label)
-      this.captureDocNumber(slot, true)
-      this.$message.warning('Saved as Unverified. OHA will review this document.')
+    forceSave(slot, f) {
+      f.state = 'force_saved'; f.uploadedAt = new Date().toLocaleTimeString()
+      this.captureDocNumber(slot, f, true)
+      this.$message.warning(`${f.fileName} saved as Unverified. OHA will review this document.`)
     },
 
     // Simulate OCR extraction of the Document Number.
     //  ok === true  → auto-fill (source 'ai', editable)
     //  ok === false → leave empty, supplier must type it (manual input required)
-    captureDocNumber(slot, ok) {
+    captureDocNumber(slot, f, ok) {
       if (ok) {
-        slot.docNumber = `${DN_PREFIX[slot.key] || 'DOC'}-${++OCR_SEQ}`
-        slot.docNumberSource = 'ai'
+        f.docNumber = `${DN_PREFIX[slot.key] || 'DOC'}-${++OCR_SEQ}`
+        f.docNumberSource = 'ai'
       } else {
-        slot.docNumber = ''
-        slot.docNumberSource = ''
+        f.docNumber = ''
+        f.docNumberSource = ''
       }
     },
     // Track manual edits so the UI shows the right provenance label.
@@ -2590,24 +2659,6 @@ export default {
     },
 
     // ── Preview / download ───────────────────────────────────────────────
-    openPreview(slot, version, versionObj) {
-      const file = versionObj || slot
-      const isVerified = versionObj
-        ? versionObj.status === 'VERIFIED'
-        : slot.state === 'verified'
-
-      this.preview = {
-        visible: true,
-        title: `Preview — ${slot ? slot.label : file.docTypeLabel} (v${version})`,
-        docType: slot ? slot.label : file.docTypeLabel,
-        fileName: file.fileName,
-        version,
-        status: isVerified ? 'VERIFIED' : 'UNVERIFIED',
-        uploadedAt: file.uploadedAt,
-        poNumber: this.currentPo ? this.currentPo.orderNo : '—',
-      }
-    },
-
     downloadFile(fileName) {
       this.$message.success(`Downloading ${fileName}…`)
     },
@@ -2735,6 +2786,36 @@ export default {
   &.badge-force_saved { background:#fff8e0; color:#e6a817; }
 }
 .slot-body { padding:14px; }
+
+// Multi-file slot rows — one compact row per uploaded file
+.sf-row {
+  display:flex; align-items:center; gap:10px; padding:9px 12px;
+  border-bottom:1px solid #f0f2f5; background:#fff;
+  &.sf-type_error  { background:#fff7f7; }
+  &.sf-po_mismatch { background:#fffbf2; }
+  &.sf-force_saved { background:#fffdf6; }
+  .sf-icon { font-size:17px; flex-shrink:0; }
+  .sf-main { flex:1; min-width:0; }
+  .sf-name { font-size:12px; font-weight:600; color:#303133; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sf-sub  { font-size:11px; margin-top:2px;
+    &.ok   { color:#13ce66; }
+    &.err  { color:#ff4949; }
+    &.warn { color:#c25e00; }
+  }
+  .sf-progress-row { display:flex; align-items:center; gap:8px; margin-top:5px; }
+  .sf-step { font-size:11px; color:#909399; white-space:nowrap; }
+  .sf-dn { display:flex; flex-direction:column; width:132px; flex-shrink:0;
+    label { font-size:10px; color:#909399; margin-bottom:2px; line-height:1;
+      .dn-req { color:#ff4949; }
+    }
+  }
+  .sf-actions { display:flex; align-items:center; gap:2px; flex-shrink:0; }
+}
+.sf-footer {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:6px 12px; background:#fafbfc;
+}
+.dn-dup ::v-deep .el-input__inner { border-color:#ff4949; background:#fff7f7; }
 
 // Idle
 .upload-hint { background:#f8fafc; border-radius:6px; padding:10px 12px; margin-bottom:12px; }
