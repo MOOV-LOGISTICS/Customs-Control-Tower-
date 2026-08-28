@@ -442,8 +442,9 @@ export const ohaStore = Vue.observable({
       carriageContract: 'CY/CY', paymentTerm: '', etd: '2026-05-23', eta: '2026-07-14', mblNumber: '', blType: '',
       orderNo: 'ORD01776966_01', supplier: 'Ningbo Winpex Imp. and Exp. CO., Ltd', urgentDate: '2026-05-25', dueDate: '2026-05-26', bucket: 'overdue',
       ohaStatus: 'PENDING', verifyHistory: [],
+      // One shipment covers several shipping orders; each SO covers several POs
       shippingOrders: [
-        { shipperBookingNo: 'NGB26041776035', shipmentType: 'FCL', hblNo: '', blType: '', cbm: '60.269', packages: 1311, grossWeight: '6811.4', clrStatus: 'Done' },
+        { shipperBookingNo: 'NGB26041776035', orderNos: ['ORD01776966_01', 'ORD01776966_02'], shipmentType: 'FCL', hblNo: '', blType: '', cbm: '60.269', packages: 1311, grossWeight: '6811.4', clrStatus: 'Done' },
       ],
       documents: [
         ohaDoc('BA26LU05215A', 'NGB26041776035', 'Commercial Invoice', 'BA26LU05215A IV.pdf', 'VERIFIED'),
@@ -456,8 +457,10 @@ export const ohaStore = Vue.observable({
       carriageContract: 'CY/CY', paymentTerm: '', etd: '2026-05-24', eta: '2026-07-15', mblNumber: 'MAEU240031', blType: 'HBL',
       orderNo: 'ORD01788037_01', supplier: 'NINGBO GENERAL UNION CO.,LTD', urgentDate: '2026-05-25', dueDate: '2026-05-26', bucket: 'overdue',
       ohaStatus: 'PENDING', verifyHistory: [],
+      // Two shipping orders under one shipment ref — the second covers two POs
       shippingOrders: [
-        { shipperBookingNo: 'NGB26041788037', shipmentType: 'FCL', hblNo: 'MOOV26041788', blType: 'HBL', cbm: '7.327', packages: 244, grossWeight: '3904', clrStatus: 'Done' },
+        { shipperBookingNo: 'NGB26041788037', orderNos: ['ORD01788037_01'], shipmentType: 'FCL', hblNo: 'MOOV26041788', blType: 'HBL', cbm: '7.327', packages: 244, grossWeight: '3904', clrStatus: 'Done' },
+        { shipperBookingNo: 'NGB26041788041', orderNos: ['ORD01788041_01', 'ORD01788041_02'], shipmentType: 'LCL', hblNo: '', blType: '', cbm: '3.140', packages: 96, grossWeight: '1180', clrStatus: 'Pending' },
       ],
       documents: [
         ohaDoc('INV-880910', 'NGB26041788037', 'Commercial Invoice', 'INV-880910-v2.pdf', 'VERIFIED', 2, '2026-05-22', [
@@ -485,7 +488,7 @@ export const ohaStore = Vue.observable({
       orderNo: 'ORD01780737_01', supplier: 'KEYCRAFT LTD', urgentDate: '2026-05-25', dueDate: '2026-05-26', bucket: 'overdue',
       ohaStatus: 'PENDING', verifyHistory: [],
       shippingOrders: [
-        { shipperBookingNo: 'SHA26041780737', shipmentType: 'LCL', hblNo: '', blType: '', cbm: '12.500', packages: 320, grossWeight: '1820', clrStatus: 'Pending' },
+        { shipperBookingNo: 'SHA26041780737', orderNos: ['ORD01780737_01'], shipmentType: 'LCL', hblNo: '', blType: '', cbm: '12.500', packages: 320, grossWeight: '1820', clrStatus: 'Pending' },
       ],
       documents: [
         ohaDoc('INV-771201', 'SHA26041780737', 'Commercial Invoice', 'INV-771201.pdf', 'UNVERIFIED'),
