@@ -51,6 +51,12 @@
       :title="`Upload Shipping Documents ${poListDialog.statusLabel}`"
       width="1000px" top="6vh" custom-class="brand-dialog"
     >
+      <!-- SO Ref search — several POs can share one SO Ref -->
+      <div style="margin-bottom:10px;display:flex;align-items:center;gap:8px">
+        <el-input v-model="poListDialog.search" size="mini" placeholder="SO Ref" clearable
+          style="width:220px" @keyup.enter.native="applyPoSearch" @clear="applyPoSearch" />
+        <el-button type="primary" size="mini" icon="el-icon-search" @click="applyPoSearch">Search</el-button>
+      </div>
       <div style="margin-bottom:10px">
         <el-button type="primary" size="mini" icon="el-icon-download" @click="$message.success('Exporting PO list as Excel…')">Download</el-button>
       </div>
@@ -63,7 +69,11 @@
             <span class="po-link">{{ row.orderNo }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="Supplier Name" min-width="200" prop="supplier" />
+        <el-table-column label="SO Ref" width="160" prop="soRef" />
+        <el-table-column label="Shipment Ref" width="170">
+          <template #default="{row}">{{ shipmentRefOf(row.soRef) }}</template>
+        </el-table-column>
+        <el-table-column label="Supplier Name" min-width="180" prop="supplier" />
         <el-table-column label="Urgent Date" width="110" prop="urgentDate" />
         <el-table-column label="Due date" width="110" prop="dueDate" sortable />
         <el-table-column label="Actions" width="80" align="center">
@@ -93,15 +103,17 @@
           </span>
         </el-tooltip>
         <el-tag size="mini" type="danger" style="margin-left:6px;vertical-align:middle">New</el-tag>
-        <span style="font-size:12px;color:#666">
-          PO <strong style="color:#004F7C">{{ currentPo.orderNo }}</strong> · {{ currentPo.supplier }} · SO Ref {{ currentPo.soRef }}
-        </span>
       </div>
       <el-table v-if="currentPo" :data="currentPo.docs" size="mini" stripe border :header-cell-style="{background:'#fafafa'}"
         :default-sort="{ prop: 'uploadDate', order: 'ascending' }"
         :row-class-name="({row}) => (row.deleted || row.replaced) ? 'po-doc-inactive' : ''">
         <el-table-column label="Document Number" width="130" prop="docNumber" align="center" />
-        <el-table-column label="PO Number" width="140" prop="poNumber" align="center" />
+        <!-- Documents belong to the SO: list every PO covered by it -->
+        <el-table-column label="PO Number" width="150" align="center">
+          <template #default="{row}">
+            <div v-for="po in soPoNumbers(row)" :key="po" style="line-height:1.6">{{ po }}</div>
+          </template>
+        </el-table-column>
         <el-table-column label="SO Ref" width="140" prop="soRef" align="center" />
         <el-table-column label="Document Type" width="150" align="center">
           <template #default="{row}">
@@ -803,23 +815,35 @@
     <el-dialog
       :visible.sync="ohaListDialog.visible"
       :title="`Verify Shipping Documents ${ohaListDialog.statusLabel}`"
-      width="1000px" top="6vh" custom-class="brand-dialog"
+      width="1180px" top="6vh" custom-class="brand-dialog"
     >
-      <el-table :data="ohaFilteredShipments()" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
-        <el-table-column label="Task Name" min-width="170"><template>Verify Shipping Documents</template></el-table-column>
+      <!-- Search across the whole hierarchy: Shipment Ref → SO Ref → PO -->
+      <div style="margin-bottom:10px;display:flex;align-items:center;gap:8px">
+        <el-input v-model="ohaListDialog.search" size="mini" clearable
+          placeholder="Search PO / SO Ref / Shipment Ref" style="width:280px"
+          @keyup.enter.native="applyOhaSearch" @clear="applyOhaSearch" />
+        <el-button type="primary" size="mini" icon="el-icon-search" @click="applyOhaSearch">Search</el-button>
+      </div>
+      <!-- One row per PO: the SO Ref and Shipment Ref repeat across their POs -->
+      <el-table :data="ohaListRows()" size="mini" stripe border :header-cell-style="{background:'#fafafa'}">
+        <el-table-column label="Task Name" min-width="150"><template>Verify Shipping Documents</template></el-table-column>
         <el-table-column label="Order Number" width="160">
-          <template #default="{row}"><span class="po-link">{{ row.orderNo }}</span></template>
+          <template #default="{row}"><span class="po-link">{{ row.po }}</span></template>
         </el-table-column>
-        <el-table-column label="Supplier Name" min-width="200" prop="supplier" />
+        <el-table-column label="SO Ref" width="160" prop="soRef" />
+        <el-table-column label="Shipment Ref" width="170">
+          <template #default="{row}">{{ row.shipment.bookingRef }}</template>
+        </el-table-column>
+        <el-table-column label="Supplier Name" min-width="180" prop="supplier" />
         <el-table-column label="Urgent Date" width="110" prop="urgentDate" />
         <el-table-column label="Due date" width="110" prop="dueDate" sortable />
         <el-table-column label="Actions" width="80" align="center">
           <template #default="{row}">
-            <el-button type="text" size="mini" icon="el-icon-edit" @click="openOhaVerify(row)" />
+            <el-button type="text" size="mini" icon="el-icon-edit" @click="openOhaVerify(row.shipment)" />
           </template>
         </el-table-column>
       </el-table>
-      <div style="margin-top:10px;font-size:12px;color:#666">Total {{ ohaFilteredShipments().length }}</div>
+      <div style="margin-top:10px;font-size:12px;color:#666">Total {{ ohaListRows().length }}</div>
     </el-dialog>
 
     <!-- ══ OHA: Verify Documents — shipment detail ═══════════════════════ -->
@@ -958,7 +982,7 @@
         <el-button size="small" @click="ohaVerifyDialog.visible=false">Cancel</el-button>
         <el-button size="small" type="primary" style="margin-left:10px"
           :disabled="!ohaVerifyDialog.shipment || ohaVerifyDialog.shipment.ohaStatus === 'CONFIRMED'"
-          @click="openOhaVerifyConfirm">Confirm</el-button>
+          @click="openOhaVerifyConfirm">Review</el-button>
       </div>
     </el-dialog>
 
@@ -1098,12 +1122,19 @@
         <div v-if="ohaBatchDialog.result === 'REJECT'" class="vc-row">
           <div class="vc-label">Reject document(s)<span style="color:#ff4949"> *</span></div>
           <div class="vc-field">
+            <!-- Preview sits outside the label so it never toggles the tick -->
             <el-checkbox-group v-model="ohaBatchDialog.docSel" style="display:flex;flex-direction:column;gap:6px">
-              <el-checkbox v-for="(d, i) in ohaVerifyCandidates" :key="i" :label="i" style="margin:0;padding:5px 10px;border:1px solid #eef1f5;border-radius:6px">
-                <span style="font-family:Consolas,monospace;color:#3A71A8;font-weight:600">{{ d.docNumber }}</span>
-                <span style="margin-left:6px">{{ d.docType }}</span>
-                <span style="margin-left:6px;color:#999;font-size:11px">{{ d.fileName }} (v{{ d.version || 1 }})</span>
-              </el-checkbox>
+              <div v-for="(d, i) in ohaVerifyCandidates" :key="i" class="vc-doc-row">
+                <el-checkbox :label="i" style="margin:0;flex:1">
+                  <span style="font-family:Consolas,monospace;color:#3A71A8;font-weight:600">{{ d.docNumber }}</span>
+                  <span style="margin-left:6px">{{ d.docType }}</span>
+                  <span style="margin-left:6px;color:#999;font-size:11px">{{ d.fileName }} (v{{ d.version || 1 }})</span>
+                </el-checkbox>
+                <el-tooltip content="Preview this file" placement="top">
+                  <el-button type="primary" size="mini" icon="el-icon-view"
+                    @click.stop="previewOhaDoc(ohaBatchDialog.shipment, d)" />
+                </el-tooltip>
+              </div>
             </el-checkbox-group>
           </div>
         </div>
@@ -1282,6 +1313,19 @@ const DN_PREFIX = { ci: 'INV', pl: 'PL' }
 let OCR_SEQ = 880600
 
 // PO mock data — each PO carries its own uploaded-document history
+// Hierarchy: one Shipment Ref covers several SO Refs, each SO Ref several POs.
+// Keyed by SO Ref so every PO under one SO always resolves to the same shipment.
+const SO_SHIPMENT = {
+  NGB26040836051: 'PEPCO26080300058',
+  NGB26040836054: 'PEPCO26080300058',
+  NGB26040836056: 'PEPCO26080300061',
+  SHA26040811021: 'PEPCO26080300072',
+  CGP26040899011: 'PEPCO26080300085',
+  CGP26040899012: 'PEPCO26080300085',
+  SGN26040877001: 'PEPCO26080300090',
+  SGN26040877002: 'PEPCO26080300090',
+}
+
 const mkPo = (orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs = [], confirmed = false, locked = false) => ({
   orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs, confirmed, locked,
 })
@@ -1308,16 +1352,17 @@ export default {
         mkPo('ORD01715445_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836051','2026-05-20','2026-05-22','overdue', [
           { docNumber:4567890, poNumber:'ORD01715445_01', soRef:'NGB26040836051', docTypeLabel:'Commercial Invoice', blType:'', fileName:'111.txt', uploadDate:'2026-06-10', version:1, status:'VERIFIED' },
         ]),
-        mkPo('ORD01715442_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836052','2026-05-17','2026-05-19','overdue'),
-        mkPo('ORD01715441_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836053','2026-05-17','2026-05-19','overdue'),
+        // Several POs can sit under one SO Ref — 36051 covers three, 36054 covers two
+        mkPo('ORD01715442_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836051','2026-05-17','2026-05-19','overdue'),
+        mkPo('ORD01715441_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836051','2026-05-17','2026-05-19','overdue'),
         mkPo('ORD01711696_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836054','2026-05-20','2026-05-22','overdue'),
-        mkPo('ORD01711684_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836055','2026-05-17','2026-05-19','overdue'),
+        mkPo('ORD01711684_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836054','2026-05-17','2026-05-19','overdue'),
         mkPo('ORD01694507_01','NINGBO GENERAL UNION CO.,LTD','NGB26040836056','2026-05-23','2026-05-26','overdue'),
         mkPo('ORD01694382_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811021','2026-05-16','2026-05-19','possible', [
           { docNumber:'INV-880357', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Commercial Invoice', blType:'', fileName:'INV-880357.pdf', uploadDate:'2026-05-18', version:1, status:'VERIFIED' },
           { docNumber:'PLR-880301', poNumber:'ORD01694382_01', soRef:'SHA26040811021', docTypeLabel:'Packing List', blType:'', fileName:'PL-880301.pdf', uploadDate:'2026-05-14', version:1, status:'VERIFIED' },
         ]),
-        mkPo('ORD01694101_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811022','2026-05-20','2026-05-22','possible'),
+        mkPo('ORD01694101_01','SHANGHAI TEXTILE CO.,LTD',    'SHA26040811021','2026-05-20','2026-05-22','possible'),
         mkPo('ORD01694098_01','Guangzhou Clothing Co.',      'CGP26040899011','2026-05-17','2026-05-19','possible', [
           { docNumber:'SC-2401-6634', poNumber:'ORD01694098_01', soRef:'CGP26040899011', docTypeLabel:'Sanitary Certificate', blType:'', fileName:'SAN-240006.pdf', uploadDate:'2026-05-13', version:1, status:'VERIFIED' },
         ]),
@@ -1332,7 +1377,8 @@ export default {
       ],
 
       // Dialog state
-      poListDialog: { visible: false, statusKey: '', statusLabel: '' },
+      // search = what is typed; searchApplied = what the Search button committed
+      poListDialog: { visible: false, statusKey: '', statusLabel: '', search: '', searchApplied: '' },
       poDocsDialog: { visible: false },
       uploadDialog: { visible: false },
       currentPo: null,
@@ -1366,13 +1412,13 @@ export default {
       commentDialog: { visible: false, item: null, role: 'supplier', user: '' },
 
       // OHA — Verify Shipping Documents
-      ohaListDialog: { visible: false, statusKey: '', statusLabel: '' },
+      ohaListDialog: { visible: false, statusKey: '', statusLabel: '', search: '', searchApplied: '' },
       ohaVerifyDialog: { visible: false, shipment: null },
       ohaRejectDialog: { visible: false, shipment: null, doc: null, reason: '', remark: '' },
       ohaCommentDialog: { visible: false, shipment: null, doc: null },
       ohaVerDialog: { visible: false, shipment: null, doc: null },
       ohaReinstateDialog: { visible: false, shipment: null, doc: null, mode: 'keep' },
-      ohaBatchDialog: { visible: false, shipment: null, result: 'PASS', comment: '', docSel: [] },
+      ohaBatchDialog: { visible: false, shipment: null, result: 'REJECT', comment: '', docSel: [] },
 
       // Rejected-document correction queue (shared with Pepco Review)
       correctionDialog: { visible: false, role: 'supplier' },
@@ -1427,9 +1473,11 @@ export default {
     },
 
     poListFiltered() {
-      const k = this.poListDialog.statusKey
-      if (!k) return this.poList
-      return this.poList.filter(p => p.bucket === k)
+      const { statusKey: k, searchApplied } = this.poListDialog
+      let rows = k ? this.poList.filter(p => p.bucket === k) : this.poList
+      const q = (searchApplied || '').trim().toLowerCase()
+      if (q) rows = rows.filter(p => (p.soRef || '').toLowerCase().includes(q))
+      return rows
     },
 
     milestoneComplete() {
@@ -1635,24 +1683,63 @@ export default {
         return
       }
       if (taskRow.key === 'VERIFY_DOCS') {
-        this.ohaListDialog = { visible: true, statusKey, statusLabel: labels[statusKey] || '' }
+        this.ohaListDialog = { visible: true, statusKey, statusLabel: labels[statusKey] || '', search: '', searchApplied: '' }
         return
       }
       if (taskRow.key !== 'UPLOAD_DOCS') {
         this.$message.info(`"${taskRow.taskName}" is an existing milestone — demo focuses on Upload Shipping Documents`)
         return
       }
-      this.poListDialog = { visible: true, statusKey, statusLabel: labels[statusKey] || '' }
+      // a fresh open starts unfiltered
+      this.poListDialog = { visible: true, statusKey, statusLabel: labels[statusKey] || '', search: '', searchApplied: '' }
+    },
+    // Search commits on click / Enter / clear — typing alone does not filter
+    applyPoSearch() {
+      this.poListDialog.searchApplied = this.poListDialog.search
+    },
+    shipmentRefOf(soRef) {
+      return SO_SHIPMENT[soRef] || '—'
+    },
+    // A document sits under an SO, and one SO can cover several POs — list them
+    // all. Falls back to the document's own PO when the SO Ref is unknown.
+    soPoNumbers(doc) {
+      const so = doc.soRef
+      if (!so) return [doc.poNumber].filter(Boolean)
+      const pos = this.poList.filter(p => p.soRef === so).map(p => p.orderNo)
+      return pos.length ? pos : [doc.poNumber].filter(Boolean)
     },
 
     // ── OHA: Verify Shipping Documents ───────────────────────────────────
     ohaUnverified: ohaUnverifiedDocs,
     ohaCanConfirm,
+    // Status filter only — the search is applied per row in ohaListRows()
     ohaFilteredShipments() {
       const k = this.ohaListDialog.statusKey
       const all = ohaShipments()
-      if (k === 'finished') return all.filter(s => s.ohaStatus === 'CONFIRMED')
-      return all.filter(s => s.ohaStatus !== 'CONFIRMED')
+      return k === 'finished'
+        ? all.filter(s => s.ohaStatus === 'CONFIRMED')
+        : all.filter(s => s.ohaStatus !== 'CONFIRMED')
+    },
+    applyOhaSearch() {
+      this.ohaListDialog.searchApplied = this.ohaListDialog.search
+    },
+    // Flatten the hierarchy to one row per PO — the SO Ref and Shipment Ref
+    // repeat down their POs rather than stacking inside a single cell.
+    ohaListRows() {
+      const rows = []
+      this.ohaFilteredShipments().forEach(s => {
+        (s.shippingOrders || []).forEach(so => {
+          const pos = (so.orderNos && so.orderNos.length) ? so.orderNos : [s.orderNo].filter(Boolean)
+          pos.forEach(po => rows.push({
+            shipment: s, po, soRef: so.shipperBookingNo,
+            supplier: s.supplier, urgentDate: s.urgentDate, dueDate: s.dueDate,
+          }))
+        })
+      })
+      const q = (this.ohaListDialog.searchApplied || '').trim().toLowerCase()
+      if (!q) return rows
+      const hit = v => (v || '').toLowerCase().includes(q)
+      return rows.filter(r => hit(r.po) || hit(r.soRef) || hit(r.shipment.bookingRef))
     },
     openOhaVerify(shipment) {
       this.ohaVerifyDialog = { visible: true, shipment }
@@ -1781,7 +1868,8 @@ export default {
     openOhaVerifyConfirm() {
       const shipment = this.ohaVerifyDialog.shipment
       if (!shipment) return
-      this.ohaBatchDialog = { visible: true, shipment, result: 'PASS', comment: '', docSel: [] }
+      // Opens in Reject mode — the reviewer switches to Pass when nothing is wrong
+      this.ohaBatchDialog = { visible: true, shipment, result: 'REJECT', comment: '', docSel: [] }
     },
     submitOhaVerifyConfirm() {
       const { shipment, result, comment } = this.ohaBatchDialog
@@ -2966,6 +3054,20 @@ export default {
   .vc-field { flex:1; padding:10px 14px;
     ::v-deep .el-textarea__inner { border:none; padding:0; }
   }
+}
+// One selectable document + its preview button. The checkbox must be allowed
+// to shrink and wrap (Element sets nowrap), otherwise a long file name pushes
+// the preview button outside the row.
+.vc-doc-row {
+  display:flex; align-items:center; gap:8px;
+  padding:5px 10px; border:1px solid #eef1f5; border-radius:6px;
+  ::v-deep .el-checkbox {
+    flex:1; min-width:0; margin:0; white-space:normal;
+    display:flex; align-items:flex-start;
+    .el-checkbox__input { margin-top:2px; flex-shrink:0; }
+    .el-checkbox__label { min-width:0; line-height:1.5; word-break:break-word; }
+  }
+  .el-button { flex-shrink:0; }
 }
 
 // Intent cards (correction dialog step 1)
