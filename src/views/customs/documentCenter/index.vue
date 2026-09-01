@@ -41,7 +41,7 @@
         Viewing as <strong>{{ role }}</strong> —
         <template v-if="isSupplier">your POs; rejected documents need your re-upload</template>
         <template v-else-if="isBroker">your assigned HBLs; use Download All to package the latest files</template>
-        <template v-else>all shipments — review &amp; approve actions live in the Pepco Review tab; this page is for tracking and downloads</template>
+        <template v-else>all shipments — review &amp; approve actions live in the Document Review tab; this page is for tracking and downloads</template>
       </div>
     </el-card>
 
