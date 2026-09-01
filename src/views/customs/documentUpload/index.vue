@@ -815,7 +815,7 @@
     <el-dialog
       :visible.sync="ohaListDialog.visible"
       :title="`Verify Shipping Documents ${ohaListDialog.statusLabel}`"
-      width="1180px" top="6vh" custom-class="brand-dialog"
+      width="90%" top="6vh" custom-class="brand-dialog"
     >
       <!-- Search across the whole hierarchy: Shipment Ref → SO Ref → PO -->
       <div style="margin-bottom:10px;display:flex;align-items:center;gap:8px">
@@ -837,6 +837,16 @@
         <el-table-column label="Supplier Name" min-width="180" prop="supplier" />
         <el-table-column label="Urgent Date" width="110" prop="urgentDate" />
         <el-table-column label="Due date" width="110" prop="dueDate" sortable />
+        <el-table-column label="Status" width="130" align="center">
+          <template #default="{row}">
+            <el-tag size="mini" :type="poStatusTag(row.po).type">{{ poStatusTag(row.po).label }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="Document Verified Status" width="170" align="center">
+          <template #default="{row}">
+            <el-tag size="mini" :type="poAiStatusTag(row.po).type">{{ poAiStatusTag(row.po).label }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="Actions" width="80" align="center">
           <template #default="{row}">
             <el-button type="text" size="mini" icon="el-icon-edit" @click="openOhaVerify(row.shipment)" />
@@ -1326,6 +1336,27 @@ const SO_SHIPMENT = {
   SGN26040877002: 'PEPCO26080300090',
 }
 
+// Demo state tags for the Verify Shipping Documents list, keyed by PO number.
+// status: IN_PROGRESS | RECHECK | LOCKED · ai: VERIFIED | UNVERIFIED.
+// Unlisted POs fall back to IN_PROGRESS / UNVERIFIED.
+const PO_STATE = {
+  ORD01776966_01: { status: 'IN_PROGRESS', ai: 'UNVERIFIED' },
+  ORD01776966_02: { status: 'RECHECK',     ai: 'VERIFIED' },
+  ORD01788037_01: { status: 'RECHECK',     ai: 'VERIFIED' },
+  ORD01788041_01: { status: 'LOCKED',      ai: 'UNVERIFIED' },
+  ORD01788041_02: { status: 'IN_PROGRESS', ai: 'VERIFIED' },
+  ORD01780737_01: { status: 'LOCKED',      ai: 'VERIFIED' },
+}
+const PO_STATUS_TAG = {
+  IN_PROGRESS: { label: 'In Progress', type: '' },
+  RECHECK:     { label: 'Re-check',    type: 'warning' },
+  LOCKED:      { label: 'Locked',      type: 'info' },
+}
+const PO_AI_TAG = {
+  VERIFIED:   { label: 'AI verified',   type: 'success' },
+  UNVERIFIED: { label: 'AI unverified', type: 'warning' },
+}
+
 const mkPo = (orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs = [], confirmed = false, locked = false) => ({
   orderNo, supplier, soRef, urgentDate, dueDate, bucket, docs, confirmed, locked,
 })
@@ -1699,6 +1730,14 @@ export default {
     },
     shipmentRefOf(soRef) {
       return SO_SHIPMENT[soRef] || '—'
+    },
+    poStatusTag(orderNo) {
+      const s = (PO_STATE[orderNo] || {}).status || 'IN_PROGRESS'
+      return PO_STATUS_TAG[s] || PO_STATUS_TAG.IN_PROGRESS
+    },
+    poAiStatusTag(orderNo) {
+      const a = (PO_STATE[orderNo] || {}).ai || 'UNVERIFIED'
+      return PO_AI_TAG[a] || PO_AI_TAG.UNVERIFIED
     },
     // A document sits under an SO, and one SO can cover several POs — list them
     // all. Falls back to the document's own PO when the SO Ref is unknown.
