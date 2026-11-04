@@ -777,7 +777,7 @@
               </template>
               <template v-else-if="corrUpload.resetTriggered">
                 All rejected documents of {{ corrUpload.item.hbl.hblNo }} are corrected —
-                <strong>review flow restarted at PGS Check (re-check)</strong>, PGS team notified.
+                <strong>review flow restarted at MGS Check (re-check)</strong>, MGS team notified.
               </template>
               <template v-else>
                 Saved. Other rejected documents on {{ corrUpload.item.hbl.hblNo }} still need re-upload before the review flow restarts.
@@ -2212,7 +2212,7 @@ export default {
       this.reflectReuploadToPoList(doc, c.fileName, newDocNumber, isReplacement)
 
       // OHA-returned documents re-pass AI and go back to the OHA verify queue —
-      // they do NOT touch the downstream PGS/Finance/Customs flow.
+      // they do NOT touch the downstream MGS/Finance/Customs flow.
       if (source === 'OHA') {
         const shipment = ohaShipments().find(s => s.id === hbl.shipmentId)
         if (shipment) ohaResubmitDoc(shipment, doc, c.fileName, `${hbl.supplier} (Supplier)`, newDocNumber)
@@ -2239,8 +2239,8 @@ export default {
           dangerouslyUseHTMLString: true,
           message: `<div style="font-size:12px;line-height:1.7">
             <div><b>${hbl.hblNo}</b> — all returned documents resolved${isReplacement ? ` (${doc.docNumber} replaced by ${newDN})` : ''}.</div>
-            <div style="color:#13ce66">✔ Milestones reset — flow restarts at <b>PGS Check (Re-check)</b></div>
-            <div style="color:#999">✉ PGS team notified for re-review</div>
+            <div style="color:#13ce66">✔ Milestones reset — flow restarts at <b>MGS Check (Re-check)</b></div>
+            <div style="color:#999">✉ MGS team notified for re-review</div>
           </div>`,
           type: 'success', duration: 6000,
         })

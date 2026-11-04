@@ -10,18 +10,12 @@ export const roleStore = Vue.observable({
 export const ROLES = [
   'MOOV Ops',
   'Supplier',
-  'Pepco PGS',
-  'Pepco Finance',
-  'Pepco Customs',
-  'Customs Broker',
+  'Reviewer',
 ]
 
-// role → milestone the role is allowed to operate on (null = not a reviewer)
-export const ROLE_MILESTONE = {
-  'Pepco PGS': 'PGS',
-  'Pepco Finance': 'FINANCE',
-  'Pepco Customs': 'CUSTOMS',
-}
+// One Reviewer role now covers MGS, Finance and Customs, so no role maps to a
+// single milestone any more — reviewers are unscoped (see isReviewer).
+export const ROLE_MILESTONE = {}
 
 export function setRole(role) {
   roleStore.currentRole = role
@@ -35,4 +29,9 @@ export function myMilestone() {
 // MOOV Ops (and demo admin) bypass milestone scoping
 export function isOps() {
   return roleStore.currentRole === 'MOOV Ops'
+}
+
+// The Reviewer role carries every stage's review rights
+export function isReviewer() {
+  return roleStore.currentRole === 'Reviewer'
 }

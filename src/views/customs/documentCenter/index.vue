@@ -480,7 +480,7 @@ export default {
     isSupplier() { return this.role === 'Supplier' },
     isBroker() { return this.role === 'Customs Broker' },
     isOps() { return this.role === 'MOOV Ops' },
-    isPepco() { return ['Pepco PGS', 'Pepco Finance', 'Pepco Customs'].includes(this.role) },
+    isPepco() { return this.role === 'Reviewer' },
     canUpload() { return this.isSupplier || this.isOps },
     pvIsCurrent() { return this.pv.doc && this.pv.v && this.pv.v.v === currentVersion(this.pv.doc).v },
     canPackage() { return this.isBroker || this.isPepco || this.isOps },
@@ -689,8 +689,7 @@ export default {
     fetchSuggest(q, cb) { cb(searchSuggest(q).map(v => ({ value: v }))) },
 
     userName() {
-      return { 'Supplier': 'Zhang (Supplier)', 'Customs Broker': 'EuroCustoms (Broker)' }[this.role]
-        || `${this.role.replace('Pepco ', '')} (PEPCO)`
+      return { 'Supplier': 'Zhang (Supplier)', 'Reviewer': 'Reviewer (PEPCO)' }[this.role] || this.role
     },
 
     // ── Detail ──
