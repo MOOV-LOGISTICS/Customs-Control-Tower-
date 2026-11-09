@@ -146,8 +146,8 @@ export default {
       ],
       milestoneRows: [
         { key:'MGS',     taskName:'MGS Document Check',                partyRole:'MGS',     level:'HBL', possible:102, urgent:5,  overdue:18, pendingCorrection:2, finished:1234, dotClass:'dot-mgs',     isNew:true  },
-        { key:'FINANCE', taskName:'Finance Document Check',            partyRole:'Pepco Finance',  level:'HBL', possible:87,  urgent:3,  overdue:9,  pendingCorrection:3, finished:1198, dotClass:'dot-finance',  isNew:true  },
-        { key:'CUSTOMS', taskName:'Customs Document Check', legacy:'Shipping Documents Verify by Pepco', partyRole:'Pepco Customs',  level:'HBL', possible:45,  urgent:2,  overdue:6,  pendingCorrection:1, finished:1150, dotClass:'dot-customs',  isNew:false },
+        { key:'FINANCE', taskName:'Finance Document Check',            partyRole:'Finance', level:'HBL', possible:87,  urgent:3,  overdue:9,  pendingCorrection:3, finished:1198, dotClass:'dot-finance',  isNew:true  },
+        { key:'CUSTOMS', taskName:'Customs Document Check',            partyRole:'Customs', level:'HBL', possible:45,  urgent:2,  overdue:6,  pendingCorrection:1, finished:1150, dotClass:'dot-customs',  isNew:false },
       ],
     }
   },

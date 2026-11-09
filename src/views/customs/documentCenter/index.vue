@@ -287,7 +287,7 @@
       width="480px" custom-class="brand-dialog">
       <div v-if="upload.doc && upload.doc.rejectReason" class="reject-banner" style="margin-bottom:12px">
         <i class="el-icon-warning-outline"></i>
-        <div><strong>PEPCO reject reason:</strong> {{ upload.doc.rejectReason }}</div>
+        <div><strong>Reject reason:</strong> {{ upload.doc.rejectReason }}</div>
       </div>
       <el-form label-width="100px" size="mini">
         <el-form-item label="Doc Type">
@@ -306,7 +306,7 @@
         </el-form-item>
       </el-form>
       <div v-if="upload.doc" style="font-size:11px;color:#999;margin-left:10px">
-        New version will be v{{ cv(upload.doc).v + 1 }} — status auto-flips to Pending Re-review, visible to PEPCO instantly.
+        New version will be v{{ cv(upload.doc).v + 1 }} — status auto-flips to Pending Re-review, visible to the reviewer instantly.
       </div>
       <div slot="footer">
         <el-button size="small" @click="upload.visible = false">Cancel</el-button>
@@ -689,7 +689,7 @@ export default {
     fetchSuggest(q, cb) { cb(searchSuggest(q).map(v => ({ value: v }))) },
 
     userName() {
-      return { 'Supplier': 'Zhang (Supplier)', 'Reviewer': 'Reviewer (PEPCO)' }[this.role] || this.role
+      return { 'Supplier': 'Zhang (Supplier)', 'Reviewer': 'Anna W. (Reviewer)' }[this.role] || this.role
     },
 
     // ── Detail ──
@@ -701,7 +701,7 @@ export default {
       const u = this.upload
       if (u.doc) {
         addVersion(u.doc.id, { fileName: u.fileName, remark: u.remark, user: this.userName() })
-        this.$message.success(`New version uploaded — status flipped to Pending Re-review, PEPCO can re-check now`)
+        this.$message.success(`New version uploaded — status flipped to Pending Re-review, the reviewer can re-check now`)
       } else {
         addDocument({ poId: u.poId, docType: u.docType, fileName: u.fileName, remark: u.remark, user: this.userName() })
         this.$message.success(`Document uploaded to ${u.poId} (v1, Pending Review)`)

@@ -676,7 +676,7 @@ const HBL_SO_REF = {
   MOOV240006: 'CGP25051300055',
 }
 // BL type only applies to bill-of-lading documents; everything else shows "/"
-const BL_TYPE = { 'Bill of Lading': 'TELEX RELEASE' }
+const BL_TYPE = { MBL: 'SEAWAY BILL', HBL: 'TELEX RELEASE', 'Bill of Lading': 'TELEX RELEASE' }
 
 export default {
   name: 'PepcoReview',

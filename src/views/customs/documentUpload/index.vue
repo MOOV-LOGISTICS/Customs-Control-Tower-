@@ -477,7 +477,7 @@
     <!-- ── Document Correction queue (rejected during Pepco review) ──────── -->
     <el-dialog
       :visible.sync="correctionDialog.visible"
-      title="Document Correction — Rejected by Pepco Review"
+      title="Document Correction — Rejected by Document Review"
       width="1080px" top="6vh" custom-class="brand-dialog"
     >
       <el-alert v-if="correctionQueue.length" type="warning" :closable="false" show-icon style="margin-bottom:10px"
@@ -1482,7 +1482,7 @@ export default {
         taskName: 'Document Correction (Re-upload)',
         partyRole: 'Supplier',
         possible: 0, urgent: rejected, overdue: 0, finished: resubmittedCount(),
-        hint: 'Documents returned during OHA verify or Pepco review — re-upload to resume the flow',
+        hint: 'Documents returned during OHA verify or document review — re-upload to resume the flow',
       }
       // Same correction queue from the OHA's vantage point (same dialog on click)
       const corrRowOha = {

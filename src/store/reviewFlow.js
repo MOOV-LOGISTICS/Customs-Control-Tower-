@@ -52,7 +52,8 @@ export const reviewStore = Vue.observable({
           { version: 1, fileName: 'INV-240001.pdf', uploadedAt: '2024-11-09 15:30', status: 'VERIFIED' },
         ], 'INV-2401-8821'),
         doc('Packing List',       'PL-240001.pdf',  1, 'PO-2401-1001', '2024-11-11 09:25', 'OK', null, [], 'PLR-2401-8821'),
-        doc('Bill of Lading',     'HBL-240001.pdf', 1, 'PO-2401-1002', '2024-11-12 14:10', 'OK', null, [], 'MAEU240001'),
+        doc('MBL',                'MBL-240001.pdf', 1, 'PO-2401-1002', '2024-11-12 14:05', 'OK', null, [], 'TSHGNGB25029125'),
+        doc('HBL',                'HBL-240001.pdf', 1, 'PO-2401-1002', '2024-11-12 14:10', 'OK', null, [], 'NGBSEH19637'),
       ],
       []
     ),
@@ -75,7 +76,8 @@ export const reviewStore = Vue.observable({
           replacesDocNumber: 'INV-2401-2209',
         }),
         doc('Packing List',       'PL-240002.pdf',  1, 'PO-2401-2001', '2024-11-10 11:05', 'OK', null, [], 'PLR-2401-2210'),
-        doc('Bill of Lading',     'HBL-240002.pdf', 1, 'PO-2401-2001', '2024-11-11 09:40', 'OK', null, [], 'MAEU240002'),
+        doc('MBL',                'MBL-240002.pdf', 1, 'PO-2401-2001', '2024-11-11 09:35', 'OK', null, [], 'TSHGCGP25031842'),
+        doc('HBL',                'HBL-240002.pdf', 1, 'PO-2401-2001', '2024-11-11 09:40', 'OK', null, [], 'CGPSEH20481'),
       ],
       [
         { milestone: 'MGS Check', status: 'Complete', user: 'Sarah J. (MGS)', time: '2024-11-13 10:30 CET (UTC+1)', reason: '', remark: '', isRecheck: false },
@@ -93,12 +95,13 @@ export const reviewStore = Vue.observable({
         doc('Packing List', 'PL-240003-v2.pdf', 2, 'PO-2401-3001', '2024-11-13 11:32', 'RESUBMITTED',
           { reason: 'V002 - Incorrect shipping docs', remark: 'Re-uploaded together with CI', by: 'Sarah J. (MGS)', at: '2024-11-11 14:20', milestone: 'MGS Document Check', milestoneKey: 'MGS', round: 1 },
           [{ version: 1, fileName: 'PL-240003.pdf', uploadedAt: '2024-11-09 14:05', status: 'VERIFIED' }], 'PLR-2401-3301'),
-        doc('Bill of Lading', 'HBL-240003.pdf', 1, 'PO-2401-3002', '2024-11-09 16:20', 'OK', null, [], 'CMDU240003'),
+        doc('MBL', 'MBL-240003.pdf', 1, 'PO-2401-3002', '2024-11-09 16:15', 'OK', null, [], 'TSHGSGN25027416'),
+        doc('HBL', 'HBL-240003.pdf', 1, 'PO-2401-3002', '2024-11-09 16:20', 'OK', null, [], 'SGNSEH17259'),
       ],
       [
         { milestone: 'MGS Check', status: 'Complete',   user: 'Sarah J. (MGS)',  time: '2024-11-14 09:40 CET (UTC+1)', reason: '', remark: '', isRecheck: true },
         { milestone: 'Supplier Note', status: 'Correction', user: 'Ho Chi Minh Apparel (Supplier)', time: '2024-11-13 11:30 UTC+7', reason: '', remark: 'Updated CI v2 uploaded with correct dates. Packing list also re-uploaded.', isRecheck: false },
-        { milestone: 'MGS Check', status: 'Revoke',     user: 'PEPCO 4PL Admin', time: '2024-11-12 08:00 CET (UTC+1)', reason: '', remark: '', isRecheck: false },
+        { milestone: 'MGS Check', status: 'Revoke',     user: '4PL Admin', time: '2024-11-12 08:00 CET (UTC+1)', reason: '', remark: '', isRecheck: false },
         { milestone: 'MGS Check', status: 'Incomplete', user: 'Sarah J. (MGS)',  time: '2024-11-11 14:20 CET (UTC+1)', reason: 'V002 - Incorrect shipping docs', remark: 'CI date mismatch vs PL', isRecheck: false },
         { milestone: 'MGS Check', status: 'Complete',   user: 'Sarah J. (MGS)',  time: '2024-11-10 09:15 CET (UTC+1)', reason: '', remark: '', isRecheck: false },
       ],
@@ -113,6 +116,8 @@ export const reviewStore = Vue.observable({
         doc('Commercial Invoice',    'INV-240004.pdf', 1, 'PO-2401-4001', '2024-11-09 10:11', 'OK', null, [], 'INV-2401-4412'),
         doc('Packing List',          'PL-240004.pdf',  1, 'PO-2401-4001', '2024-11-09 10:14', 'OK', null, [], 'PLR-2401-4412'),
         doc('Sanitary Certificate',  'SAN-240004.pdf', 1, 'PO-2401-4002', '2024-11-10 13:00', 'OK', null, [], 'SC-2401-4412'),
+        doc('MBL',                   'MBL-240004.pdf', 1, 'PO-2401-4002', '2024-11-10 15:20', 'OK', null, [], 'TSHGIST25033097'),
+        doc('HBL',                   'HBL-240004.pdf', 1, 'PO-2401-4002', '2024-11-10 15:25', 'OK', null, [], 'ISTSEH22914'),
       ],
       [
         { milestone: 'MGS Check',     status: 'Complete', user: 'Sarah J. (MGS)',   time: '2024-11-13 10:30 CET (UTC+1)', reason: '', remark: '', isRecheck: false },
@@ -127,7 +132,8 @@ export const reviewStore = Vue.observable({
       [
         doc('Commercial Invoice', 'INV-240005.pdf', 1, 'PO-2401-5001', '2024-11-05 08:30', 'OK', null, [], 'INV-2401-5523'),
         doc('Packing List',       'PL-240005.pdf',  1, 'PO-2401-5001', '2024-11-05 08:32', 'OK', null, [], 'PLR-2401-5523'),
-        doc('Bill of Lading',     'HBL-240005.pdf', 1, 'PO-2401-5001', '2024-11-06 10:00', 'OK', null, [], 'MAEU240005'),
+        doc('MBL',                'MBL-240005.pdf', 1, 'PO-2401-5001', '2024-11-06 09:55', 'OK', null, [], 'TSHGBOM25029538'),
+        doc('HBL',                'HBL-240005.pdf', 1, 'PO-2401-5001', '2024-11-06 10:00', 'OK', null, [], 'BOMSEH18365'),
       ],
       [
         { milestone: 'MGS Check',     status: 'Complete', user: 'Sarah J. (MGS)',    time: '2024-11-10 09:00 CET (UTC+1)', reason: '', remark: '', isRecheck: false },
@@ -147,6 +153,8 @@ export const reviewStore = Vue.observable({
         doc('Sanitary Certificate', 'SAN-240006.pdf', 1, 'PO-2401-6002', '2024-11-13 14:20', 'REJECTED',
           { reason: 'V003 - Missing/incorrect sanitary docs', remark: 'Sanitary cert expiry date does not match shipment ETA', by: 'Anna W. (Customs)', at: '2024-11-17 11:45', milestone: 'Customs Document Check', milestoneKey: 'CUSTOMS', round: 1 },
           [], 'SC-2401-6634'),
+        doc('MBL',                  'MBL-240006.pdf', 1, 'PO-2401-6002', '2024-11-13 16:10', 'OK', null, [], 'TSHGCGP25034261'),
+        doc('HBL',                  'HBL-240006.pdf', 1, 'PO-2401-6002', '2024-11-13 16:15', 'OK', null, [], 'CGPSEH21077'),
       ],
       [
         { milestone: 'Customs Check', status: 'Incomplete', user: 'Anna W. (Customs)', time: '2024-11-17 11:45 CET (UTC+1)', reason: 'V003 - Missing/incorrect sanitary docs', remark: 'Sanitary cert expiry date does not match shipment ETA. Email sent to supplier.', isRecheck: false },

@@ -6,7 +6,7 @@
         <el-tag type="success" size="small">{{ shipments.length }} ready</el-tag>
       </div>
       <el-alert type="info" :closable="false" show-icon style="margin-bottom:14px">
-        <span>The following shipments have completed all Pepco document checks and have been assigned to your agency. Download the full document package to proceed with customs clearance.</span>
+        <span>The following shipments have completed all document checks and have been assigned to your agency. Download the full document package to proceed with customs clearance.</span>
       </el-alert>
 
       <div v-for="s in shipments" :key="s.id" class="shipment-block">
