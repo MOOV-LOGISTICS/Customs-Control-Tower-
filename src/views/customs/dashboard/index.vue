@@ -51,7 +51,7 @@
         </el-table-column>
         <el-table-column label="Pending Correction" width="140" align="center">
           <template #default="{row}">
-            <el-tooltip content="Rejected at this milestone — waiting for Supplier/OHA correction. Re-enters the PGS queue once OHA confirms." placement="top">
+            <el-tooltip content="Rejected at this milestone — waiting for Supplier/OHA correction. Re-enters the MGS queue once OHA confirms." placement="top">
               <span class="ms-num correction" @click="goToMilestone(row.key, 'correction')">{{ row.pendingCorrection }}</span>
             </el-tooltip>
           </template>
@@ -111,7 +111,7 @@
 <script>
 const ROWS = [
   { id:1, hblNo:'MOOV240001', supplierName:'Shanghai Textile Co.', pol:'CNSHA', pod:'PLGDN', etd:'2024-11-10', eta:'2024-12-05', customsStatus:'DOCS_PENDING',  brokerName:'EuroCustoms Sp.z.o.o.' },
-  { id:2, hblNo:'MOOV240002', supplierName:'Dhaka Garments Ltd.',  pol:'BGCGP', pod:'DEHAM', etd:'2024-11-12', eta:'2024-12-15', customsStatus:'PGS_REVIEW',    brokerName:'Hamburg Customs GmbH' },
+  { id:2, hblNo:'MOOV240002', supplierName:'Dhaka Garments Ltd.',  pol:'BGCGP', pod:'DEHAM', etd:'2024-11-12', eta:'2024-12-15', customsStatus:'MGS_REVIEW',    brokerName:'Hamburg Customs GmbH' },
   { id:3, hblNo:'MOOV240003', supplierName:'Ho Chi Minh Apparel',  pol:'VNSGN', pod:'CZPRE', etd:'2024-11-08', eta:'2024-12-02', customsStatus:'FINANCE_REVIEW', brokerName:'Prague Broker s.r.o.' },
   { id:4, hblNo:'MOOV240004', supplierName:'Istanbul Fashion AS',  pol:'TRIST', pod:'ROBUH', etd:'2024-11-15', eta:'2024-12-10', customsStatus:'CUSTOMS_REVIEW', brokerName:'Bucharest Customs SRL' },
   { id:5, hblNo:'MOOV240005', supplierName:'Mumbai Textiles Pvt',  pol:'INNSA', pod:'HUBU',  etd:'2024-11-05', eta:'2024-11-28', customsStatus:'DOCS_READY',     brokerName:'Budapest Logistics Kft' },
@@ -122,7 +122,7 @@ const ROWS = [
 
 const STATUS_MAP = {
   DOCS_PENDING:  { label:'Docs Pending',    cls:'pending' },
-  PGS_REVIEW:    { label:'PGS Review',      cls:'in-progress' },
+  MGS_REVIEW:    { label:'MGS Review',      cls:'in-progress' },
   FINANCE_REVIEW:{ label:'Finance Review',  cls:'in-progress' },
   CUSTOMS_REVIEW:{ label:'Customs Review',  cls:'in-progress' },
   DOCS_READY:    { label:'Docs Ready',      cls:'completed' },
@@ -145,7 +145,7 @@ export default {
         { label:'Ready for Broker', value: 2, icon:'el-icon-download', color:'#13ce66', bg:'#e6f9ef' },
       ],
       milestoneRows: [
-        { key:'PGS',     taskName:'PGS Document Check',                partyRole:'Pepco PGS',     level:'HBL', possible:102, urgent:5,  overdue:18, pendingCorrection:2, finished:1234, dotClass:'dot-pgs',     isNew:true  },
+        { key:'MGS',     taskName:'MGS Document Check',                partyRole:'MGS',     level:'HBL', possible:102, urgent:5,  overdue:18, pendingCorrection:2, finished:1234, dotClass:'dot-mgs',     isNew:true  },
         { key:'FINANCE', taskName:'Finance Document Check',            partyRole:'Pepco Finance',  level:'HBL', possible:87,  urgent:3,  overdue:9,  pendingCorrection:3, finished:1198, dotClass:'dot-finance',  isNew:true  },
         { key:'CUSTOMS', taskName:'Customs Document Check', legacy:'Shipping Documents Verify by Pepco', partyRole:'Pepco Customs',  level:'HBL', possible:45,  urgent:2,  overdue:6,  pendingCorrection:1, finished:1150, dotClass:'dot-customs',  isNew:false },
       ],
@@ -183,7 +183,7 @@ export default {
 // Milestone table
 .milestone-dot {
   display:inline-block; width:10px; height:10px; border-radius:50%; flex-shrink:0;
-  &.dot-pgs     { background:#3A71A8; }
+  &.dot-mgs     { background:#3A71A8; }
   &.dot-finance { background:#E6A817; }
   &.dot-customs { background:#004F7C; }
 }

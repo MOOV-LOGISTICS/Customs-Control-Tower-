@@ -204,9 +204,19 @@
                         <div v-if="row.replacesDocNumber" style="font-size:10px;color:#909399;margin-top:2px">replaces {{ row.replacesDocNumber }}</div>
                       </template>
                     </el-table-column>
-                    <el-table-column label="PO Number" width="120" prop="poNo" />
-                    <el-table-column label="Document Type" min-width="150" prop="docType" />
-                    <el-table-column label="File Name" min-width="170" prop="fileName" />
+                    <el-table-column label="Shipper Booking Ref" width="160" align="center">
+                      <template #default="scope">{{ soRefOf(row.hblNo) }}</template>
+                    </el-table-column>
+                    <el-table-column label="PO Number" width="120" prop="poNo" align="center" />
+                    <el-table-column label="Document Type" min-width="150" prop="docType" align="center" sortable />
+                    <el-table-column label="BL Type" width="120" align="center">
+                      <template #default="{row}">{{ blTypeOf(row) }}</template>
+                    </el-table-column>
+                    <el-table-column label="File Name" min-width="180">
+                      <template #default="{row}">
+                        <i class="el-icon-document" style="color:#3A71A8;margin-right:4px"></i>{{ row.fileName }}
+                      </template>
+                    </el-table-column>
                     <el-table-column label="Version" width="80" align="center">
                       <template #default="{row}">
                         <el-tooltip v-if="row.versionHistory && row.versionHistory.length" content="Click to view version history" placement="top">
@@ -218,14 +228,21 @@
                         <el-tag v-else size="mini" type="info">v{{ row.version }}</el-tag>
                       </template>
                     </el-table-column>
-                    <el-table-column label="AI Check" width="95">
+                    <!-- Only CI / PL are verified (AI, then OHA) — other types stay blank -->
+                    <el-table-column label="AI Verify" width="95" align="center">
                       <template #default="{row}">
-                        <span :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
+                        <span v-if="aiChecked(row)" :class="['status-badge', row.status==='VERIFIED'?'verified':'unverified']">
                           {{ row.status==='VERIFIED'?'Verified':'Unverified' }}
                         </span>
                       </template>
                     </el-table-column>
-                    <el-table-column label="Review Status" width="150">
+                    <el-table-column label="OHA Verify" width="120" align="center">
+                      <template #default="{row}">
+                        <span v-if="ohaVerified(row)" class="status-badge verified">OHA Verified</span>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="Uploaded" width="130" prop="uploadedAt" align="center" />
+                    <el-table-column label="Document Status" width="150" align="center">
                       <template #default="{row}">
                         <el-tooltip v-if="row.reviewStatus==='REJECTED'" placement="top"
                           :content="`${row.reject.reason} — ${row.reject.by}, ${row.reject.at}`">
@@ -246,13 +263,16 @@
                         <span v-else style="color:#c0c4cc">—</span>
                       </template>
                     </el-table-column>
-                    <el-table-column label="Uploaded" width="130" prop="uploadedAt" />
-                    <el-table-column label="" width="150" align="center">
+                    <el-table-column label="Action" width="150" align="center">
                       <template #default="scope">
-                        <el-button type="text" size="mini" icon="el-icon-view" @click="openDocPreview(row, scope.row)">Preview</el-button>
-                        <el-button v-if="scope.row.reviewStatus==='REPLACED' && canVerify" type="text" size="mini"
-                          icon="el-icon-refresh-left" style="color:#e6a817"
-                          @click="openReinstate(row, scope.row)">Reinstate</el-button>
+                        <el-button type="primary" size="mini" icon="el-icon-download"
+                          @click="downloadDoc(scope.row)" />
+                        <el-button type="primary" size="mini" icon="el-icon-view"
+                          @click="openDocPreview(row, scope.row)" />
+                        <el-tooltip v-if="scope.row.reviewStatus==='REPLACED' && canVerify" content="Reinstate this document" placement="top">
+                          <el-button type="warning" size="mini" plain icon="el-icon-refresh-left"
+                            @click="openReinstate(row, scope.row)" />
+                        </el-tooltip>
                       </template>
                     </el-table-column>
                   </el-table>
@@ -279,7 +299,7 @@
                     <div style="flex:1">
                       <strong>PENDING CORRECTION</strong> —
                       Waiting for supplier: <strong>{{ progress(row).done }} of {{ progress(row).total }}</strong> rejected document(s) re-uploaded.
-                      Flow resets to PGS re-check automatically when all are corrected.
+                      Flow resets to MGS re-check automatically when all are corrected.
                       <div class="corr-doc-list">
                         <div v-for="(d, i) in progress(row).docs" :key="i" class="corr-doc-row">
                           <i :class="d.reviewStatus === 'REJECTED' ? 'el-icon-remove-outline waiting' : 'el-icon-circle-check ok'"></i>
@@ -415,6 +435,16 @@
             <i class="el-icon-close"></i> Not Complete
           </el-radio-button>
         </el-radio-group>
+
+        <!-- Optional comment (only when Complete) -->
+        <div v-if="verifyDialog.result === 'COMPLETE'" class="verify-reason-block">
+          <el-form label-position="top" size="mini">
+            <el-form-item label="Comments">
+              <el-input v-model="verifyDialog.comment" type="textarea" :rows="2"
+                placeholder="Add a note for the record (optional)…" />
+            </el-form-item>
+          </el-form>
+        </div>
 
         <!-- Reason + Remark (only when Not Complete) -->
         <div v-if="verifyDialog.result === 'NOT_COMPLETE'" class="verify-reason-block">
@@ -636,6 +666,18 @@ import { roleStore, ROLE_MILESTONE } from '@/store/role'
 import { reviewStore, rejectDocuments, correctionProgress, acceptDocumentAsIs, reinstateDocument } from '@/store/reviewFlow'
 import CommentThread from '@/components/CommentThread.vue'
 
+// Demo shipper booking (SO) reference per HBL — this dataset has one SO per HBL
+const HBL_SO_REF = {
+  MOOV240001: 'NGB25051300007',
+  MOOV240002: 'CGP25051300012',
+  MOOV240003: 'SGN25051300021',
+  MOOV240004: 'IST25051300033',
+  MOOV240005: 'BOM25051300044',
+  MOOV240006: 'CGP25051300055',
+}
+// BL type only applies to bill-of-lading documents; everything else shows "/"
+const BL_TYPE = { 'Bill of Lading': 'TELEX RELEASE' }
+
 export default {
   name: 'PepcoReview',
   components: { CommentThread },
@@ -647,10 +689,10 @@ export default {
       selectedHbls: [],
 
       boardDestRows: [
-        { key:'DELIVERY_PREPLAN',     taskName:'Delivery Pre-plan',          partyRole:'Pepco Transport',       basedOn:'Container Level', possible:3447, urgent:984, overdue:206, finished:34610 },
-        { key:'BROKER_ASSIGN',        taskName:'Customs Broker Assign',      partyRole:'Pepco Customs',         basedOn:'Container Level', possible:1063, urgent:20,  overdue:2,   finished:38162 },
+        { key:'DELIVERY_PREPLAN',     taskName:'Delivery Pre-plan',          partyRole:'Transport',       basedOn:'Container Level', possible:3447, urgent:984, overdue:206, finished:34610 },
+        { key:'BROKER_ASSIGN',        taskName:'Customs Broker Assign',      partyRole:'Customs',         basedOn:'Container Level', possible:1063, urgent:20,  overdue:2,   finished:38162 },
         { key:'DELIVERY_PLAN',        taskName:'Delivery Plan',              partyRole:'DHA',                   basedOn:'Container Level', possible:5925, urgent:269, overdue:147, finished:32906 },
-        { key:'INVOICES_CUSTOMS',     taskName:'Invoices to Customs',        partyRole:'Pepco Freight Invoice', basedOn:'Container Level', possible:4476, urgent:525, overdue:3,   finished:34243 },
+        { key:'INVOICES_CUSTOMS',     taskName:'Invoices to Customs',        partyRole:'Freight Invoice', basedOn:'Container Level', possible:4476, urgent:525, overdue:3,   finished:34243 },
         { key:'VESSEL_ARRIVAL',       taskName:'Vessel Arrival',             partyRole:'DHA',                   basedOn:'Container Level', possible:5629, urgent:0,   overdue:0,   finished:33618 },
         { key:'CUSTOMS_CLEARANCE',    taskName:'Customs Clearance Finished', partyRole:'Customs Broker',        basedOn:'Container Level', possible:5861, urgent:120, overdue:90,  finished:33176 },
         { key:'CONTAINER_DISCHARGED', taskName:'Container Discharged',       partyRole:'DHA',                   basedOn:'Container Level', possible:5620, urgent:19,  overdue:31,  finished:33577 },
@@ -659,13 +701,13 @@ export default {
       ],
 
       milestoneConfig: [
-        { key:'PGS',     step:'①', name:'PGS Document Check',     shortName:'PGS Check',     role:'Pepco PGS',     short:'PGS', legacy:'' },
-        { key:'FINANCE', step:'②', name:'Finance Document Check', shortName:'Finance Check', role:'Pepco Finance', short:'FIN', legacy:'' },
-        { key:'CUSTOMS', step:'③', name:'Customs Document Check', shortName:'Customs Check', role:'Pepco Customs', short:'CUS', legacy:'Shipping Documents Verify by Pepco' },
+        { key:'MGS',     step:'①', name:'MGS Document Check',     shortName:'MGS Check',     role:'MGS',     short:'MGS', legacy:'' },
+        { key:'FINANCE', step:'②', name:'Finance Document Check', shortName:'Finance Check', role:'Finance', short:'FIN', legacy:'' },
+        { key:'CUSTOMS', step:'③', name:'Customs Document Check', shortName:'Customs Check', role:'Customs', short:'CUS', legacy:'' },
       ],
 
       kpis: {
-        PGS:     { possible:102, urgent:5, overdue:18, finished:1234 },
+        MGS:     { possible:102, urgent:5, overdue:18, finished:1234 },
         FINANCE: { possible:87,  urgent:3, overdue:9,  finished:1198 },
         CUSTOMS: { possible:45,  urgent:2, overdue:6,  finished:1150 },
       },
@@ -678,6 +720,7 @@ export default {
         result: 'COMPLETE',
         reason: '',
         remark: '',
+        comment: '',   // optional note recorded when completing
         sanitaryCert: false,
         docSel: [],   // indices of documents flagged as problematic (Not Complete)
       },
@@ -718,8 +761,12 @@ export default {
     // milestone the current role operates on; null = not a reviewer
     myKey() { return ROLE_MILESTONE[this.role] || null },
     isOps() { return this.role === 'MOOV Ops' },
-    // Supplier / Customs Broker etc. can look but never verify
-    canVerify() { return this.isOps || !!this.myKey },
+    // One Reviewer role covers MGS, Finance and Customs — like Ops, it is not
+    // scoped to a single milestone
+    isReviewer() { return this.role === 'Reviewer' },
+    unscoped() { return this.isOps || this.isReviewer },
+    // Supplier can look but never verify
+    canVerify() { return this.unscoped || !!this.myKey },
 
     currentKpi() {
       if (this.currentMilestone === 'ALL') {
@@ -735,7 +782,7 @@ export default {
       return this.milestoneConfig.find(m => m.key === this.currentMilestone)?.name || ''
     },
     currentMilestoneLegacy() {
-      if (this.currentMilestone === 'ALL') return 'All tasks — PGS + Finance + Customs'
+      if (this.currentMilestone === 'ALL') return 'All tasks — MGS + Finance + Customs'
       return this.milestoneConfig.find(m => m.key === this.currentMilestone)?.legacy || ''
     },
     verifyDialogTaskName() {
@@ -754,9 +801,9 @@ export default {
   },
 
   created() {
-    // Support navigating from Dashboard with ?milestone=PGS etc.
+    // Support navigating from Dashboard with ?milestone=MGS etc.
     const q = this.$route.query
-    if (q.milestone && ['PGS','FINANCE','CUSTOMS'].includes(q.milestone)) {
+    if (q.milestone && ['MGS','FINANCE','CUSTOMS'].includes(q.milestone)) {
       this.currentMilestone = q.milestone
     } else if (this.myKey) {
       // Reviewer roles land on their own task queue by default
@@ -791,7 +838,7 @@ export default {
     // a specific task when one is selected, or the row's current stage in All mode.
     effectiveKey(row) {
       if (this.currentMilestone !== 'ALL') return this.currentMilestone
-      const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
+      const ORDER = ['MGS', 'FINANCE', 'CUSTOMS']
       const idx = ORDER.findIndex(k => row.milestones[k].status !== 'COMPLETE')
       return idx === -1 ? 'CUSTOMS' : ORDER[idx]
     },
@@ -805,13 +852,13 @@ export default {
     rowSelectable(row) {
       if (!this.canVerify) return false
       const key = this.effectiveKey(row)
-      if (!this.isOps && key !== this.myKey) return false
+      if (!this.unscoped && key !== this.myKey) return false
       return row.milestones[key].status === 'IN_PROGRESS'
     },
 
     // Overall HBL progress — which stage is it at right now (independent of selected task)
     currentStage(row) {
-      const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
+      const ORDER = ['MGS', 'FINANCE', 'CUSTOMS']
       // Pending correction overrides everything
       if (ORDER.some(k => row.milestones[k].status === 'PENDING_CORRECTION')) {
         return { label:'Pending Correction', cls:'stage-correction', icon:'el-icon-warning-outline', recheck:false }
@@ -905,7 +952,7 @@ export default {
     // may accept it as-is. Front-end mirror of the backend RBAC check.
     canResolve(doc) {
       if (!doc || !doc.reject) return false
-      return this.isOps || this.myKey === doc.reject.milestoneKey
+      return this.unscoped || this.myKey === doc.reject.milestoneKey
     },
     resolutionLabel(doc) {
       if (doc.resolution === 'RESUBMITTED') return 'Re-uploaded'
@@ -925,11 +972,11 @@ export default {
       }
       if (r.reset) {
         this.$notify({
-          title: 'Flow reset to PGS re-check',
+          title: 'Flow reset to MGS re-check',
           dangerouslyUseHTMLString: true,
           message: `<div style="font-size:12px;line-height:1.7">
             <div><b>${hbl.hblNo}</b> — all returned documents resolved.</div>
-            <div style="color:#999">A re-uploaded document in this round changed content, so the flow restarts at <b>PGS Check (re-check)</b>.</div>
+            <div style="color:#999">A re-uploaded document in this round changed content, so the flow restarts at <b>MGS Check (re-check)</b>.</div>
           </div>`,
           type: 'warning', duration: 6000,
         })
@@ -940,7 +987,7 @@ export default {
           message: `<div style="font-size:12px;line-height:1.7">
             <div><b>${hbl.hblNo}</b> — supplier clarification accepted.</div>
             <div style="color:#13ce66">✔ ${this.milestoneNameOf(r.resumedAt)} completed without a re-upload.</div>
-            <div style="color:#999">Flow resumes from this milestone — no PGS re-check.</div>
+            <div style="color:#999">Flow resumes from this milestone — no MGS re-check.</div>
           </div>`,
           type: 'success', duration: 6000,
         })
@@ -1058,6 +1105,13 @@ export default {
 </html>`
     },
 
+    soRefOf(hblNo) { return HBL_SO_REF[hblNo] || '—' },
+    aiChecked(doc) { return ['Commercial Invoice', 'Packing List'].includes(doc.docType) },
+    ohaVerified(doc) { return ['Commercial Invoice', 'Packing List'].includes(doc.docType) },
+    blTypeOf(doc) { return doc.blType || BL_TYPE[doc.docType] || '/' },
+    downloadDoc(doc) {
+      this.$message.success(`Downloading ${doc.fileName}…`)
+    },
     downloadAllDocs(h) {
       this.$notify({
         title: 'Download started',
@@ -1104,7 +1158,7 @@ export default {
     },
 
     openVerifyDialog(hbl) {
-      this.verifyDialog = { visible:true, hbl, milestoneKey:this.effectiveKey(hbl), result:'COMPLETE', reason:'', remark:'', sanitaryCert:false, docSel:[] }
+      this.verifyDialog = { visible:true, hbl, milestoneKey:this.effectiveKey(hbl), result:'COMPLETE', reason:'', remark:'', comment:'', sanitaryCert:false, docSel:[] }
     },
     openBulkVerify() {
       // Bulk with a single selection keeps the full dialog (incl. rejection);
@@ -1112,14 +1166,14 @@ export default {
       const single = this.selectedHbls.length === 1 ? this.selectedHbls[0] : null
       this.verifyDialog = {
         visible:true, hbl:single, milestoneKey:single ? this.effectiveKey(single) : null,
-        result:'COMPLETE', reason:'', remark:'', sanitaryCert:false, docSel:[],
+        result:'COMPLETE', reason:'', remark:'', comment:'', sanitaryCert:false, docSel:[],
       }
     },
 
     submitVerify() {
-      const { hbl, result, reason, remark, milestoneKey } = this.verifyDialog
+      const { hbl, result, reason, remark, comment, milestoneKey } = this.verifyDialog
       const targets = hbl ? [hbl] : this.selectedHbls
-      const ORDER = ['PGS', 'FINANCE', 'CUSTOMS']
+      const ORDER = ['MGS', 'FINANCE', 'CUSTOMS']
       const now = new Date().toLocaleString() + ' CET (UTC+1)'
       // Milestone per target: fixed when opened from a row / a selected task;
       // each row's own current stage when bulk-verifying in All mode.
@@ -1157,7 +1211,7 @@ export default {
 
           h.verifyHistory.unshift({
             milestone: milestoneName, status: 'Complete',
-            user: 'Demo User', time: now, reason: '', remark: '',
+            user: 'Demo User', time: now, reason: '', remark: (comment || '').trim(),
             isRecheck: !!h.milestones[milestone].isRecheck,
           })
 
@@ -1174,7 +1228,7 @@ export default {
         } else {
           // ── Not Complete → reject the flagged documents ──────────────────
           // Documents go REJECTED, all milestones go PENDING_CORRECTION.
-          // The reset to PGS re-check happens automatically once the supplier
+          // The reset to MGS re-check happens automatically once the supplier
           // has re-uploaded every rejected document (Document Upload tab).
           const docs = this.verifyDialog.docSel.map(i => h.documents[i])
           rejectDocuments(h, docs, { reason, remark, milestoneName, milestoneKey: milestone, user: 'Demo User' })
@@ -1191,7 +1245,7 @@ export default {
                 ✉ Notification email sent to supplier<br>
                 <span style="color:#999">${h.supplier.toLowerCase().replace(/[^a-z]/g,'')}@supplier-mail.com</span>
               </div>
-              <div style="color:#999;margin-top:4px">Flow resets to PGS re-check automatically after the supplier re-uploads all returned documents.</div>
+              <div style="color:#999;margin-top:4px">Flow resets to MGS re-check automatically after the supplier re-uploads all returned documents.</div>
             </div>`,
             type: 'warning', duration: 6000,
           })
@@ -1328,7 +1382,7 @@ export default {
 // Milestone pills in history table
 .ms-pill {
   display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600;
-  &.ms-pill-pgs\ check     { background:#ecf5ff; color:#3A71A8; }
+  &.ms-pill-mgs\ check     { background:#ecf5ff; color:#3A71A8; }
   &.ms-pill-finance\ check { background:#fff8e0; color:#e6a817; }
   &.ms-pill-customs\ check { background:#f0f7ff; color:#004F7C; }
   &.ms-pill-supplier\ note { background:#f0fdf4; color:#13ce66; }
