@@ -127,13 +127,13 @@ export const docStore = Vue.observable({
 
   activity: [
     { id: 1, docId: 'DOC-1', action: 'UPLOAD',      user: 'Zhang (Supplier)', at: '2026-06-05 09:12', detail: 'Uploaded v1' },
-    { id: 2, docId: 'DOC-1', action: 'REJECT',      user: 'Anna W. (PEPCO)',  at: '2026-06-08 10:05', detail: 'Carton count does not match Packing List' },
+    { id: 2, docId: 'DOC-1', action: 'REJECT',      user: 'Anna W. (Reviewer)',  at: '2026-06-08 10:05', detail: 'Carton count does not match Packing List' },
     { id: 3, docId: 'DOC-1', action: 'NEW_VERSION', user: 'Zhang (Supplier)', at: '2026-06-09 14:30', detail: 'Uploaded v2 — status auto-flipped to Pending Re-review' },
     { id: 4, docId: 'DOC-2', action: 'UPLOAD',      user: 'Zhang (Supplier)', at: '2026-06-05 09:15', detail: 'Uploaded v1' },
-    { id: 5, docId: 'DOC-2', action: 'APPROVE',     user: 'Anna W. (PEPCO)',  at: '2026-06-08 10:06', detail: '' },
+    { id: 5, docId: 'DOC-2', action: 'APPROVE',     user: 'Anna W. (Reviewer)',  at: '2026-06-08 10:06', detail: '' },
     { id: 6, docId: 'DOC-5', action: 'UPLOAD',      user: 'Zhang (Supplier)', at: '2026-06-04 16:42', detail: 'Uploaded v1' },
-    { id: 7, docId: 'DOC-5', action: 'REJECT',      user: 'Tom K. (PEPCO)',   at: '2026-06-08 11:20', detail: 'Gross weight missing on page 2' },
-    { id: 8, docId: 'DOC-7', action: 'APPROVE',     user: 'Anna W. (PEPCO)',  at: '2026-06-06 09:00', detail: '' },
+    { id: 7, docId: 'DOC-5', action: 'REJECT',      user: 'Tom K. (Reviewer)',   at: '2026-06-08 11:20', detail: 'Gross weight missing on page 2' },
+    { id: 8, docId: 'DOC-7', action: 'APPROVE',     user: 'Anna W. (Reviewer)',  at: '2026-06-06 09:00', detail: '' },
   ],
 
   // {scopeType:'HBL'|'PO', scopeId, by, at, snapshot: {docId: versionNumber}}
