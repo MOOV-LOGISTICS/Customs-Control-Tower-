@@ -274,7 +274,7 @@
           </div>
         </div>
 
-        <!-- Footer actions (review/approve lives in the Pepco Review page) -->
+        <!-- Footer actions (review/approve lives in the Document Review page) -->
         <div class="detail-actions">
           <el-button v-if="canUpload && detail.doc.status === 'REJECTED'" type="warning" size="small" icon="el-icon-refresh-left" @click="openReupload(detail.doc)">Re-upload New Version</el-button>
           <el-button size="small" @click="detail.visible = false">Close</el-button>
@@ -480,10 +480,10 @@ export default {
     isSupplier() { return this.role === 'Supplier' },
     isBroker() { return this.role === 'Customs Broker' },
     isOps() { return this.role === 'MOOV Ops' },
-    isPepco() { return this.role === 'Reviewer' },
+    isReviewerRole() { return this.role === 'Reviewer' },
     canUpload() { return this.isSupplier || this.isOps },
     pvIsCurrent() { return this.pv.doc && this.pv.v && this.pv.v.v === currentVersion(this.pv.doc).v },
-    canPackage() { return this.isBroker || this.isPepco || this.isOps },
+    canPackage() { return this.isBroker || this.isReviewerRole || this.isOps },
 
     searchHit() { return searchScope(this.searchQ) },
 

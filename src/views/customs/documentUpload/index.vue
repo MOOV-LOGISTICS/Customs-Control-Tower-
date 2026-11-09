@@ -474,7 +474,7 @@
       </div>
     </el-dialog>
 
-    <!-- ── Document Correction queue (rejected during Pepco review) ──────── -->
+    <!-- ── Document Correction queue (rejected during document review) ──────── -->
     <el-dialog
       :visible.sync="correctionDialog.visible"
       title="Document Correction — Rejected by Document Review"
@@ -1451,7 +1451,7 @@ export default {
       ohaReinstateDialog: { visible: false, shipment: null, doc: null, mode: 'keep' },
       ohaBatchDialog: { visible: false, shipment: null, result: 'REJECT', comment: '', docSel: [] },
 
-      // Rejected-document correction queue (shared with Pepco Review)
+      // Rejected-document correction queue (shared with Document Review)
       correctionDialog: { visible: false, role: 'supplier' },
       corrUpload: {
         visible: false, item: null,
@@ -1640,7 +1640,7 @@ export default {
       if (!s) return []
       return s.documents.filter(d => (d.thread || []).length)
     },
-    // All discussion threads linked to the current PO (Pepco HBL docs and OHA
+    // All discussion threads linked to the current PO (review-side HBL docs and OHA
     // shipment docs, bridged via poRef). Empty → the Discuss entry stays greyed.
     poThreads() {
       const po = this.currentPo

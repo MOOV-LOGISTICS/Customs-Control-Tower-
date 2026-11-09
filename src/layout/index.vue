@@ -22,7 +22,7 @@
         <el-menu-item index="/customs/document-upload">
           <i class="el-icon-upload2"></i> Document Upload
         </el-menu-item>
-        <el-menu-item index="/customs/pepco-review">
+        <el-menu-item index="/customs/document-review">
           <i class="el-icon-finished"></i> Document Review
         </el-menu-item>
         <el-menu-item index="/customs/document-center">

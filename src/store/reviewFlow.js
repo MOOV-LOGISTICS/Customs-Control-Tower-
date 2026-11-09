@@ -1,8 +1,8 @@
 import Vue from 'vue'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared state for the rejection-correction loop between the Pepco Review tab
-// (PEPCO rejects specific documents) and the Document Upload tab (supplier
+// Shared state for the rejection-correction loop between the Document Review tab
+// (the reviewer rejects specific documents) and the Document Upload tab (supplier
 // sees why and re-uploads; flow then auto-resets to MGS re-check).
 // Deliberately NOT wired to the Document Center store yet — that integration
 // design is still being decided.
@@ -221,7 +221,7 @@ export function correctionProgress(hbl) {
 
 // ── Mutations ────────────────────────────────────────────────────────────────
 
-// PEPCO rejects specific documents at a milestone:
+// The reviewer rejects specific documents at a milestone:
 // docs → REJECTED (with reason), all milestones → PENDING_CORRECTION
 export function rejectDocuments(hbl, docs, { reason, remark, milestoneName, milestoneKey, user }) {
   hbl.correctionRound++
@@ -420,10 +420,10 @@ function finalizeIfDone(hbl, user) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// OHA — "Verify Shipping Documents" (origin-side gate, BEFORE Pepco review)
+// OHA — "Verify Shipping Documents" (origin-side gate, BEFORE the client review)
 //
 // Supplier upload → AI tags each file VERIFIED / UNVERIFIED → OHA verifies the
-// shipment here → Pepco 3-stage review. OHA only has to act on AI-Unverified
+// shipment here → the 3-stage client review. OHA only has to act on AI-Unverified
 // files: preview, then reject (→ supplier re-upload) or discuss. AI-Verified
 // files need no OHA action. A shipment can be Confirmed once no file is
 // AI-Unverified. OHA rejections flow into the same Document Correction queue.
@@ -530,7 +530,7 @@ export function ohaDocCleared(d) {
 export function ohaCanConfirm(shipment) {
   return shipment.ohaStatus !== 'CONFIRMED' && shipment.documents.every(ohaDocCleared)
 }
-// OHA-returned documents, shaped to share the Document Correction queue with Pepco
+// OHA-returned documents, shaped to share the Document Correction queue with Document Review
 export function ohaRejectedDocs() {
   return ohaStore.shipments.flatMap(s =>
     s.documents.filter(d => d.ohaStatus === 'REJECTED').map(d => ({
@@ -739,7 +739,7 @@ export function requestReinstate(hbl, doc, reason, user) {
   }
 }
 
-// Reviewer reinstates a replaced document in the Pepco review store (V1.5).
+// Reviewer reinstates a replaced document in the document review store (V1.5).
 export function reinstateDocument(hbl, doc, mode, user) {
   const replacement = hbl.documents.find(d => d.docNumber === doc.replacedBy)
   doc.reviewStatus = 'OK'
