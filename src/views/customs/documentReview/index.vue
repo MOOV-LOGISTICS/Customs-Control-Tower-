@@ -662,7 +662,7 @@
 <script>
 import { roleStore, ROLE_MILESTONE } from '@/store/role'
 // Shared with the Document Upload tab: HBL/milestone/document state lives in
-// one store so PEPCO rejections and supplier re-uploads stay in sync.
+// one store so reviewer rejections and supplier re-uploads stay in sync.
 import { reviewStore, rejectDocuments, correctionProgress, acceptDocumentAsIs, reinstateDocument } from '@/store/reviewFlow'
 import CommentThread from '@/components/CommentThread.vue'
 
@@ -679,7 +679,7 @@ const HBL_SO_REF = {
 const BL_TYPE = { MBL: 'SEAWAY BILL', HBL: 'TELEX RELEASE', 'Bill of Lading': 'TELEX RELEASE' }
 
 export default {
-  name: 'PepcoReview',
+  name: 'DocumentReview',
   components: { CommentThread },
   data() {
     return {

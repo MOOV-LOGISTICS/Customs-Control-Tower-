@@ -165,9 +165,9 @@ export default {
   methods: {
     statusLabel(s) { return STATUS_MAP[s]?.label || s },
     statusClass(s) { return STATUS_MAP[s]?.cls || 'pending' },
-    goTo(row) { this.$router.push('/customs/pepco-review') },
+    goTo(row) { this.$router.push('/customs/document-review') },
     goToMilestone(key, filter) {
-      this.$router.push({ path: '/customs/pepco-review', query: { milestone: key, filter } })
+      this.$router.push({ path: '/customs/document-review', query: { milestone: key, filter } })
     },
     milestoneRowClass({ row }) {
       return this.myKey === row.key ? 'my-milestone-row' : ''
